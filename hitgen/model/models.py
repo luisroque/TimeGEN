@@ -314,7 +314,7 @@ def encoder(input_shape, latent_dim, latent_dim_expansion=16):
     x = main_input
 
     x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
-    x = layers.Bidirectional(layers.LSTM(32, return_sequences=True))(x)
+    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(x)
 
     x = layers.TimeDistributed(layers.Dense(latent_dim * latent_dim_expansion))(x)
 
@@ -335,8 +335,8 @@ def decoder(output_shape, latent_dim, latent_dim_expansion=16):
     )
 
     x = layers.Reshape((output_shape[0], -1))(latent_input)
-    x = layers.LSTM(64, return_sequences=True)(x)
-    x = layers.LSTM(128, return_sequences=True)(x)
+    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(x)
+    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
 
     x = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(x)
 
