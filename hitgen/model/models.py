@@ -334,8 +334,7 @@ def decoder(output_shape, latent_dim, latent_dim_expansion=16):
         name="latent_input",
     )
 
-    x = layers.Reshape((output_shape[0], -1))(latent_input)
-    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(x)
+    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(latent_input)
     x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
 
     x = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(x)
