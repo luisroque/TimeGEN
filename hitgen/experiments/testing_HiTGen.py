@@ -67,8 +67,11 @@ X_orig = create_dataset_vae.X_train_raw
 
 # Generate synthetic data using HiTGen
 z_mean, z_log_vars, z = model.encoder.predict([inp])
-# z = np.random.uniform(low=0, high=1, size=(z.shape[0], z.shape[1]))
-generated_data = model.decoder.predict([z_mean])
+
+
+epsilon = np.random.normal(size=z_mean.shape)
+z_sampled = z_mean + np.exp(0.5 * z_log_vars) * epsilon
+generated_data = model.decoder.predict([z_sampled])
 
 
 generated_data = detemporalize(
@@ -86,7 +89,7 @@ plot_generated_vs_original(
     transf_param=1.0,
     model_version="1.0",
     transformation="scaling",
-    n_series=2,
+    n_series=8,
     directory=".",
 )
 
