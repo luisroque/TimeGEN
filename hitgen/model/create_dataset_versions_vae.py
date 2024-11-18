@@ -13,7 +13,7 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow import (
     float32,
 )
-from hitgen.model.models import CVAE, get_CVAE
+from hitgen.model.models import CVAE, get_CVAE, KLAnnealingAndNoiseScalingCallback
 from hitgen.feature_engineering.deprecated_static_features import (
     create_static_features,
 )
@@ -96,7 +96,6 @@ class CreateTransformedVersionsCVAE:
         amplitude: float = 1.0,
         val_steps: int = 0,
         num_series: int = None,
-        kl_weight: float = 1.0,
     ):
         self.dataset_name = dataset_name
         self.input_dir = input_dir
@@ -112,7 +111,6 @@ class CreateTransformedVersionsCVAE:
         self.amplitude = amplitude
         self.val_steps = val_steps
         self.num_series = num_series
-        self.kl_weight = kl_weight
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -322,24 +320,33 @@ class CreateTransformedVersionsCVAE:
         patience: int = 100,
         latent_dim: int = 32,
         learning_rate: float = 0.001,
+        kl_weight_initial: float = 0.01,
+        kl_weight_final: float = 1.0,
+        noise_scale_initial: float = 0.01,
+        noise_scale_final: float = 1.0,
+        annealing_epochs: int = 750,  # Number of epochs to fully anneal
         hyper_tuning: bool = False,
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
         """
-        Training our CVAE on the dataset supplied
+        Training our CVAE on the dataset supplied with KL annealing and noise scaling.
 
-        :param epochs: number of epochs to train the model
-        :param batch_size: batch size to train the model
-        :param patience: parameter for early stopping
-        :param latent_dim: dimensionality of the normal dist
-                -> if = 1 univariate; if = n_features full multivariate
-
-        :return: model trained
+        :param epochs: Total number of training epochs.
+        :param batch_size: Batch size for training.
+        :param patience: Early stopping patience.
+        :param latent_dim: Latent space dimensionality.
+        :param learning_rate: Learning rate for the optimizer.
+        :param kl_weight_initial: Initial KL divergence weight.
+        :param kl_weight_final: Final KL divergence weight.
+        :param noise_scale_initial: Initial noise scale for sampling.
+        :param noise_scale_final: Final noise scale for sampling.
+        :param annealing_epochs: Number of epochs to fully anneal KL weight and noise scale.
+        :return: Trained model, training history, and early stopping object.
         """
+        # Prepare features
         self.features_input_train, self.features_input_val = self._feature_engineering(
             self.n_train, self.val_steps
         )
-
         dynamic_features_dim = len(self.features_input_train[0])
 
         inp = (
@@ -348,17 +355,16 @@ class CreateTransformedVersionsCVAE:
             else self.features_input_train[1][0]
         )
 
+        # Initialize the CVAE model
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
             n_series=inp.shape[-1],
             latent_dim=latent_dim,
         )
-
         cvae = CVAE(
             encoder,
             decoder,
-            kl_weight=self.kl_weight,
-            input_shape=(self.n, inp.shape[-1]),
+            kl_weight_initial=kl_weight_initial,
         )
         cvae.compile(
             optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
@@ -369,6 +375,7 @@ class CreateTransformedVersionsCVAE:
         _ = cvae(inp)
         cvae.summary()
 
+        # Early stopping and learning rate callbacks
         es = EarlyStopping(
             patience=patience,
             verbose=1,
@@ -376,14 +383,18 @@ class CreateTransformedVersionsCVAE:
             mode="auto",
             restore_best_weights=True,
         )
-
         reduce_lr = ReduceLROnPlateau(
             monitor="loss", factor=0.5, patience=5, min_lr=1e-6, verbose=1
         )
 
-        # kl_annealing_cb = KLDAnnealingCallback(
-        #     model=cvae, start_weight=0.0, max_weight=1.0, anneal_epochs=30
-        # )
+        kl_and_noise_callback = KLAnnealingAndNoiseScalingCallback(
+            model=cvae,
+            kl_weight_initial=kl_weight_initial,
+            kl_weight_final=kl_weight_final,
+            noise_scale_initial=noise_scale_initial,
+            noise_scale_final=noise_scale_final,
+            annealing_epochs=annealing_epochs,
+        )
 
         weights_folder = "assets/model_weights"
         os.makedirs(weights_folder, exist_ok=True)
@@ -418,12 +429,13 @@ class CreateTransformedVersionsCVAE:
                 verbose=1,
             )
 
+            # Train the model with callbacks
             history = cvae.fit(
                 x=inp,
                 epochs=epochs,
                 batch_size=batch_size,
                 shuffle=False,
-                callbacks=[es, mc, reduce_lr],
+                callbacks=[es, mc, reduce_lr, kl_and_noise_callback],
             )
 
             if history is not None:

@@ -15,18 +15,93 @@ from tensorflow import keras
 
 
 class Sampling(tf.keras.layers.Layer):
+    def __init__(self, noise_scale=0.01, **kwargs):
+        """
+        Initializes the Sampling layer.
+
+        Args:
+            noise_scale (float): Initial scaling factor for noise in the sampling process.
+            **kwargs: Additional keyword arguments (e.g., `name`).
+        """
+        super(Sampling, self).__init__(**kwargs)
+        # Define noise_scale as a mutable variable
+        self.noise_scale = tf.Variable(
+            noise_scale, trainable=False, dtype=tf.float32, name="noise_scale"
+        )
+
     def call(self, inputs):
+        """
+        Performs the reparameterization trick.
+
+        Args:
+            inputs (tuple): A tuple containing (z_mean, z_log_var).
+
+        Returns:
+            Tensor: The sampled latent variable.
+        """
         z_mean, z_log_var = inputs
         batch = tf.shape(z_mean)[0]
         seq_len = tf.shape(z_mean)[1]
         latent_dim = tf.shape(z_mean)[2]
 
-        # generate epsilon with shape (batch, seq_len, latent_dim)
+        # Generate epsilon with shape (batch, seq_len, latent_dim)
         epsilon = tf.keras.backend.random_normal(shape=(batch, seq_len, latent_dim))
 
-        # reparameterization trick
+        # Reparameterization trick with dynamic noise scaling
+        return z_mean + tf.exp(0.5 * z_log_var) * self.noise_scale * epsilon
 
-        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+class KLAnnealingAndNoiseScalingCallback(tf.keras.callbacks.Callback):
+    def __init__(
+        self,
+        model,
+        kl_weight_initial,
+        kl_weight_final,
+        noise_scale_initial,
+        noise_scale_final,
+        annealing_epochs,
+    ):
+        super().__init__()
+        self.model = model
+        self.kl_weight_initial = kl_weight_initial
+        self.kl_weight_final = kl_weight_final
+        self.noise_scale_initial = noise_scale_initial
+        self.noise_scale_final = noise_scale_final
+        self.annealing_epochs = annealing_epochs
+
+    def compute_progress(self, epoch):
+        return min((epoch + 1) / self.annealing_epochs, 1.0)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        # Calculate progress and update variables
+        progress = self.compute_progress(epoch)
+        new_kl_weight = self.kl_weight_initial + progress * (
+            self.kl_weight_final - self.kl_weight_initial
+        )
+        new_noise_scale = self.noise_scale_initial + progress * (
+            self.noise_scale_final - self.noise_scale_initial
+        )
+
+        # Update the model's tf.Variable instances
+        self.model.kl_weight.assign(new_kl_weight)
+        sampling_layer = self.model.encoder.get_layer(name="sampling")
+        if sampling_layer:
+            sampling_layer.noise_scale.assign(new_noise_scale)
+
+        tf.print(
+            f"UPDATING OPT VARIABLES: Epoch {epoch + 1}: KL weight = {new_kl_weight:.4f}, Noise scale = {new_noise_scale:.4f}"
+        )
+
+    def on_epoch_end(self, epoch, logs=None):
+        """Print KL weight and noise scale at the end of the epoch."""
+        sampling_layer = self.model.encoder.get_layer(name="sampling")
+        current_noise_scale = (
+            sampling_layer.noise_scale.numpy() if sampling_layer else "N/A"
+        )
+        current_kl_weight = self.model.kl_weight.numpy()
+        print(
+            f"OPT VARIABLES at Epoch {epoch + 1} end: KL weight = {current_kl_weight:.4f}, Noise scale = {current_noise_scale:.4f}"
+        )
 
 
 class RNNEmbeddingModel(tf.keras.Model):
@@ -61,14 +136,16 @@ class CVAE(keras.Model):
         self,
         encoder: keras.Model,
         decoder: keras.Model,
-        input_shape,
-        kl_weight: float = 1.0,
+        kl_weight_initial: float = 0.1,
         **kwargs,
     ) -> None:
         super(CVAE, self).__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
-        self.kl_weight = kl_weight
+
+        self.kl_weight = tf.Variable(
+            kl_weight_initial, trainable=False, name="kl_weight"
+        )
 
         self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
         self.reconstruction_loss_tracker = keras.metrics.Mean(
@@ -169,6 +246,7 @@ def get_CVAE(
     )
     dec = decoder(
         output_shape=output_shape,
+        latent_dim=latent_dim,
         # # num_blocks=num_blocks,
         # filters=filters,
         # kernel_size=kernel_size,
@@ -238,21 +316,22 @@ def encoder(input_shape, latent_dim, latent_dim_expansion=16):
     x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
     x = layers.Bidirectional(layers.LSTM(32, return_sequences=True))(x)
 
-    x = layers.TimeDistributed(layers.Dense(latent_dim * 16))(x)
+    x = layers.TimeDistributed(layers.Dense(latent_dim * latent_dim_expansion))(x)
 
-    z_mean = x[:, :, latent_dim_expansion // 2 :]
-    z_log_var = x[:, :, : latent_dim_expansion // 2]
+    z_mean = x[:, :, latent_dim * latent_dim_expansion // 2 :]
+    z_log_var = x[:, :, : latent_dim * latent_dim_expansion // 2]
 
-    z = z_mean
+    z = Sampling(name="sampling")([z_mean, z_log_var])
 
     return tf.keras.Model(
         inputs=[main_input], outputs=[z_mean, z_log_var, z], name="encoder"
     )
 
 
-def decoder(output_shape, latent_dim_expansion=16):
+def decoder(output_shape, latent_dim, latent_dim_expansion=16):
     latent_input = layers.Input(
-        shape=(output_shape[0], latent_dim_expansion // 2), name="latent_input"
+        shape=(output_shape[0], latent_dim_expansion * latent_dim // 2),
+        name="latent_input",
     )
 
     x = layers.Reshape((output_shape[0], -1))(latent_input)

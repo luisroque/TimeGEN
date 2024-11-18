@@ -26,12 +26,11 @@ freq = "M"
 top = None
 window_size = 24
 val_steps = 0
-latent_dim = 1
+latent_dim = 10
 epochs = 750
 batch_size = 8
 
 NUM_SERIES = 100
-KL_WEIGHT = 0.1
 
 ###### M5
 # dataset = "m5"
@@ -50,7 +49,6 @@ create_dataset_vae = CreateTransformedVersionsCVAE(
     window_size=window_size,
     val_steps=val_steps,
     num_series=NUM_SERIES,
-    kl_weight=KL_WEIGHT,
 )
 
 # Fit the CVAE model
