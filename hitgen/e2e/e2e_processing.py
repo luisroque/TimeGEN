@@ -3,15 +3,10 @@ import numpy as np
 from scipy.stats import iqr, skew, kurtosis
 import matplotlib.pyplot as plt
 import seaborn as sns
-from hitgen.model.generate_data import generate_datasets
-from hitgen.transformations.apply_transformations_benchmark import (
-    apply_transformations_and_standardize,
-)
 from hitgen.visualization.comparison_analysis import (
     plot_transformations_comparison,
     plot_series_comparisons,
 )
-from hitgen.transformations.compute_distances import compute_distances
 from hitgen.evaluation.evaluation_comparison import (
     preprocess_train_evaluate,
     plot_dimensionality_reduction,
@@ -173,9 +168,12 @@ def compute_and_print_errors(X_orig, X_hat_transf, X_benchmark):
     reconstruction_error_hitgen = calculate_reconstruction_error(X_hat_transf, 2)
     reconstruction_error_benchmark = calculate_reconstruction_error(X_benchmark, 2)
 
-    kl_div_hitgen_median, kl_div_hitgen_iqr, kl_div_hitgen_skew, kl_div_hitgen_kurtosis = (
-        kl_divergence(X_orig, X_hat_transf)
-    )
+    (
+        kl_div_hitgen_median,
+        kl_div_hitgen_iqr,
+        kl_div_hitgen_skew,
+        kl_div_hitgen_kurtosis,
+    ) = kl_divergence(X_orig, X_hat_transf)
     (
         kl_div_benchmark_median,
         kl_div_benchmark_iqr,
