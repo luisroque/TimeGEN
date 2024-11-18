@@ -26,9 +26,12 @@ freq = "M"
 top = None
 window_size = 24
 val_steps = 0
-latent_dim = 2
+latent_dim = 1
 epochs = 750
 batch_size = 8
+
+NUM_SERIES = 100
+KL_WEIGHT = 0.1
 
 ###### M5
 # dataset = "m5"
@@ -46,6 +49,8 @@ create_dataset_vae = CreateTransformedVersionsCVAE(
     top=top,
     window_size=window_size,
     val_steps=val_steps,
+    num_series=NUM_SERIES,
+    kl_weight=KL_WEIGHT,
 )
 
 # Fit the CVAE model
@@ -58,7 +63,7 @@ plot_loss(history)
 (dynamic_feat, X_inp, static_feat), _ = create_dataset_vae._feature_engineering(
     create_dataset_vae.n, val_steps=0
 )
-inp = X_inp[0][:, :, :2]
+inp = X_inp[0][:, :, :NUM_SERIES]
 
 X_orig = create_dataset_vae.X_train_raw
 

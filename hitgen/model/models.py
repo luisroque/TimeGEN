@@ -169,7 +169,6 @@ def get_CVAE(
     )
     dec = decoder(
         output_shape=output_shape,
-        latent_dim=latent_dim,
         # # num_blocks=num_blocks,
         # filters=filters,
         # kernel_size=kernel_size,
@@ -232,24 +231,17 @@ class TemporalCrossAttention(layers.Layer):
         return attention_output
 
 
-def encoder(input_shape, latent_dim, window_reduction=12):
-    lstm_units = window_reduction * 4
+def encoder(input_shape, latent_dim, latent_dim_expansion=16):
     main_input = layers.Input(shape=input_shape, name="main_input")
     x = main_input
-    x_residual = main_input
 
-    x = layers.Bidirectional(layers.LSTM(lstm_units * 2, return_sequences=True))(x)
-    x = layers.Bidirectional(layers.LSTM(lstm_units, return_sequences=True))(x)
+    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
+    x = layers.Bidirectional(layers.LSTM(32, return_sequences=True))(x)
 
-    x = layers.TimeDistributed(layers.Dense(latent_dim))(x)
+    x = layers.TimeDistributed(layers.Dense(latent_dim * 16))(x)
 
-    x = layers.Add()([x, x_residual])
-
-    x = layers.Reshape((window_reduction, -1))(x)
-    x = layers.Dense(latent_dim * 2)(x)
-
-    z_mean = x[:, :, latent_dim:]
-    z_log_var = x[:, :, :latent_dim]
+    z_mean = x[:, :, latent_dim_expansion // 2 :]
+    z_log_var = x[:, :, : latent_dim_expansion // 2]
 
     z = z_mean
 
@@ -258,19 +250,14 @@ def encoder(input_shape, latent_dim, window_reduction=12):
     )
 
 
-def decoder(output_shape, latent_dim, window_reduction=12):
-    lstm_units = window_reduction * 4
+def decoder(output_shape, latent_dim_expansion=16):
     latent_input = layers.Input(
-        shape=(window_reduction, latent_dim), name="latent_input"
+        shape=(output_shape[0], latent_dim_expansion // 2), name="latent_input"
     )
 
-    x = layers.TimeDistributed(layers.Dense(output_shape[0], activation="relu"))(
-        latent_input
-    )
-
-    x = layers.Reshape((output_shape[0], -1))(x)
-    rnn_cell = layers.LSTMCell(lstm_units)
-    x = layers.RNN(rnn_cell, return_sequences=True)(x)
+    x = layers.Reshape((output_shape[0], -1))(latent_input)
+    x = layers.LSTM(64, return_sequences=True)(x)
+    x = layers.LSTM(128, return_sequences=True)(x)
 
     x = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(x)
 

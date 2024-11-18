@@ -25,7 +25,6 @@ from hitgen.feature_engineering.feature_transformations import (
     combine_inputs_to_model,
     detemporalize,
 )
-from hitgen.postprocessing.generative_helper import generate_new_time_series
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
@@ -96,6 +95,8 @@ class CreateTransformedVersionsCVAE:
         noise_scale: float = 0.1,
         amplitude: float = 1.0,
         val_steps: int = 0,
+        num_series: int = None,
+        kl_weight: float = 1.0,
     ):
         self.dataset_name = dataset_name
         self.input_dir = input_dir
@@ -110,6 +111,8 @@ class CreateTransformedVersionsCVAE:
         self.noise_scale = noise_scale
         self.amplitude = amplitude
         self.val_steps = val_steps
+        self.num_series = num_series
+        self.kl_weight = kl_weight
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -246,9 +249,13 @@ class CreateTransformedVersionsCVAE:
             Tuple containing processed training and validation feature inputs.
         """
         self.X_train_raw = self.df.astype(np.float32).to_numpy()
-        self.X_train_raw = self.X_train_raw[:, :2]
+        self.X_train_raw = (
+            self.X_train_raw[:, : self.num_series]
+            if self.num_series
+            else self.X_train_raw
+        )
         data = self.df.astype(np.float32).to_numpy()
-        data = data[:, :2]
+        data = data[:, : self.num_series] if self.num_series else data
 
         num_train_samples = len(data) - val_steps
         train_data, val_data = data[:num_train_samples], data[num_train_samples:]
@@ -335,7 +342,11 @@ class CreateTransformedVersionsCVAE:
 
         dynamic_features_dim = len(self.features_input_train[0])
 
-        inp = self.features_input_train[1][0][:, :, :2]
+        inp = (
+            self.features_input_train[1][0][:, :, : self.num_series]
+            if self.num_series
+            else self.features_input_train[1][0]
+        )
 
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
@@ -344,7 +355,10 @@ class CreateTransformedVersionsCVAE:
         )
 
         cvae = CVAE(
-            encoder, decoder, kl_weight=0.1, input_shape=(self.n, inp.shape[-1])
+            encoder,
+            decoder,
+            kl_weight=self.kl_weight,
+            input_shape=(self.n, inp.shape[-1]),
         )
         cvae.compile(
             optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
@@ -617,51 +631,6 @@ class CreateTransformedVersionsCVAE:
         data_reshaped = data.reshape(-1, original_shape[-1])
         data_inverse = scaler.inverse_transform(data_reshaped)
         return data_inverse.reshape(original_shape)
-
-    def generate_transformed_time_series(
-        self,
-        cvae: CVAE,
-        z_mean: np.ndarray,
-        z_log_var: np.ndarray,
-        transformation: Optional[str] = None,
-        transf_param: float = 0.5,
-        plot_predictions: bool = True,
-        n_series_plot: int = 8,
-    ) -> np.ndarray:
-        """
-        Generate new time series by sampling from the latent space of a Conditional Variational Autoencoder (CVAE),
-        and plot attention scores if requested.
-        """
-        self.features_input = self._feature_engineering(self.n, self.val_steps)
-        dynamic_feat, X_inp, static_feat = self.features_input
-
-        dec_pred_hat = generate_new_time_series(
-            cvae=cvae,
-            z_mean=z_mean,
-            z_log_var=z_log_var,
-            window_size=self.window_size,
-            dynamic_features_inp=dynamic_feat,
-            static_features_inp=static_feat,
-            scaler_target=self.scaler_target,
-            n_features=self.n_features,
-            n=self.n,
-            transformation=transformation,
-            transf_param=transf_param,
-        )
-
-        if plot_predictions:
-            generated_data = self.predict(cvae)
-
-            plot_generated_vs_original(
-                dec_pred_hat=generated_data,
-                X_train_raw=self.X_train_raw,
-                transformation=transformation,
-                transf_param=transf_param,
-                dataset_name=self.dataset_name,
-                n_series=n_series_plot,
-                model_version=__version__,
-            )
-        return dec_pred_hat
 
     def generate_new_datasets(
         self,

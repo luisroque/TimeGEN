@@ -2,9 +2,6 @@ import os
 import pickle
 import numpy as np
 from hitgen.preprocessing.pre_processing_datasets import PreprocessDatasets
-from hitgen.transformations.create_dataset_versions import (
-    CreateTransformedVersions,
-)
 
 
 class CreateGroups:
@@ -61,8 +58,3 @@ class CreateGroups:
         """Loads a pickle file at the specified file path and returns its contents as a dictionary."""
         with open(file_path, "rb") as f:
             return pickle.load(f)
-
-    def read_groups_transformed(self, method: str) -> np.ndarray:
-        transformer = CreateTransformedVersions(self.dataset_name, freq=self.freq)
-        transformer.read_groups_transformed(method)
-        return transformer.y_loaded_transformed
