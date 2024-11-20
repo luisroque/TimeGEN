@@ -324,7 +324,7 @@ class CreateTransformedVersionsCVAE:
         kl_weight_final: float = 1.0,
         noise_scale_initial: float = 0.01,
         noise_scale_final: float = 1.0,
-        annealing_epochs: int = 750,  # Number of epochs to fully anneal
+        annealing_epochs: int = 150,
         hyper_tuning: bool = False,
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
@@ -544,8 +544,6 @@ class CreateTransformedVersionsCVAE:
         # Train the model with the best hyperparameters
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
-            n_features=self.n_features,
-            dynamic_features_dim=dynamic_features_dim,
             latent_dim=self.best_params["latent_dim"],
             num_blocks=self.best_params["num_blocks"],
             filters=self.best_params["filters"],
@@ -568,7 +566,6 @@ class CreateTransformedVersionsCVAE:
             callbacks=[early_stopping],
         )
 
-        # Save the model and training history
         self.best_model = cvae
         self.best_history = history.history
         with open("best_params.json", "w") as f:
@@ -610,24 +607,13 @@ class CreateTransformedVersionsCVAE:
         dynamic_feat, X_inp, static_feat = self.features_input
         stacked_dynamic_feat = tf.stack(dynamic_feat, axis=-1)
 
-        # Get outputs from encoder, including attention scores
-        # z_mean, z_log_var, z, intra_attention_scores, inter_attention_scores = (
-        #     cvae.encoder.predict([X_inp, stacked_dynamic_feat])
-        # )
         z_mean, z_log_var, z = cvae.encoder.predict([X_inp, stacked_dynamic_feat])
-
-        # Get outputs from decoder, including reconstruction attention scores
-        # generated_data, reconstruction_attention_scores = cvae.decoder.predict(
-        #     [z, stacked_dynamic_feat]
-        # )
         generated_data = cvae.decoder.predict([z, stacked_dynamic_feat])
 
-        # Inverse transform generated data for interpretability
         X_hat = detemporalize(
             self.inverse_transform(generated_data, self.scaler_target)
         )
 
-        # Append original data to the beginning of the reconstructed series
         X_hat_complete = np.concatenate(
             (self.X_train_raw[: self.window_size], X_hat), axis=0
         )
