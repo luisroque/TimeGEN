@@ -96,6 +96,7 @@ class CreateTransformedVersionsCVAE:
         amplitude: float = 1.0,
         val_steps: int = 0,
         num_series: int = None,
+        stride_temporalize: int = 2,
     ):
         self.dataset_name = dataset_name
         self.input_dir = input_dir
@@ -111,6 +112,7 @@ class CreateTransformedVersionsCVAE:
         self.amplitude = amplitude
         self.val_steps = val_steps
         self.num_series = num_series
+        self.stride_temporalize = stride_temporalize
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -267,7 +269,9 @@ class CreateTransformedVersionsCVAE:
             self.df[:num_train_samples], self.freq
         )
 
-        X_train = temporalize(train_data_scaled, self.window_size)
+        X_train = temporalize(
+            train_data_scaled, self.window_size, self.stride_temporalize
+        )
 
         self.n_features_concat = X_train.shape[1] + self.dynamic_features_train.shape[1]
 
@@ -276,6 +280,7 @@ class CreateTransformedVersionsCVAE:
             self.dynamic_features_train,
             self.static_features,
             self.window_size,
+            self.stride_temporalize,
         )
 
         if val_steps > 0:
@@ -291,6 +296,7 @@ class CreateTransformedVersionsCVAE:
                 self.dynamic_features_val,
                 self.static_features,
                 self.window_size,
+                self.stride_temporalize,
             )
         else:
             inp_val = None
@@ -324,7 +330,7 @@ class CreateTransformedVersionsCVAE:
         kl_weight_final: float = 1.0,
         noise_scale_initial: float = 0.01,
         noise_scale_final: float = 1.0,
-        annealing_epochs: int = 750,  # Number of epochs to fully anneal
+        annealing_epochs: int = 150,
         hyper_tuning: bool = False,
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
@@ -544,8 +550,6 @@ class CreateTransformedVersionsCVAE:
         # Train the model with the best hyperparameters
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
-            n_features=self.n_features,
-            dynamic_features_dim=dynamic_features_dim,
             latent_dim=self.best_params["latent_dim"],
             num_blocks=self.best_params["num_blocks"],
             filters=self.best_params["filters"],
@@ -568,7 +572,6 @@ class CreateTransformedVersionsCVAE:
             callbacks=[early_stopping],
         )
 
-        # Save the model and training history
         self.best_model = cvae
         self.best_history = history.history
         with open("best_params.json", "w") as f:
@@ -610,24 +613,13 @@ class CreateTransformedVersionsCVAE:
         dynamic_feat, X_inp, static_feat = self.features_input
         stacked_dynamic_feat = tf.stack(dynamic_feat, axis=-1)
 
-        # Get outputs from encoder, including attention scores
-        # z_mean, z_log_var, z, intra_attention_scores, inter_attention_scores = (
-        #     cvae.encoder.predict([X_inp, stacked_dynamic_feat])
-        # )
         z_mean, z_log_var, z = cvae.encoder.predict([X_inp, stacked_dynamic_feat])
-
-        # Get outputs from decoder, including reconstruction attention scores
-        # generated_data, reconstruction_attention_scores = cvae.decoder.predict(
-        #     [z, stacked_dynamic_feat]
-        # )
         generated_data = cvae.decoder.predict([z, stacked_dynamic_feat])
 
-        # Inverse transform generated data for interpretability
         X_hat = detemporalize(
             self.inverse_transform(generated_data, self.scaler_target)
         )
 
-        # Append original data to the beginning of the reconstructed series
         X_hat_complete = np.concatenate(
             (self.X_train_raw[: self.window_size], X_hat), axis=0
         )
