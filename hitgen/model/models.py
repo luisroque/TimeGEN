@@ -104,33 +104,6 @@ class KLAnnealingAndNoiseScalingCallback(tf.keras.callbacks.Callback):
         )
 
 
-class RNNEmbeddingModel(tf.keras.Model):
-    def __init__(self, lstm_units=64, reduced_feature_dim=32, **kwargs):
-        super(RNNEmbeddingModel, self).__init__(**kwargs)
-
-        self.feature_projection = Dense(reduced_feature_dim, activation="relu")
-        self.batch_norm = BatchNormalization()
-        self.activation = Activation("relu")
-
-        self.rnn = Bidirectional(
-            LSTM(lstm_units, return_sequences=True, name="lstm_rnn_emb"),
-            name="bi_rnn_emb",
-        )
-
-        self.global_pooling = GlobalAveragePooling1D()
-
-    def call(self, inputs):
-
-        x = self.feature_projection(inputs)
-        x = self.batch_norm(x)
-        x = self.activation(x)
-
-        x = self.rnn(x)
-        x = self.global_pooling(x)
-
-        return x
-
-
 class CVAE(keras.Model):
     def __init__(
         self,
@@ -238,6 +211,7 @@ def get_CVAE(
     enc = encoder(
         input_shape=input_shape,
         latent_dim=latent_dim,
+        bi_rnn=True,
         # num_blocks=num_blocks,
         # filters=filters,
         # kernel_size=kernel_size,
@@ -247,6 +221,7 @@ def get_CVAE(
     dec = decoder(
         output_shape=output_shape,
         latent_dim=latent_dim,
+        bi_rnn=True,
         # # num_blocks=num_blocks,
         # filters=filters,
         # kernel_size=kernel_size,
@@ -254,72 +229,107 @@ def get_CVAE(
     return enc, dec
 
 
-class IntraWindowAttention(layers.Layer):
-    """
-    Intra-week attention layer to learn dependencies across time points within a window.
-    """
+class NHITSBlock(tf.keras.layers.Layer):
+    def __init__(
+        self,
+        backcast_size,
+        n_hidden,
+        n_layers,
+        pooling_mode="max",
+        kernel_size=3,
+        strides=2,
+        **kwargs,
+    ):
+        """
+        N-HiTS Block for time-series decomposition.
 
-    def __init__(self, reduced_features, latent_dim):
-        super(IntraWindowAttention, self).__init__()
-        self.query_dense = layers.Dense(latent_dim)
-        self.key_dense = layers.Dense(latent_dim)
-        self.value_dense = layers.Dense(latent_dim)
+        Args:
+            backcast_size (tuple): Size of the backcast.
+            forecast_size (int): Size of the forecast.
+            n_hidden (int): Number of hidden units in the MLP layers.
+            n_layers (int): Number of MLP layers.
+            pooling_mode (str): Pooling mode, either 'max' or 'average'.
+            kernel_size (int): Pooling kernel size.
+        """
+        super(NHITSBlock, self).__init__(**kwargs)
+        self.backcast_size = backcast_size
 
-    def call(self, x):
-        # x shape: (batch_size, window_size, reduced_features)
+        if pooling_mode == "max":
+            self.pooling_layer = layers.MaxPooling1D(
+                pool_size=kernel_size, strides=strides, padding="same"
+            )
+        else:
+            self.pooling_layer = layers.AveragePooling1D(
+                pool_size=kernel_size, strides=strides, padding="same"
+            )
 
-        # Create query, key, and value tensors for attention
-        query = self.query_dense(x)  # (batch_size, window_size, latent_dim)
-        key = self.key_dense(x)  # (batch_size, window_size, latent_dim)
-        value = self.value_dense(x)  # (batch_size, window_size, latent_dim)
-
-        # Compute attention scores across the time dimension (within the window)
-        scores = tf.matmul(
-            query, key, transpose_b=True
-        )  # (batch_size, window_size, window_size)
-        attention_weights = tf.nn.softmax(scores, axis=-1)
-
-        # Apply attention weights to the values
-        attended_output = tf.matmul(
-            attention_weights, value
-        )  # (batch_size, window_size, latent_dim)
-
-        return attended_output  # (batch_size, window_size, latent_dim)
-
-
-class CorruptionLayer(layers.Layer):
-    def __init__(self, noise_stddev=0.1):
-        super(CorruptionLayer, self).__init__()
-        self.noise_stddev = noise_stddev
-
-    def call(self, x):
-        noise = tf.random.normal(shape=tf.shape(x), stddev=self.noise_stddev)
-        return x + noise
-
-
-class TemporalCrossAttention(layers.Layer):
-    def __init__(self, num_heads, key_dim):
-        super(TemporalCrossAttention, self).__init__()
-        self.cross_attention = MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)
-
-    def call(self, query, key, value):
-        attention_output, _ = self.cross_attention(
-            query=query, key=key, value=value, return_attention_scores=True
+        # MLP stack
+        self.mlp_stack = tf.keras.Sequential(
+            [layers.Dense(n_hidden, activation="relu") for _ in range(n_layers)]
         )
-        return attention_output
+
+        # Final layers for backcast
+        self.backcast_layer = layers.TimeDistributed(
+            layers.Dense(backcast_size[1], activation="linear")
+        )
+
+    def call(self, inputs):
+        x = self.pooling_layer(inputs)
+        x = self.mlp_stack(x)
+
+        backcast = self.backcast_layer(x)
+
+        return backcast
 
 
-def encoder(input_shape, latent_dim, latent_dim_expansion=16):
+def encoder(
+    input_shape,
+    latent_dim,
+    latent_dim_expansion=16,
+    n_blocks=3,
+    n_hidden=64,
+    n_layers=2,
+    kernel_size=2,
+    pooling_mode="max",
+    strides=1,
+    bi_rnn=True,
+):
     main_input = layers.Input(shape=input_shape, name="main_input")
-    x = main_input
 
-    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
-    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(x)
+    backcast_total = main_input
+    final_output = 0
 
-    x = layers.TimeDistributed(layers.Dense(latent_dim * latent_dim_expansion))(x)
+    for i in range(n_blocks):
+        nhits_block = NHITSBlock(
+            backcast_size=input_shape,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            pooling_mode=pooling_mode,
+            kernel_size=kernel_size,
+            strides=strides,
+        )
 
-    z_mean = x[:, :, latent_dim * latent_dim_expansion // 2 :]
-    z_log_var = x[:, :, : latent_dim * latent_dim_expansion // 2]
+        backcast = nhits_block(backcast_total)
+
+        backcast_total = backcast_total - backcast
+
+        final_output += backcast
+
+    if bi_rnn:
+        backcast = layers.Bidirectional(
+            layers.LSTM(input_shape[1], return_sequences=True)
+        )(backcast_total)
+
+        backcast = layers.TimeDistributed(layers.Dense(input_shape[1]))(backcast)
+
+        final_output += backcast
+
+    final_output = layers.TimeDistributed(
+        layers.Dense(latent_dim * latent_dim_expansion)
+    )(final_output)
+
+    z_mean = final_output[:, :, latent_dim * latent_dim_expansion // 2 :]
+    z_log_var = final_output[:, :, : latent_dim * latent_dim_expansion // 2]
 
     z = Sampling(name="sampling")([z_mean, z_log_var])
 
@@ -328,15 +338,67 @@ def encoder(input_shape, latent_dim, latent_dim_expansion=16):
     )
 
 
-def decoder(output_shape, latent_dim, latent_dim_expansion=16):
+def decoder(
+    output_shape,
+    latent_dim,
+    latent_dim_expansion=16,
+    n_blocks=3,
+    n_hidden=64,
+    n_layers=2,
+    kernel_size=2,
+    strides=1,
+    pooling_mode="max",
+    bi_rnn=True,
+):
+    """
+    Decoder with N-HiTS stacking for reconstruction.
+
+    Args:
+        output_shape (tuple): Shape of the output (time steps, series size).
+        latent_dim (int): Latent dimension size.
+        latent_dim_expansion (int): Expansion factor for latent dimension.
+        n_blocks (int): Number of N-HiTS blocks in the stack.
+        n_hidden (int): Number of hidden units in MLP layers.
+        n_layers (int): Number of MLP layers in each block.
+        kernel_size (int): Pooling kernel size.
+        pooling_mode (str): Pooling mode ('max' or 'average').
+
+    Returns:
+        tf.keras.Model: The decoder model.
+    """
     latent_input = layers.Input(
         shape=(output_shape[0], latent_dim_expansion * latent_dim // 2),
         name="latent_input",
     )
 
-    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(latent_input)
-    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
+    x = layers.TimeDistributed(layers.Dense(output_shape[1]))(latent_input)
 
-    x = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(x)
+    backcast_total = x
+    final_output = 0
 
-    return tf.keras.Model(inputs=[latent_input], outputs=[x], name="decoder")
+    for i in range(n_blocks):
+        nhits_block = NHITSBlock(
+            backcast_size=output_shape,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            pooling_mode=pooling_mode,
+            kernel_size=kernel_size,
+            strides=strides,
+        )
+
+        backcast = nhits_block(backcast_total)
+
+        backcast_total = backcast_total - backcast
+
+        final_output += backcast
+
+    if bi_rnn:
+        backcast = layers.Bidirectional(
+            layers.LSTM(output_shape[1], return_sequences=True)
+        )(backcast_total)
+
+        backcast = layers.TimeDistributed(layers.Dense(output_shape[1]))(backcast)
+
+        final_output += backcast
+
+    return tf.keras.Model(inputs=[latent_input], outputs=[final_output], name="decoder")

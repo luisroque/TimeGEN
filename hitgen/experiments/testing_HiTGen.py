@@ -26,7 +26,7 @@ freq = "M"
 top = None
 window_size = 24
 val_steps = 0
-latent_dim = 1
+latent_dim = 10
 epochs = 750
 batch_size = 8
 
