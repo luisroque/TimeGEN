@@ -2,42 +2,34 @@ import numpy as np
 import pandas as pd
 
 
-def temporalize(data: np.ndarray, window_size: int) -> np.ndarray:
+def temporalize(data: np.ndarray, window_size: int, stride: int) -> np.ndarray:
     """
-    Transforming the data to the following shape using a rolling window:
-    from (n, s) to (n-window_size+1, window_size, s)
-
-    :param data: input data to transform
-    :param window_size: input window to consider on the transformation
-
-    :return X: ndarray of the transformed features
-    :return Y: ndarray of the transformed labels
+    Transforming the data using a rolling window
     """
-
     X = []
-    for i in range(len(data) - window_size + 1):
-        row = [r for r in data[i : i + window_size]]
+    step = stride
+    for i in range(0, len(data) - window_size + 1, step):
+        row = data[i : i + window_size]
         X.append(row)
     return np.array(X)
 
 
-def detemporalize(input_data):
+def detemporalize(input_data, stride=1):
     """
-    Convert a 3D time series array into a 2D array by selecting the first timestep
-    of each sample and including all time steps of the final sample.
-
-    (samples, timesteps, features) -> (total_timesteps, features)
+    Convert a 3D time series array into a 2D array
     """
     inp = np.array(input_data)
     final_list = []
 
-    for i in range(inp.shape[0] - 1):
-        # For all but the last sample, take only the first timestep
-        sel = inp[i, 0, :].reshape(1, -1)
+    for i in range(len(inp) - 1):
+        # take the first stride timesteps from each window
+        sel = inp[i, :stride, :]
         final_list.append(sel)
 
+    # include all timesteps of the last window
     final_list.append(inp[-1])
 
+    # concatenate into a single 2D array
     final = np.concatenate(final_list, axis=0)
     return final
 
@@ -47,6 +39,7 @@ def combine_inputs_to_model(
     dynamic_features: pd.DataFrame,
     static_features: dict,
     window_size: int,
+    stride: int,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray]]:
     """
     Combining the input features to the model: dynamic features, raw time series data and static features
@@ -62,7 +55,7 @@ def combine_inputs_to_model(
 
     """
 
-    X_dyn = temporalize(dynamic_features.to_numpy(), window_size)
+    X_dyn = temporalize(dynamic_features.to_numpy(), window_size, stride)
     n_samples = X_train.shape[0]
 
     dynamic_features_inp, X_inp, static_features_inp = (
