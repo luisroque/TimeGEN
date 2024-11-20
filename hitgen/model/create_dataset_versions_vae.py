@@ -96,6 +96,7 @@ class CreateTransformedVersionsCVAE:
         amplitude: float = 1.0,
         val_steps: int = 0,
         num_series: int = None,
+        stride_temporalize: int = 2,
     ):
         self.dataset_name = dataset_name
         self.input_dir = input_dir
@@ -111,6 +112,7 @@ class CreateTransformedVersionsCVAE:
         self.amplitude = amplitude
         self.val_steps = val_steps
         self.num_series = num_series
+        self.stride_temporalize = stride_temporalize
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -267,7 +269,9 @@ class CreateTransformedVersionsCVAE:
             self.df[:num_train_samples], self.freq
         )
 
-        X_train = temporalize(train_data_scaled, self.window_size)
+        X_train = temporalize(
+            train_data_scaled, self.window_size, self.stride_temporalize
+        )
 
         self.n_features_concat = X_train.shape[1] + self.dynamic_features_train.shape[1]
 
@@ -276,6 +280,7 @@ class CreateTransformedVersionsCVAE:
             self.dynamic_features_train,
             self.static_features,
             self.window_size,
+            self.stride_temporalize,
         )
 
         if val_steps > 0:
@@ -291,6 +296,7 @@ class CreateTransformedVersionsCVAE:
                 self.dynamic_features_val,
                 self.static_features,
                 self.window_size,
+                self.stride_temporalize,
             )
         else:
             inp_val = None

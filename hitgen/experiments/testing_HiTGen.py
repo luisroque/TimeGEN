@@ -29,6 +29,7 @@ val_steps = 0
 latent_dim = 10
 epochs = 750
 batch_size = 8
+stride_temporalize = 2
 
 NUM_SERIES = 100
 
@@ -49,6 +50,7 @@ create_dataset_vae = CreateTransformedVersionsCVAE(
     window_size=window_size,
     val_steps=val_steps,
     num_series=NUM_SERIES,
+    stride_temporalize=stride_temporalize,
 )
 
 # Fit the CVAE model
@@ -75,7 +77,8 @@ generated_data = model.decoder.predict([z_sampled])
 
 
 generated_data = detemporalize(
-    inverse_transform(generated_data, create_dataset_vae.scaler_target)
+    inverse_transform(generated_data, create_dataset_vae.scaler_target),
+    stride_temporalize,
 )
 
 scaler = MinMaxScaler()
