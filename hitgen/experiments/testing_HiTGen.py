@@ -31,7 +31,7 @@ BATCH_SIZE = 8
 STRIDE_TEMPORALIZE = 1
 SHUFFLE = True
 NUM_SERIES = 304
-LAST_ACTIVATION = "sigmoid"
+LAST_ACTIVATION = "custom_relu_linear_saturation"
 BI_RNN = True
 
 ###### M5
@@ -78,9 +78,11 @@ X_orig = create_dataset_vae.X_train_raw
 # Generate synthetic data using HiTGen
 z_mean, z_log_vars, z = model.encoder.predict(gen_data)
 
-epsilon = np.random.normal(size=z_mean.shape)
-z_sampled = z_mean + np.exp(0.5 * z_log_vars) * epsilon
-generated_data = model.decoder.predict(z_sampled)
+# epsilon = np.random.normal(size=z_mean.shape)
+# z_sampled = z_mean + np.exp(0.5 * z_log_vars) * epsilon
+new_latent_samples = np.random.normal(size=(z_mean.shape))
+
+generated_data = model.decoder.predict(new_latent_samples)
 
 generated_data = detemporalize(
     inverse_transform(generated_data, create_dataset_vae.scaler_target),
