@@ -4,6 +4,22 @@ from .helper import Sampling
 from tensorflow import keras
 import tensorflow as tf
 from tensorflow.keras.utils import Sequence
+from tensorflow.keras.utils import get_custom_objects
+
+
+def custom_relu_linear_saturation(x):
+    """
+    Custom activation:
+    - 0 for x < 0 (ReLU behavior)
+    - Linear (x) for 0 <= x <= 1
+    - Saturates at 1 for x > 1
+    """
+    relu_part = tf.nn.relu(x)
+
+    # linear between 0 and 1 and saturation at 1
+    linear_part = tf.minimum(relu_part, 1.0)
+
+    return linear_part
 
 
 class TemporalizeGenerator(Sequence):
@@ -410,6 +426,16 @@ def decoder(
     Returns:
         tf.keras.Model: The decoder model.
     """
+    get_custom_objects().update(
+        {"custom_relu_linear_saturation": custom_relu_linear_saturation}
+    )
+
+    if not callable(last_activation):
+        try:
+            last_activation = tf.keras.activations.get(last_activation)
+        except ValueError:
+            raise ValueError(f"Unknown activation function: {last_activation}")
+
     latent_input = layers.Input(
         shape=(output_shape[0], latent_dim_expansion * latent_dim // 2),
         name="latent_input",
