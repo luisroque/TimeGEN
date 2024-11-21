@@ -17,20 +17,19 @@ from hitgen.metrics.discriminative_metrics import (
 )
 from hitgen.benchmarks.timegan import train_timegan_model, generate_synthetic_samples
 from hitgen.utils.helper import inverse_transform
-
-# DATA PREPARATION
+from hitgen.model.models import TemporalizeGenerator
 
 ###### Tourism
-dataset = "tourism"
-freq = "M"
-top = None
-window_size = 24
-val_steps = 0
-latent_dim = 10
-epochs = 750
-batch_size = 8
-stride_temporalize = 2
-
+DATASET = "tourism"
+FREQ = "M"
+TOP = None
+WINDOW_SIZE = 24
+VAL_STEPS = 0
+LATENT_DIM = 50
+EPOCHS = 750
+BATCH_SIZE = 8
+STRIDE_TEMPORALIZE = 1
+SHUFFLE = True
 NUM_SERIES = 100
 
 ###### M5
@@ -44,41 +43,44 @@ NUM_SERIES = 100
 # batch_size = 8
 
 create_dataset_vae = CreateTransformedVersionsCVAE(
-    dataset_name=dataset,
-    freq=freq,
-    top=top,
-    window_size=window_size,
-    val_steps=val_steps,
+    dataset_name=DATASET,
+    freq=FREQ,
+    top=TOP,
+    window_size=WINDOW_SIZE,
+    val_steps=VAL_STEPS,
     num_series=NUM_SERIES,
-    stride_temporalize=stride_temporalize,
+    stride_temporalize=STRIDE_TEMPORALIZE,
+    batch_size=BATCH_SIZE,
+    shuffle=SHUFFLE,
 )
 
 # Fit the CVAE model
-model, history, _ = create_dataset_vae.fit(
-    latent_dim=latent_dim, epochs=epochs, batch_size=batch_size
-)
+model, history, _ = create_dataset_vae.fit(latent_dim=LATENT_DIM, epochs=EPOCHS)
 plot_loss(history)
 
 # Prepare data for predictions
-(dynamic_feat, X_inp, static_feat), _ = create_dataset_vae._feature_engineering(
-    create_dataset_vae.n, val_steps=0
+data = create_dataset_vae._feature_engineering(create_dataset_vae.n, val_steps=0)
+
+gen_data = TemporalizeGenerator(
+    data=data,
+    window_size=WINDOW_SIZE,
+    stride=STRIDE_TEMPORALIZE,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
 )
-inp = X_inp[0][:, :, :NUM_SERIES]
 
 X_orig = create_dataset_vae.X_train_raw
 
 # Generate synthetic data using HiTGen
-z_mean, z_log_vars, z = model.encoder.predict([inp])
-
+z_mean, z_log_vars, z = model.encoder.predict(gen_data)
 
 epsilon = np.random.normal(size=z_mean.shape)
 z_sampled = z_mean + np.exp(0.5 * z_log_vars) * epsilon
-generated_data = model.decoder.predict([z_sampled])
-
+generated_data = model.decoder.predict(z_sampled)
 
 generated_data = detemporalize(
     inverse_transform(generated_data, create_dataset_vae.scaler_target),
-    stride_temporalize,
+    STRIDE_TEMPORALIZE,
 )
 
 scaler = MinMaxScaler()
@@ -88,7 +90,7 @@ generated_data_scaled = scaler.transform(generated_data)
 plot_generated_vs_original(
     dec_pred_hat=generated_data,
     X_train_raw=X_orig,
-    dataset_name=dataset,
+    dataset_name=DATASET,
     transf_param=1.0,
     model_version="1.0",
     transformation="scaling",
@@ -110,9 +112,9 @@ timegan = train_timegan_model(
         batch_size=128, lr=5e-4, noise_dim=32, layers_dim=128, latent_dim=500, gamma=1
     ),
     train_args=TrainParameters(
-        epochs=5000, sequence_length=window_size, number_sequences=create_dataset_vae.s
+        epochs=5000, sequence_length=WINDOW_SIZE, number_sequences=create_dataset_vae.s
     ),
-    model_path=f"assets/model_weights/timegan_{dataset}.pkl",
+    model_path=f"assets/model_weights/timegan_{DATASET}.pkl",
 )
 num_samples = len(time_gan_data) + 13
 synth_timegan_data = generate_synthetic_samples(timegan, num_samples, detemporalize)

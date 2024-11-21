@@ -13,7 +13,12 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow import (
     float32,
 )
-from hitgen.model.models import CVAE, get_CVAE, KLAnnealingAndNoiseScalingCallback
+from hitgen.model.models import (
+    CVAE,
+    get_CVAE,
+    KLAnnealingAndNoiseScalingCallback,
+    TemporalizeGenerator,
+)
 from hitgen.feature_engineering.deprecated_static_features import (
     create_static_features,
 )
@@ -83,6 +88,8 @@ class CreateTransformedVersionsCVAE:
         self,
         dataset_name: str,
         freq: str,
+        batch_size: int = 8,
+        shuffle: bool = True,
         input_dir: str = "./assets/",
         transf_data: str = "whole",
         top: int = None,
@@ -113,6 +120,8 @@ class CreateTransformedVersionsCVAE:
         self.val_steps = val_steps
         self.num_series = num_series
         self.stride_temporalize = stride_temporalize
+        self.batch_size = batch_size
+        self.shuffle = shuffle
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -263,45 +272,46 @@ class CreateTransformedVersionsCVAE:
         self.scaler_target = MinMaxScaler().fit(train_data)
         train_data_scaled = self.scaler_target.transform(train_data)
 
-        self._generate_static_features(n)
+        # self._generate_static_features(n)
+        #
+        # self.dynamic_features_train = create_dynamic_features(
+        #     self.df[:num_train_samples], self.freq
+        # )
 
-        self.dynamic_features_train = create_dynamic_features(
-            self.df[:num_train_samples], self.freq
-        )
+        # X_train = temporalize(
+        #     train_data_scaled, self.window_size, self.stride_temporalize
+        # )
 
-        X_train = temporalize(
-            train_data_scaled, self.window_size, self.stride_temporalize
-        )
-
-        self.n_features_concat = X_train.shape[1] + self.dynamic_features_train.shape[1]
-
-        inp_train = combine_inputs_to_model(
-            X_train,
-            self.dynamic_features_train,
-            self.static_features,
-            self.window_size,
-            self.stride_temporalize,
-        )
-
-        if val_steps > 0:
-            val_data_scaled = self.scaler_target.transform(val_data)
-            self.dynamic_features_val = create_dynamic_features(
-                self.df[num_train_samples:],
-                self.freq,
-            )
-            X_val = temporalize(val_data_scaled, self.window_size)
-
-            inp_val = combine_inputs_to_model(
-                X_val,
-                self.dynamic_features_val,
-                self.static_features,
-                self.window_size,
-                self.stride_temporalize,
-            )
-        else:
-            inp_val = None
-
-        return inp_train, inp_val
+        # self.n_features_concat = X_train.shape[1] + self.dynamic_features_train.shape[1]
+        #
+        # inp_train = combine_inputs_to_model(
+        #     X_train,
+        #     self.dynamic_features_train,
+        #     self.static_features,
+        #     self.window_size,
+        #     self.stride_temporalize,
+        # )
+        #
+        # if val_steps > 0:
+        #     val_data_scaled = self.scaler_target.transform(val_data)
+        #     self.dynamic_features_val = create_dynamic_features(
+        #         self.df[num_train_samples:],
+        #         self.freq,
+        #     )
+        #     X_val = temporalize(val_data_scaled, self.window_size)
+        #
+        #     inp_val = combine_inputs_to_model(
+        #         X_val,
+        #         self.dynamic_features_val,
+        #         self.static_features,
+        #         self.window_size,
+        #         self.stride_temporalize,
+        #     )
+        # else:
+        #     inp_val = None
+        #
+        # return inp_train, inp_val
+        return train_data_scaled
 
     @staticmethod
     def _generate_noise(self, n_batches, window_size):
@@ -322,7 +332,6 @@ class CreateTransformedVersionsCVAE:
     def fit(
         self,
         epochs: int = 750,
-        batch_size: int = 8,
         patience: int = 100,
         latent_dim: int = 32,
         learning_rate: float = 0.001,
@@ -350,21 +359,20 @@ class CreateTransformedVersionsCVAE:
         :return: Trained model, training history, and early stopping object.
         """
         # Prepare features
-        self.features_input_train, self.features_input_val = self._feature_engineering(
-            self.n_train, self.val_steps
-        )
-        dynamic_features_dim = len(self.features_input_train[0])
+        data = self._feature_engineering(self.n_train, self.val_steps)
 
-        inp = (
-            self.features_input_train[1][0][:, :, : self.num_series]
-            if self.num_series
-            else self.features_input_train[1][0]
+        gen_data = TemporalizeGenerator(
+            data,
+            window_size=self.window_size,
+            stride=self.stride_temporalize,
+            batch_size=self.batch_size,
+            shuffle=self.shuffle,
         )
 
         # Initialize the CVAE model
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
-            n_series=inp.shape[-1],
+            n_series=data.shape[-1],
             latent_dim=latent_dim,
         )
         cvae = CVAE(
@@ -376,10 +384,6 @@ class CreateTransformedVersionsCVAE:
             optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
             metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
         )
-
-        # Build the model by calling it on a batch of data
-        _ = cvae(inp)
-        cvae.summary()
 
         # Early stopping and learning rate callbacks
         es = EarlyStopping(
@@ -414,7 +418,6 @@ class CreateTransformedVersionsCVAE:
         history = None
 
         if os.path.exists(weights_file) and not hyper_tuning and load_weights:
-            _ = cvae(inp)
             print("Loading existing weights...")
             cvae.load_weights(weights_file)
 
@@ -437,9 +440,9 @@ class CreateTransformedVersionsCVAE:
 
             # Train the model with callbacks
             history = cvae.fit(
-                x=inp,
+                x=gen_data,
                 epochs=epochs,
-                batch_size=batch_size,
+                batch_size=self.batch_size,
                 shuffle=False,
                 callbacks=[es, mc, reduce_lr, kl_and_noise_callback],
             )
