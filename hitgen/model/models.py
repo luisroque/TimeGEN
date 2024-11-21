@@ -445,4 +445,8 @@ def decoder(
 
         final_output += backcast
 
+    final_output = layers.TimeDistributed(
+        layers.Dense(output_shape[1], activation="relu")
+    )(final_output)
+
     return tf.keras.Model(inputs=[latent_input], outputs=[final_output], name="decoder")
