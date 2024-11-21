@@ -25,12 +25,14 @@ FREQ = "M"
 TOP = None
 WINDOW_SIZE = 24
 VAL_STEPS = 0
-LATENT_DIM = 25
+LATENT_DIM = 50
 EPOCHS = 750
 BATCH_SIZE = 8
 STRIDE_TEMPORALIZE = 1
 SHUFFLE = True
-NUM_SERIES = 100
+NUM_SERIES = 304
+LAST_ACTIVATION = "sigmoid"
+BI_RNN = True
 
 ###### M5
 # dataset = "m5"
@@ -52,6 +54,8 @@ create_dataset_vae = CreateTransformedVersionsCVAE(
     stride_temporalize=STRIDE_TEMPORALIZE,
     batch_size=BATCH_SIZE,
     shuffle=SHUFFLE,
+    last_activation=LAST_ACTIVATION,
+    bi_rnn=BI_RNN,
 )
 
 # Fit the CVAE model

@@ -255,9 +255,7 @@ class CVAE(keras.Model):
 
 
 def get_CVAE(
-    window_size: int,
-    n_series: int,
-    latent_dim: int,
+    window_size: int, n_series: int, latent_dim: int, last_activation: str, bi_rnn: bool
 ) -> tuple[tf.keras.Model, tf.keras.Model]:
 
     input_shape = (window_size, n_series)
@@ -266,12 +264,13 @@ def get_CVAE(
     enc = encoder(
         input_shape=input_shape,
         latent_dim=latent_dim,
-        bi_rnn=True,
+        bi_rnn=bi_rnn,
     )
     dec = decoder(
         output_shape=output_shape,
         latent_dim=latent_dim,
-        bi_rnn=True,
+        bi_rnn=bi_rnn,
+        last_activation=last_activation,
     )
     return enc, dec
 
@@ -393,6 +392,7 @@ def decoder(
     strides=1,
     pooling_mode="max",
     bi_rnn=True,
+    last_activation="relu",
 ):
     """
     Decoder with N-HiTS stacking for reconstruction.
@@ -446,7 +446,7 @@ def decoder(
         final_output += backcast
 
     final_output = layers.TimeDistributed(
-        layers.Dense(output_shape[1], activation="relu")
+        layers.Dense(output_shape[1], activation=last_activation)
     )(final_output)
 
     return tf.keras.Model(inputs=[latent_input], outputs=[final_output], name="decoder")
