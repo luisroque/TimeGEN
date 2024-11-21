@@ -104,6 +104,8 @@ class CreateTransformedVersionsCVAE:
         val_steps: int = 0,
         num_series: int = None,
         stride_temporalize: int = 2,
+        last_activation: str = "relu",
+        bi_rnn: bool = True,
     ):
         self.dataset_name = dataset_name
         self.input_dir = input_dir
@@ -122,6 +124,8 @@ class CreateTransformedVersionsCVAE:
         self.stride_temporalize = stride_temporalize
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.last_activation = last_activation
+        self.bi_rnn = bi_rnn
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -374,6 +378,8 @@ class CreateTransformedVersionsCVAE:
             window_size=self.window_size,
             n_series=data.shape[-1],
             latent_dim=latent_dim,
+            last_activation=self.last_activation,
+            bi_rnn=self.bi_rnn,
         )
         cvae = CVAE(
             encoder,
