@@ -1,17 +1,77 @@
 from keras import layers
-from keras.layers import (
-    Bidirectional,
-    LSTM,
-    MultiHeadAttention,
-    Dense,
-    GlobalAveragePooling1D,
-    BatchNormalization,
-    Activation,
-)
-import tensorflow as tf
 from keras import backend as K
 from .helper import Sampling
 from tensorflow import keras
+import tensorflow as tf
+from tensorflow.keras.utils import Sequence
+
+
+class TemporalizeGenerator(Sequence):
+    def __init__(self, data, window_size, stride=1, batch_size=8, shuffle=True):
+        """
+        A generator that reshuffles and re-temporalizes the dataset before each epoch.
+
+        Args:
+            data (tf.Tensor): The original time-series data (2D tensor: timesteps x features).
+            window_size (int): The size of each temporal window.
+            stride (int): The step size for creating temporal windows.
+            batch_size (int): The batch size for training.
+            shuffle (bool): Whether to shuffle the data at the start of each epoch.
+        """
+        self.data = tf.convert_to_tensor(data, dtype=tf.float32)
+        self.window_size = window_size
+        self.stride = stride
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.temporalized_data = None
+        self.indices = None
+        self.epoch = 0
+        self.on_epoch_end()
+
+    def __len__(self):
+        """Number of batches per epoch, including the last incomplete batch."""
+        total_batches = len(self.indices) // self.batch_size
+        if len(self.indices) % self.batch_size != 0:
+            total_batches += 1
+        return total_batches
+
+    def __getitem__(self, index):
+        """Generate one batch of data."""
+        batch_indices = self.indices[
+            index * self.batch_size : (index + 1) * self.batch_size
+        ]
+        batch = tf.gather(self.temporalized_data, batch_indices)
+        return batch
+
+    def on_epoch_end(self):
+        """Shuffle data and re-temporalize."""
+        if self.shuffle:
+            shuffled_data = tf.random.shuffle(self.data)
+        else:
+            shuffled_data = self.data
+
+        self.temporalized_data = self.temporalize(shuffled_data)
+
+        # update indices for new temporalized data
+        self.indices = tf.range(len(self.temporalized_data))
+
+        tf.print(f"SHUFFLING AND RE-TEMPORALIZING: Epoch {self.epoch}")
+        self.epoch += 1
+
+    def temporalize(self, data):
+        """
+        Create temporal windows from the input data.
+        """
+        num_windows = (tf.shape(data)[0] - self.window_size) // self.stride + 1
+        indices = tf.range(num_windows) * self.stride
+        windows = tf.map_fn(
+            lambda i: data[i : i + self.window_size],
+            indices,
+            fn_output_signature=tf.TensorSpec(
+                (self.window_size, data.shape[1]), tf.float32
+            ),
+        )
+        return windows
 
 
 class Sampling(tf.keras.layers.Layer):
@@ -198,11 +258,6 @@ def get_CVAE(
     window_size: int,
     n_series: int,
     latent_dim: int,
-    filters=32,
-    num_blocks=3,
-    kernel_size=3,
-    strides=1,
-    dynamic_units=16,
 ) -> tuple[tf.keras.Model, tf.keras.Model]:
 
     input_shape = (window_size, n_series)
@@ -212,19 +267,11 @@ def get_CVAE(
         input_shape=input_shape,
         latent_dim=latent_dim,
         bi_rnn=True,
-        # num_blocks=num_blocks,
-        # filters=filters,
-        # kernel_size=kernel_size,
-        # strides=strides,
-        # dynamic_units=dynamic_units,
     )
     dec = decoder(
         output_shape=output_shape,
         latent_dim=latent_dim,
         bi_rnn=True,
-        # # num_blocks=num_blocks,
-        # filters=filters,
-        # kernel_size=kernel_size,
     )
     return enc, dec
 
@@ -263,12 +310,9 @@ class NHITSBlock(tf.keras.layers.Layer):
                 pool_size=kernel_size, strides=strides, padding="same"
             )
 
-        # MLP stack
         self.mlp_stack = tf.keras.Sequential(
             [layers.Dense(n_hidden, activation="relu") for _ in range(n_layers)]
         )
-
-        # Final layers for backcast
         self.backcast_layer = layers.TimeDistributed(
             layers.Dense(backcast_size[1], activation="linear")
         )
@@ -285,7 +329,7 @@ class NHITSBlock(tf.keras.layers.Layer):
 def encoder(
     input_shape,
     latent_dim,
-    latent_dim_expansion=16,
+    latent_dim_expansion=2,
     n_blocks=3,
     n_hidden=64,
     n_layers=2,
@@ -341,7 +385,7 @@ def encoder(
 def decoder(
     output_shape,
     latent_dim,
-    latent_dim_expansion=16,
+    latent_dim_expansion=2,
     n_blocks=3,
     n_hidden=64,
     n_layers=2,
