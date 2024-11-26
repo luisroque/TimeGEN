@@ -11,7 +11,7 @@ from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize
-from hitgen.metrics.discriminative_metrics import (
+from hitgen.metrics.deprecated_discriminative_metrics import (
     compute_discriminative_score,
     evaluate_discriminative_scores,
 )
@@ -127,12 +127,54 @@ synth_timegan_data = generate_synthetic_samples(timegan, num_samples, detemporal
 
 # Benchmark evaluation
 benchmark_data_dict = {"TimeGAN": synth_timegan_data}
-results = evaluate_discriminative_scores(
-    X_orig_scaled=X_orig_scaled,
-    main_model_data_scaled=generated_data_scaled,
-    benchmark_data_dict=benchmark_data_dict,
-    compute_discriminative_score=compute_discriminative_score,
-    num_runs=20,
-    num_samples=2,
-    plot_first_run=True,
+
+original_data = pd.DataFrame(
+    create_dataset_vae.dataset["predict"]["data"],
+    columns=[
+        f"series_{j}"
+        for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
+    ],
 )
+original_data["ds"] = create_dataset_vae.dataset["dates"]
+melted_original_data = original_data.melt(
+    id_vars=["ds"], var_name="unique_id", value_name="y"
+)
+
+synthetic_data = pd.DataFrame(
+    generated_data,
+    columns=[
+        f"series_{j}"
+        for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
+    ],
+)
+synthetic_data["ds"] = create_dataset_vae.dataset["dates"]
+melted_synthetic_data = synthetic_data.melt(
+    id_vars=["ds"], var_name="unique_id", value_name="y"
+)
+
+synthetic_timegan_data = pd.DataFrame(
+    synth_timegan_data,
+    columns=[
+        f"series_{j}"
+        for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
+    ],
+)
+synthetic_timegan_data["ds"] = create_dataset_vae.dataset["dates"]
+melted_synthetic_timegan_data = synthetic_timegan_data.melt(
+    id_vars=["ds"], var_name="unique_id", value_name="y"
+)
+
+melted_synthetic_timegan_data.to_csv(
+    "assets/results/timegan_synthetic_data.csv", index=False
+)
+
+
+# results = evaluate_discriminative_scores(
+#     X_orig_scaled=X_orig_scaled,
+#     main_model_data_scaled=generated_data_scaled,
+#     benchmark_data_dict=benchmark_data_dict,
+#     compute_discriminative_score=compute_discriminative_score,
+#     num_runs=20,
+#     num_samples=2,
+#     plot_first_run=True,
+# )
