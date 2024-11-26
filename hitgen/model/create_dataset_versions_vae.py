@@ -38,7 +38,9 @@ from hitgen.preprocessing.pre_processing_datasets import (
     PreprocessDatasets as ppc,
 )
 from hitgen.model.models import get_CVAE
-from hitgen.metrics.discriminative_metrics import compute_discriminative_score
+from hitgen.metrics.deprecated_discriminative_metrics import (
+    compute_discriminative_score,
+)
 
 from hitgen import __version__
 
