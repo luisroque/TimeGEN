@@ -529,9 +529,13 @@ class CreateTransformedVersionsCVAE:
                 "noise_scale_init": noise_scale_init,
                 "score": score,
             }
-            with open("assets/model_weights/best_hyperparameters.json", "w") as f:
-                json.dump(self.best_params, f)
-            print(f"Best hyperparameters saved")
+            scores_path = "assets/model_weights/best_hyperparameters.json"
+            os.makedirs(os.path.dirname(scores_path), exist_ok=True)
+
+            with open(scores_path, "a") as f:
+                f.write(json.dumps(self.best_params) + "\n")
+
+            print(f"Best hyperparameters appended to {scores_path}")
 
         return score
 
