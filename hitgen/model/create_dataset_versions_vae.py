@@ -38,7 +38,7 @@ from hitgen.preprocessing.pre_processing_datasets import (
     PreprocessDatasets as ppc,
 )
 from hitgen.model.models import get_CVAE
-from hitgen.metrics.deprecated_discriminative_metrics import (
+from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
 )
 
@@ -108,6 +108,9 @@ class CreateTransformedVersionsCVAE:
         stride_temporalize: int = 2,
         last_activation: str = "relu",
         bi_rnn: bool = True,
+        annealing: bool = True,
+        kl_weight_init: float = None,
+        noise_scale_init: float = None,
     ):
         self.dataset_name = dataset_name
         self.input_dir = input_dir
@@ -128,6 +131,9 @@ class CreateTransformedVersionsCVAE:
         self.shuffle = shuffle
         self.last_activation = last_activation
         self.bi_rnn = bi_rnn
+        self.annealing = annealing
+        self.kl_weight_init = kl_weight_init
+        self.noise_scale_init = noise_scale_init
         self.dataset = self._get_dataset()
         if window_size:
             self.window_size = window_size
@@ -148,6 +154,18 @@ class CreateTransformedVersionsCVAE:
         self.features_input = (None, None, None)
         self._create_directories()
         self._save_original_file()
+        self.original_data_long = self.create_dataset_long_form(data)
+
+    def create_dataset_long_form(self, data):
+        data_wider = pd.DataFrame(
+            data,
+            columns=[f"series_{j}" for j in range(self.s)],
+        )
+        data_wider["ds"] = self.dataset["dates"]
+        data_long = data_wider.melt(
+            id_vars=["ds"], var_name="unique_id", value_name="y"
+        )
+        return data_long
 
     def preprocess_freq(self):
         end_date = None
@@ -242,14 +260,6 @@ class CreateTransformedVersionsCVAE:
         ) as f:
             np.save(f, y_new)
 
-    def _generate_static_features(self, n: int) -> None:
-        """Helper method to create the static feature and scale them
-
-        Args:
-            n: number of samples
-        """
-        self.static_features = create_static_features(self.groups, self.dataset)
-
     def _feature_engineering(
         self, n: int, val_steps: float = 24
     ) -> tuple[tuple, tuple]:
@@ -278,45 +288,6 @@ class CreateTransformedVersionsCVAE:
         self.scaler_target = MinMaxScaler().fit(train_data)
         train_data_scaled = self.scaler_target.transform(train_data)
 
-        # self._generate_static_features(n)
-        #
-        # self.dynamic_features_train = create_dynamic_features(
-        #     self.df[:num_train_samples], self.freq
-        # )
-
-        # X_train = temporalize(
-        #     train_data_scaled, self.window_size, self.stride_temporalize
-        # )
-
-        # self.n_features_concat = X_train.shape[1] + self.dynamic_features_train.shape[1]
-        #
-        # inp_train = combine_inputs_to_model(
-        #     X_train,
-        #     self.dynamic_features_train,
-        #     self.static_features,
-        #     self.window_size,
-        #     self.stride_temporalize,
-        # )
-        #
-        # if val_steps > 0:
-        #     val_data_scaled = self.scaler_target.transform(val_data)
-        #     self.dynamic_features_val = create_dynamic_features(
-        #         self.df[num_train_samples:],
-        #         self.freq,
-        #     )
-        #     X_val = temporalize(val_data_scaled, self.window_size)
-        #
-        #     inp_val = combine_inputs_to_model(
-        #         X_val,
-        #         self.dynamic_features_val,
-        #         self.static_features,
-        #         self.window_size,
-        #         self.stride_temporalize,
-        #     )
-        # else:
-        #     inp_val = None
-        #
-        # return inp_train, inp_val
         return train_data_scaled
 
     @staticmethod
@@ -341,7 +312,6 @@ class CreateTransformedVersionsCVAE:
         patience: int = 100,
         latent_dim: int = 32,
         learning_rate: float = 0.001,
-        kl_weight_initial: float = 0.01,
         kl_weight_final: float = 1.0,
         noise_scale_initial: float = 0.01,
         noise_scale_final: float = 1.0,
@@ -367,7 +337,7 @@ class CreateTransformedVersionsCVAE:
         # Prepare features
         data = self._feature_engineering(self.n_train, self.val_steps)
 
-        gen_data = TemporalizeGenerator(
+        data_temporalized = TemporalizeGenerator(
             data,
             window_size=self.window_size,
             stride=self.stride_temporalize,
@@ -382,14 +352,16 @@ class CreateTransformedVersionsCVAE:
             latent_dim=latent_dim,
             last_activation=self.last_activation,
             bi_rnn=self.bi_rnn,
+            noise_scale_init=self.noise_scale_init,
         )
+
         cvae = CVAE(
             encoder,
             decoder,
-            kl_weight_initial=kl_weight_initial,
+            kl_weight_initial=self.kl_weight_init,
         )
         cvae.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+            optimizer=keras.optimizers.legacy.Adam(learning_rate=learning_rate),
             metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
         )
 
@@ -407,11 +379,12 @@ class CreateTransformedVersionsCVAE:
 
         kl_and_noise_callback = KLAnnealingAndNoiseScalingCallback(
             model=cvae,
-            kl_weight_initial=kl_weight_initial,
+            kl_weight_initial=self.kl_weight_init,
             kl_weight_final=kl_weight_final,
             noise_scale_initial=noise_scale_initial,
             noise_scale_final=noise_scale_final,
             annealing_epochs=annealing_epochs,
+            annealing=self.annealing,
         )
 
         weights_folder = "assets/model_weights"
@@ -448,7 +421,7 @@ class CreateTransformedVersionsCVAE:
 
             # Train the model with callbacks
             history = cvae.fit(
-                x=gen_data,
+                x=data_temporalized,
                 epochs=epochs,
                 batch_size=self.batch_size,
                 shuffle=False,
@@ -471,70 +444,109 @@ class CreateTransformedVersionsCVAE:
         Objective function for Optuna to tune the CVAE hyperparameters.
         """
 
+        # Define hyperparameter trials
         latent_dim = trial.suggest_int("latent_dim", 8, 64, step=8)
-        patience = trial.suggest_int("patience", 8, 64, step=8)
-        kl_weight = trial.suggest_float("kl_weight", 0.1, 10.0)
-        num_blocks = trial.suggest_int("num_blocks", 1, 5)
-        filters = trial.suggest_int("filters", 16, 128, step=16)
-        batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
-        epochs = trial.suggest_int("epochs", 200, 2000, step=100)
+        window_size = trial.suggest_int("window_size", 6, 24)
+        patience = trial.suggest_int("patience", 90, 100, step=5)
+        kl_weight = trial.suggest_float("kl_weight", 0.05, 1)
+        n_blocks = trial.suggest_int("n_blocks", 1, 5)
+        n_hidden = trial.suggest_int("n_hidden", 16, 128, step=16)
+        n_layers = trial.suggest_int("n_layers", 1, 5)
+        kernel_size = trial.suggest_int("kernel_size", 2, 5)
+        pooling_mode = trial.suggest_categorical("pooling_mode", ["max", "average"])
+        batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
+        epochs = trial.suggest_int("epochs", 1, 2000, step=100)
+        learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
+        last_activation = trial.suggest_categorical(
+            "last_activation", ["relu", "custom_relu_linear_saturation"]
+        )
+        bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
+        shuffle = trial.suggest_categorical("shuffle", [True, False])
+        noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
-        dynamic_features_dim = len(self.features_input_train[0])
+        data = self._feature_engineering(self.n_train)
 
+        data_temporalized = TemporalizeGenerator(
+            data,
+            window_size=window_size,
+            stride=self.stride_temporalize,
+            batch_size=batch_size,
+            shuffle=shuffle,
+        )
+
+        # Pass hyperparameters to the CVAE model
         encoder, decoder = get_CVAE(
-            window_size=self.window_size,
+            window_size=window_size,
             n_series=self.s,
             latent_dim=latent_dim,
-            dynamic_features_dim=dynamic_features_dim,
-            num_blocks=num_blocks,
-            filters=filters,
+            last_activation=last_activation,
+            bi_rnn=bi_rnn,
+            noise_scale_init=noise_scale_init,
+            n_blocks=n_blocks,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            kernel_size=kernel_size,
+            pooling_mode=pooling_mode,
         )
 
-        cvae = CVAE(encoder, decoder, kl_weight=kl_weight)
-        cvae.compile(optimizer="adam")
-
-        early_stopping = tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss", patience=patience, restore_best_weights=True
+        cvae = CVAE(encoder, decoder, kl_weight_initial=kl_weight)
+        cvae.compile(
+            optimizer=keras.optimizers.legacy.Adam(learning_rate=learning_rate),
+            metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
         )
+
+        es = EarlyStopping(
+            patience=patience,
+            verbose=1,
+            monitor="loss",
+            mode="auto",
+            restore_best_weights=True,
+        )
+
         history = cvae.fit(
-            x=self.features_input_train,
-            validation_data=self.features_input_val,
+            x=data_temporalized,
             epochs=epochs,
             batch_size=batch_size,
-            callbacks=[early_stopping],
+            callbacks=[es],
         )
 
-        synthetic_data = self.predict(cvae)
-        ori_data = detemporalize(self.features_input[1][0])
+        synthetic_data = self.predict(
+            cvae,
+            samples=data_temporalized.indices.shape[0],
+            window_size=window_size,
+            latent_dim=latent_dim,
+        )
+        synthetic_data_long = self.create_dataset_long_form(synthetic_data)
 
         score = compute_discriminative_score(
-            ori_data,
-            synthetic_data,
-            window_size=self.window_size,
-            iterations=500,
-            batch_size=64,
+            self.original_data_long, synthetic_data_long, "M"
         )
 
+        # Save best parameters and model
         if not hasattr(self, "best_score") or score < self.best_score:
             self.best_score = score
-
-            # Save the best hyperparameters
             self.best_params = {
-                "score": score,
                 "latent_dim": latent_dim,
+                "window_size": window_size,
                 "patience": patience,
                 "kl_weight": kl_weight,
-                "num_blocks": num_blocks,
-                "filters": filters,
+                "n_blocks": n_blocks,
+                "n_hidden": n_hidden,
+                "n_layers": n_layers,
+                "kernel_size": kernel_size,
+                "pooling_mode": pooling_mode,
                 "batch_size": batch_size,
                 "epochs": epochs,
+                "learning_rate": learning_rate,
+                "last_activation": last_activation,
+                "bi_rnn": bi_rnn,
+                "shuffle": shuffle,
+                "noise_scale_init": noise_scale_init,
+                "score": score,
             }
-            params_path = os.path.join(
-                "assets/model_weights", "best_hyperparameters.json"
-            )
-            with open(params_path, "w") as f:
+            with open("assets/model_weights/best_hyperparameters.json", "w") as f:
                 json.dump(self.best_params, f)
-            print(f"Best hyperparameters saved at {params_path}")
+            print(f"Best hyperparameters saved")
 
         return score
 
@@ -542,90 +554,81 @@ class CreateTransformedVersionsCVAE:
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
-        # Prepare data for tuning
-        self.features_input_train, self.features_input_val = self._feature_engineering(
-            self.n_train
-        )
+        data = self._feature_engineering(self.n_train)
 
-        # Initialize Optuna study
-        study = optuna.create_study(direction="minimize")
+        # optuna study with persistence
+        study = optuna.create_study(
+            study_name="opt_vae", direction="minimize", load_if_exists=True
+        )
         study.optimize(self.objective, n_trials=n_trials)
 
-        # Get the best hyperparameters
+        # retrieve the best trial
         best_trial = study.best_trial
         self.best_params = best_trial.params
+
+        with open("assets/model_weights/best_params.json", "w") as f:
+            json.dump(self.best_params, f)
+
         print(f"Best Hyperparameters: {self.best_params}")
 
-        dynamic_features_dim = len(self.features_input_train[0])
+        data_temporalized = TemporalizeGenerator(
+            data,
+            window_size=self.best_params["latent_dim"],
+            stride=self.stride_temporalize,
+            batch_size=self.best_params["batch_size"],
+            shuffle=self.best_params["shuffle"],
+        )
 
-        # Train the model with the best hyperparameters
         encoder, decoder = get_CVAE(
-            window_size=self.window_size,
+            window_size=self.best_params["latent_dim"],
+            n_series=self.s,
             latent_dim=self.best_params["latent_dim"],
-            num_blocks=self.best_params["num_blocks"],
-            filters=self.best_params["filters"],
+            last_activation=self.best_params["last_activation"],
+            bi_rnn=self.best_params["bi_rnn"],
+            noise_scale_init=self.best_params["noise_scale_init"],
+            n_blocks=self.best_params["n_blocks"],
+            n_hidden=self.best_params["n_hidden"],
+            n_layers=self.best_params["n_layers"],
+            kernel_size=self.best_params["kernel_size"],
+            strides=self.best_params["strides"],
+            pooling_mode=self.best_params["pooling_mode"],
         )
 
         cvae = CVAE(encoder, decoder, kl_weight=self.best_params["kl_weight"])
-        cvae.compile(optimizer="adam")
+        cvae.compile(
+            optimizer=keras.optimizers.legacy.Adam(
+                learning_rate=self.best_params["learning_rate"]
+            ),
+            metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
+        )
 
-        # Final training with best parameters
+        # final training with best parameters
         early_stopping = tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor="loss",
             patience=self.best_params["patience"],
             restore_best_weights=True,
         )
         history = cvae.fit(
-            x=self.features_input_train,
-            validation_data=self.features_input_val,
-            epochs=self.best_params["epochs"],  # Using the optimized epochs
+            x=data_temporalized,
+            epochs=self.best_params["epochs"],
             batch_size=self.best_params["batch_size"],
             callbacks=[early_stopping],
         )
 
+        # Save training history
         self.best_model = cvae
         self.best_history = history.history
-        with open("best_params.json", "w") as f:
-            json.dump(self.best_params, f)
-        with open("training_history.json", "w") as f:
+        with open("assets/model_weights/training_history.json", "w") as f:
             json.dump(self.best_history, f)
 
         print("Training completed with the best hyperparameters.")
 
-    def evaluate_best_model(self):
-        """
-        Evaluate the best model using the discriminative score on the test set.
-        """
-        synthetic_data = self.predict(self.best_model)[0]
-        score = compute_discriminative_score(
-            self.features_input_val[1],
-            synthetic_data,
-            window_size=self.window_size,
-            iterations=500,
-            batch_size=64,
-        )
-        print(f"Discriminative score of the best model: {score}")
-        return score
-
     def predict(
-        self, cvae: CVAE
+        self, cvae: CVAE, samples, window_size, latent_dim
     ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
-        """Predict original time series using CVAE and capture attention scores.
-
-        Args:
-            cvae: The CVAE model with attention layers.
-
-        Returns:
-            X_hat_complete: The reconstructed series.
-            intra_attention_scores: Intra-window attention scores from the encoder.
-            inter_attention_scores: Inter-window attention scores from the encoder.
-        """
-        self.features_input, _ = self._feature_engineering(self.n_train, val_steps=0)
-        dynamic_feat, X_inp, static_feat = self.features_input
-        stacked_dynamic_feat = tf.stack(dynamic_feat, axis=-1)
-
-        z_mean, z_log_var, z = cvae.encoder.predict([X_inp, stacked_dynamic_feat])
-        generated_data = cvae.decoder.predict([z, stacked_dynamic_feat])
+        """Predict original time series using VAE"""
+        new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
+        generated_data = cvae.decoder.predict(new_latent_samples)
 
         X_hat = detemporalize(
             self.inverse_transform(generated_data, self.scaler_target)

@@ -61,17 +61,12 @@ class TemporalizeGenerator(Sequence):
 
     def on_epoch_end(self):
         """Shuffle data and re-temporalize."""
+        self.temporalized_data = self.temporalize(self.data)
         if self.shuffle:
-            shuffled_data = tf.random.shuffle(self.data)
-        else:
-            shuffled_data = self.data
-
-        self.temporalized_data = self.temporalize(shuffled_data)
-
+            self.temporalized_data = tf.random.shuffle(self.temporalized_data)
+            tf.print(f"SHUFFLING AND RE-TEMPORALIZING: Epoch {self.epoch}")
         # update indices for new temporalized data
         self.indices = tf.range(len(self.temporalized_data))
-
-        tf.print(f"SHUFFLING AND RE-TEMPORALIZING: Epoch {self.epoch}")
         self.epoch += 1
 
     def temporalize(self, data):
@@ -91,7 +86,7 @@ class TemporalizeGenerator(Sequence):
 
 
 class Sampling(tf.keras.layers.Layer):
-    def __init__(self, noise_scale=0.01, **kwargs):
+    def __init__(self, noise_scale_init=0.01, **kwargs):
         """
         Initializes the Sampling layer.
 
@@ -102,7 +97,7 @@ class Sampling(tf.keras.layers.Layer):
         super(Sampling, self).__init__(**kwargs)
         # Define noise_scale as a mutable variable
         self.noise_scale = tf.Variable(
-            noise_scale, trainable=False, dtype=tf.float32, name="noise_scale"
+            noise_scale_init, trainable=False, dtype=tf.float32, name="noise_scale"
         )
 
     def call(self, inputs):
@@ -136,6 +131,7 @@ class KLAnnealingAndNoiseScalingCallback(tf.keras.callbacks.Callback):
         noise_scale_initial,
         noise_scale_final,
         annealing_epochs,
+        annealing,
     ):
         super().__init__()
         self.model = model
@@ -144,29 +140,31 @@ class KLAnnealingAndNoiseScalingCallback(tf.keras.callbacks.Callback):
         self.noise_scale_initial = noise_scale_initial
         self.noise_scale_final = noise_scale_final
         self.annealing_epochs = annealing_epochs
+        self.annealing = annealing
 
     def compute_progress(self, epoch):
         return min((epoch + 1) / self.annealing_epochs, 1.0)
 
     def on_epoch_begin(self, epoch, logs=None):
-        # Calculate progress and update variables
-        progress = self.compute_progress(epoch)
-        new_kl_weight = self.kl_weight_initial + progress * (
-            self.kl_weight_final - self.kl_weight_initial
-        )
-        new_noise_scale = self.noise_scale_initial + progress * (
-            self.noise_scale_final - self.noise_scale_initial
-        )
+        if self.annealing:
+            # Calculate progress and update variables
+            progress = self.compute_progress(epoch)
+            new_kl_weight = self.kl_weight_initial + progress * (
+                self.kl_weight_final - self.kl_weight_initial
+            )
+            new_noise_scale = self.noise_scale_initial + progress * (
+                self.noise_scale_final - self.noise_scale_initial
+            )
 
-        # Update the model's tf.Variable instances
-        self.model.kl_weight.assign(new_kl_weight)
-        sampling_layer = self.model.encoder.get_layer(name="sampling")
-        if sampling_layer:
-            sampling_layer.noise_scale.assign(new_noise_scale)
+            # Update the model's tf.Variable instances
+            self.model.kl_weight.assign(new_kl_weight)
+            sampling_layer = self.model.encoder.get_layer(name="sampling")
+            if sampling_layer:
+                sampling_layer.noise_scale.assign(new_noise_scale)
 
-        tf.print(
-            f"UPDATING OPT VARIABLES: Epoch {epoch + 1}: KL weight = {new_kl_weight:.4f}, Noise scale = {new_noise_scale:.4f}"
-        )
+            tf.print(
+                f"UPDATING OPT VARIABLES: Epoch {epoch + 1}: KL weight = {new_kl_weight:.4f}, Noise scale = {new_noise_scale:.4f}"
+            )
 
     def on_epoch_end(self, epoch, logs=None):
         """Print KL weight and noise scale at the end of the epoch."""
@@ -185,7 +183,7 @@ class CVAE(keras.Model):
         self,
         encoder: keras.Model,
         decoder: keras.Model,
-        kl_weight_initial: float = 0.1,
+        kl_weight_initial: int = None,
         **kwargs,
     ) -> None:
         super(CVAE, self).__init__(**kwargs)
@@ -269,11 +267,62 @@ class CVAE(keras.Model):
             "kl_loss": kl_loss,
         }
 
+    def get_config(self):
+        config = super(CVAE, self).get_config()
+        config.update(
+            {
+                "encoder": self.encoder.get_config(),
+                "decoder": self.decoder.get_config(),
+                "kl_weight_initial": self.kl_weight.numpy(),
+            }
+        )
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        encoder_config = config.pop("encoder")
+        decoder_config = config.pop("decoder")
+
+        encoder = keras.Model.from_config(encoder_config)
+        decoder = keras.Model.from_config(decoder_config)
+
+        return cls(encoder=encoder, decoder=decoder, **config)
+
 
 def get_CVAE(
-    window_size: int, n_series: int, latent_dim: int, last_activation: str, bi_rnn: bool
+    window_size: int,
+    n_series: int,
+    latent_dim: int,
+    last_activation: str = "relu",
+    bi_rnn: bool = True,
+    noise_scale_init: float = 0.01,
+    n_blocks: int = 3,
+    n_hidden: int = 64,
+    n_layers: int = 2,
+    kernel_size: int = 2,
+    strides: int = 1,
+    pooling_mode: str = "max",
 ) -> tuple[tf.keras.Model, tf.keras.Model]:
+    """
+    Constructs and returns the encoder and decoder models for the CVAE.
 
+    Args:
+        window_size (int): The size of the input time series window.
+        n_series (int): Number of series in the input.
+        latent_dim (int): Dimensionality of the latent space.
+        last_activation (str): Activation function for the decoder output.
+        bi_rnn (bool): Whether to use bidirectional RNNs.
+        noise_scale_init (float): Initial noise scale for the encoder.
+        n_blocks (int): Number of blocks in the encoder and decoder.
+        n_hidden (int): Number of hidden units in the blocks.
+        n_layers (int): Number of layers in each block.
+        kernel_size (int): Kernel size for convolutional layers.
+        strides (int): Stride for convolutional layers.
+        pooling_mode (str): Pooling mode ("max" or "average").
+
+    Returns:
+        tuple[tf.keras.Model, tf.keras.Model]: The encoder and decoder models.
+    """
     input_shape = (window_size, n_series)
     output_shape = (window_size, n_series)
 
@@ -281,13 +330,26 @@ def get_CVAE(
         input_shape=input_shape,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
+        noise_scale_init=noise_scale_init,
+        n_blocks=n_blocks,
+        n_hidden=n_hidden,
+        n_layers=n_layers,
+        kernel_size=kernel_size,
+        pooling_mode=pooling_mode,
     )
+
     dec = decoder(
         output_shape=output_shape,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
         last_activation=last_activation,
+        n_blocks=n_blocks,
+        n_hidden=n_hidden,
+        n_layers=n_layers,
+        kernel_size=kernel_size,
+        pooling_mode=pooling_mode,
     )
+
     return enc, dec
 
 
@@ -299,7 +361,6 @@ class NHITSBlock(tf.keras.layers.Layer):
         n_layers,
         pooling_mode="max",
         kernel_size=3,
-        strides=2,
         **kwargs,
     ):
         """
@@ -318,11 +379,11 @@ class NHITSBlock(tf.keras.layers.Layer):
 
         if pooling_mode == "max":
             self.pooling_layer = layers.MaxPooling1D(
-                pool_size=kernel_size, strides=strides, padding="same"
+                pool_size=kernel_size, strides=1, padding="same"
             )
         else:
             self.pooling_layer = layers.AveragePooling1D(
-                pool_size=kernel_size, strides=strides, padding="same"
+                pool_size=kernel_size, strides=1, padding="same"
             )
 
         self.mlp_stack = tf.keras.Sequential(
@@ -344,14 +405,13 @@ class NHITSBlock(tf.keras.layers.Layer):
 def encoder(
     input_shape,
     latent_dim,
-    latent_dim_expansion=2,
     n_blocks=3,
     n_hidden=64,
     n_layers=2,
     kernel_size=2,
     pooling_mode="max",
-    strides=1,
     bi_rnn=True,
+    noise_scale_init=0.01,
 ):
     main_input = layers.Input(shape=input_shape, name="main_input")
 
@@ -365,7 +425,6 @@ def encoder(
             n_layers=n_layers,
             pooling_mode=pooling_mode,
             kernel_size=kernel_size,
-            strides=strides,
         )
 
         backcast = nhits_block(backcast_total)
@@ -383,14 +442,14 @@ def encoder(
 
         final_output += backcast
 
-    final_output = layers.TimeDistributed(
-        layers.Dense(latent_dim * latent_dim_expansion)
-    )(final_output)
+    final_output = layers.TimeDistributed(layers.Dense(latent_dim * 2))(final_output)
 
-    z_mean = final_output[:, :, latent_dim * latent_dim_expansion // 2 :]
-    z_log_var = final_output[:, :, : latent_dim * latent_dim_expansion // 2]
+    z_mean = final_output[:, :, latent_dim:]
+    z_log_var = final_output[:, :, :latent_dim]
 
-    z = Sampling(name="sampling")([z_mean, z_log_var])
+    z = Sampling(name="sampling", noise_scale_init=noise_scale_init)(
+        [z_mean, z_log_var]
+    )
 
     return tf.keras.Model(
         inputs=[main_input], outputs=[z_mean, z_log_var, z], name="encoder"
@@ -400,32 +459,14 @@ def encoder(
 def decoder(
     output_shape,
     latent_dim,
-    latent_dim_expansion=2,
     n_blocks=3,
     n_hidden=64,
     n_layers=2,
     kernel_size=2,
-    strides=1,
     pooling_mode="max",
     bi_rnn=True,
     last_activation="relu",
 ):
-    """
-    Decoder with N-HiTS stacking for reconstruction.
-
-    Args:
-        output_shape (tuple): Shape of the output (time steps, series size).
-        latent_dim (int): Latent dimension size.
-        latent_dim_expansion (int): Expansion factor for latent dimension.
-        n_blocks (int): Number of N-HiTS blocks in the stack.
-        n_hidden (int): Number of hidden units in MLP layers.
-        n_layers (int): Number of MLP layers in each block.
-        kernel_size (int): Pooling kernel size.
-        pooling_mode (str): Pooling mode ('max' or 'average').
-
-    Returns:
-        tf.keras.Model: The decoder model.
-    """
     get_custom_objects().update(
         {"custom_relu_linear_saturation": custom_relu_linear_saturation}
     )
@@ -437,7 +478,7 @@ def decoder(
             raise ValueError(f"Unknown activation function: {last_activation}")
 
     latent_input = layers.Input(
-        shape=(output_shape[0], latent_dim_expansion * latent_dim // 2),
+        shape=(output_shape[0], latent_dim),
         name="latent_input",
     )
 
@@ -453,7 +494,6 @@ def decoder(
             n_layers=n_layers,
             pooling_mode=pooling_mode,
             kernel_size=kernel_size,
-            strides=strides,
         )
 
         backcast = nhits_block(backcast_total)
