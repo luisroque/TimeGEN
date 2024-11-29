@@ -6,3 +6,4 @@ scikit-optimize==0.10.2
 tsfeatures==0.4.5
 ydata-synthetic==1.4.0
 huggingface-hub==0.26.1
+optuna==4.0.0
