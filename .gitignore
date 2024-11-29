@@ -182,7 +182,6 @@ build/
 *.pkl
 *.npy
 *.log
-*.txt
 *.csv
 
 *deprecated*.py
