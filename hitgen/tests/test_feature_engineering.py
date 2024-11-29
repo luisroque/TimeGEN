@@ -2,15 +2,9 @@ import unittest
 import hitgen as tsag
 import pandas as pd
 import numpy as np
-from hitgen.feature_engineering.deprecated_static_features import (
-    create_static_features,
-    scale_static_features,
-)
-from hitgen.feature_engineering.dynamic_features import create_dynamic_features
 from hitgen.feature_engineering.feature_transformations import (
     temporalize,
     detemporalize,
-    combine_inputs_to_model,
 )
 from sklearn.preprocessing import MinMaxScaler
 

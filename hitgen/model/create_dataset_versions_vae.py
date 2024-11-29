@@ -15,25 +15,12 @@ from tensorflow import (
 )
 from hitgen.model.models import (
     CVAE,
-    get_CVAE,
     KLAnnealingAndNoiseScalingCallback,
     TemporalizeGenerator,
 )
-from hitgen.feature_engineering.deprecated_static_features import (
-    create_static_features,
-)
-from hitgen.feature_engineering.dynamic_features import (
-    create_dynamic_features,
-)
 from hitgen.feature_engineering.feature_transformations import (
-    temporalize,
-    combine_inputs_to_model,
     detemporalize,
 )
-from hitgen.visualization.model_visualization import (
-    plot_generated_vs_original,
-)
-
 from hitgen.preprocessing.pre_processing_datasets import (
     PreprocessDatasets as ppc,
 )
@@ -41,8 +28,6 @@ from hitgen.model.models import get_CVAE
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
 )
-
-from hitgen import __version__
 
 
 class InvalidFrequencyError(Exception):
