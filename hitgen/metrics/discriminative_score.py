@@ -6,20 +6,25 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import f1_score
 
 
-def split_train_test(data, train_ratio=0.8):
-    """Splits data indices into train and test indices."""
-    n_series = data["unique_id"].nunique()
-    n_series_train = int(train_ratio * n_series)
-    all_indices = np.arange(n_series)
-    train_indices = np.random.choice(all_indices, size=n_series_train, replace=False)
-    test_indices = np.setdiff1d(all_indices, train_indices)
+def split_train_test(data, train_ratio=0.8, max_train_series=50, max_test_series=10):
+    """Splits data indices into train and test indices with limits on the number of time series."""
+
+    unique_ids = data["unique_id"].unique()
+    n_series = len(unique_ids)
+
+    # limit the number of time series for training and testing
+    n_series_train = min(int(train_ratio * n_series), max_train_series)
+    n_series_test = min(n_series - n_series_train, max_test_series)
+
+    train_indices = np.random.choice(unique_ids, size=n_series_train, replace=False)
+    test_indices = np.setdiff1d(unique_ids, train_indices)[:n_series_test]
+
     return train_indices, test_indices
 
 
 def filter_data_by_indices(data, indices, label_value):
     """Filters data by indices and assigns labels."""
-    series_names = [f"series_{i}" for i in indices]
-    filtered_data = data[data["unique_id"].isin(series_names)].reset_index(drop=True)
+    filtered_data = data[data["unique_id"].isin(indices)]
     labels = pd.DataFrame([label_value] * len(indices))
     return filtered_data, labels
 

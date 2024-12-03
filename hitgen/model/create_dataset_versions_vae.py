@@ -28,6 +28,7 @@ from hitgen.model.models import get_CVAE
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
 )
+from hitgen.load_data.config import DATASETS, DATASETS_FREQ
 
 
 class InvalidFrequencyError(Exception):
@@ -74,6 +75,7 @@ class CreateTransformedVersionsCVAE:
     def __init__(
         self,
         dataset_name: str,
+        dataset_group: str,
         freq: str,
         batch_size: int = 8,
         shuffle: bool = True,
@@ -88,8 +90,6 @@ class CreateTransformedVersionsCVAE:
         num_variants: int = 20,
         noise_scale: float = 0.1,
         amplitude: float = 1.0,
-        val_steps: int = 0,
-        num_series: int = None,
         stride_temporalize: int = 2,
         last_activation: str = "relu",
         bi_rnn: bool = True,
@@ -98,6 +98,7 @@ class CreateTransformedVersionsCVAE:
         noise_scale_init: float = None,
     ):
         self.dataset_name = dataset_name
+        self.dataset_group = dataset_group
         self.input_dir = input_dir
         self.transf_data = transf_data
         self.freq = freq
@@ -109,8 +110,6 @@ class CreateTransformedVersionsCVAE:
         self.num_variants = num_variants
         self.noise_scale = noise_scale
         self.amplitude = amplitude
-        self.val_steps = val_steps
-        self.num_series = num_series
         self.stride_temporalize = stride_temporalize
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -119,67 +118,87 @@ class CreateTransformedVersionsCVAE:
         self.annealing = annealing
         self.kl_weight_init = kl_weight_init
         self.noise_scale_init = noise_scale_init
-        self.dataset = self._get_dataset()
+        (self.data, self.s, self.freq) = self.load_data(
+            self.dataset_name, self.dataset_group
+        )
         if window_size:
             self.window_size = window_size
-        data = self.dataset["predict"]["data"]
-        self.y = data
-        self.n = data.shape[0]
-        self.s = data.shape[1]
-        self.n_train = self.n - self.window_size + 1
-        self.groups = list(self.dataset["train"]["groups_names"].keys())
-        self.df = pd.DataFrame(data)
-        self.df = pd.concat(
-            [self.df, pd.DataFrame(self.dataset["dates"], columns=["Date"])], axis=1
-        )[: self.n]
-        self.df = self.df.set_index("Date")
+        self.y = self.data
+        self.n = self.data.shape[0]
+        self.df = pd.DataFrame(self.data)
+        # self.df = self.df.set_index("Date")
         self.df.asfreq(self.freq)
-        self.preprocess_freq()
+        # self.preprocess_freq()
 
         self.features_input = (None, None, None)
         self._create_directories()
-        self._save_original_file()
-        self.original_data_long = self.create_dataset_long_form(data)
+        # self._save_original_file()
+        self.original_data_long = None
+        self.long_properties = {}
+
+    @staticmethod
+    def load_data(dataset_name, group):
+        data_cls = DATASETS[dataset_name]
+        print(dataset_name, group)
+
+        try:
+            ds = data_cls.load_data(group)
+        except FileNotFoundError as e:
+            print(f"Error loading data for {dataset_name} - {group}: {e}")
+
+        h = data_cls.horizons_map[group]
+        n_lags = data_cls.context_length[group]
+        if dataset_name == "M4":
+            freq = data_cls.frequency_map.get(group)
+        else:
+            freq = data_cls.frequency_pd[group]
+        season_len = data_cls.frequency_map[group]
+        n_series = ds.nunique()["unique_id"]
+        return ds, n_series, freq
 
     def create_dataset_long_form(self, data):
-        data_wider = pd.DataFrame(
-            data,
-            columns=[f"series_{j}" for j in range(self.s)],
-        )
-        data_wider["ds"] = self.dataset["dates"]
-        data_long = data_wider.melt(
-            id_vars=["ds"], var_name="unique_id", value_name="y"
-        )
-        return data_long
+        df = pd.DataFrame(data)
 
-    def preprocess_freq(self):
-        end_date = None
-
-        # Create dataset with window_size more dates in the future to be used
-        if self.freq in ["Q", "QS"]:
-            if self.freq == "Q":
-                self.freq += "S"
-            end_date = self.df.index[-1] + pd.DateOffset(months=self.window_size * 3)
-        elif self.freq in ["M", "MS"]:
-            if self.freq == "M":
-                self.freq += "S"
-            end_date = self.df.index[-1] + pd.DateOffset(months=self.window_size)
-        elif self.freq == "W":
-            end_date = self.df.index[-1] + pd.DateOffset(weeks=self.window_size)
-        elif self.freq == "D":
-            end_date = self.df.index[-1] + pd.DateOffset(days=self.window_size)
-        else:
-            raise InvalidFrequencyError(
-                f"Invalid frequency - {self.freq}. Please use one of the defined frequencies: Q, QS, M, MS, W, or D."
-            )
-
-        ix = pd.date_range(
-            start=self.df.index[0],
-            end=end_date,
+        df.columns = self.long_properties["unique_id"]
+        df["ds"] = pd.date_range(
+            self.long_properties["ds"][0],
+            periods=data.shape[0],
             freq=self.freq,
         )
-        self.df_generate = self.df.copy()
-        self.df_generate = self.df_generate.reindex(ix)
+
+        data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
+        return data_long
+
+    # def preprocess_freq(self):
+    #     end_date = None
+    #
+    #     # Create dataset with window_size more dates in the future to be used
+    #     if self.freq in ["Q", "QS"]:
+    #         if self.freq == "Q":
+    #             self.freq += "S"
+    #         end_date = self.df.index[-1] + pd.DateOffset(months=self.window_size * 3)
+    #     elif self.freq in ["M", "MS"]:
+    #         if self.freq == "M":
+    #             self.freq += "S"
+    #         end_date = self.df.index[-1] + pd.DateOffset(months=self.window_size)
+    #     elif self.freq == "W":
+    #         end_date = self.df.index[-1] + pd.DateOffset(weeks=self.window_size)
+    #     elif self.freq == "D":
+    #         end_date = self.df.index[-1] + pd.DateOffset(days=self.window_size)
+    #     elif self.freq == "H":
+    #         end_date = self.df.index[-1] + pd.DateOffset(days=self.window_size)
+    #     else:
+    #         raise InvalidFrequencyError(
+    #             f"Invalid frequency - {self.freq}. Please use one of the defined frequencies: Q, QS, M, MS, W, or D."
+    #         )
+    #
+    #     ix = pd.date_range(
+    #         start=self.df.index[0],
+    #         end=end_date,
+    #         freq=self.freq,
+    #     )
+    #     self.df_generate = self.df.copy()
+    #     self.df_generate = self.df_generate.reindex(ix)
 
     def _get_dataset(self):
         """
@@ -209,71 +228,34 @@ class CreateTransformedVersionsCVAE:
         """
         # Create directory to store transformed datasets if does not exist
         Path(f"{self.input_dir}data").mkdir(parents=True, exist_ok=True)
-        Path(f"{self.input_dir}data/transformed_datasets").mkdir(
-            parents=True, exist_ok=True
-        )
-
-    def _save_original_file(self):
-        """
-        Store original dataset
-        """
-        with open(
-            f"{self.input_dir}data/transformed_datasets/{self.dataset_name}_original.npy",
-            "wb",
-        ) as f:
-            np.save(f, self.y)
-
-    def _save_version_file(
-        self,
-        y_new: np.ndarray,
-        version: int,
-        sample: int,
-        transformation: str,
-        method: str = "single_transf",
-    ) -> None:
-        """
-        Store the transformed dataset
-
-        :param y_new: transformed data
-        :param version: version of the transformation
-        :param sample: sample of the transformation
-        :param transformation: name of the transformation applied
-        """
-        with open(
-            f"{self.input_dir}data/transformed_datasets/{self.dataset_name}_version_{version}_{sample}samples_{method}_{transformation}_{self.transf_data}.npy",
-            "wb",
-        ) as f:
-            np.save(f, y_new)
 
     def _feature_engineering(
-        self, n: int, val_steps: float = 24
-    ) -> tuple[tuple, tuple]:
-        """Create static and dynamic features as well as apply preprocessing to raw time series,
-           including train-validation split.
+        self,
+    ) -> pd.DataFrame:
+        """Apply preprocessing to raw time series, including train-validation split, using long-format data."""
+        # sort the data by 'unique_id' and 'ds' to ensure chronological order for each time series
+        self.df = self.df.sort_values(by=["unique_id", "ds"])
 
-        Args:
-            n: Total number of samples
-            val_steps: Number of data points to use for validation
+        x_train_wide = self.df.pivot(index="ds", columns="unique_id", values="y")
 
-        Returns:
-            Tuple containing processed training and validation feature inputs.
-        """
-        self.X_train_raw = self.df.astype(np.float32).to_numpy()
-        self.X_train_raw = (
-            self.X_train_raw[:, : self.num_series]
-            if self.num_series
-            else self.X_train_raw
+        self.long_properties["ds"] = x_train_wide.reset_index()["ds"].values
+        self.long_properties["unique_id"] = x_train_wide.columns.values
+
+        # perform padding
+        x_train_wide = x_train_wide.fillna(0)
+
+        self.original_data_long = x_train_wide.reset_index().melt(
+            id_vars=["ds"], var_name="unique_id", value_name="y"
         )
-        data = self.df.astype(np.float32).to_numpy()
-        data = data[:, : self.num_series] if self.num_series else data
 
-        num_train_samples = len(data) - val_steps
-        train_data, val_data = data[:num_train_samples], data[num_train_samples:]
+        x_train_wide = x_train_wide.reset_index(drop=True)
 
-        self.scaler_target = MinMaxScaler().fit(train_data)
-        train_data_scaled = self.scaler_target.transform(train_data)
+        self.X_train_raw = x_train_wide
 
-        return train_data_scaled
+        self.scaler_target = MinMaxScaler()
+        x_train_wide_scaled = self.scaler_target.fit_transform(x_train_wide)
+
+        return x_train_wide_scaled
 
     @staticmethod
     def _generate_noise(self, n_batches, window_size):
@@ -304,23 +286,9 @@ class CreateTransformedVersionsCVAE:
         hyper_tuning: bool = False,
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
-        """
-        Training our CVAE on the dataset supplied with KL annealing and noise scaling.
-
-        :param epochs: Total number of training epochs.
-        :param batch_size: Batch size for training.
-        :param patience: Early stopping patience.
-        :param latent_dim: Latent space dimensionality.
-        :param learning_rate: Learning rate for the optimizer.
-        :param kl_weight_initial: Initial KL divergence weight.
-        :param kl_weight_final: Final KL divergence weight.
-        :param noise_scale_initial: Initial noise scale for sampling.
-        :param noise_scale_final: Final noise scale for sampling.
-        :param annealing_epochs: Number of epochs to fully anneal KL weight and noise scale.
-        :return: Trained model, training history, and early stopping object.
-        """
+        """Training our CVAE"""
         # Prepare features
-        data = self._feature_engineering(self.n_train, self.val_steps)
+        data = self._feature_engineering()
 
         data_temporalized = TemporalizeGenerator(
             data,
@@ -330,7 +298,6 @@ class CreateTransformedVersionsCVAE:
             shuffle=self.shuffle,
         )
 
-        # Initialize the CVAE model
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
             n_series=data.shape[-1],
@@ -350,7 +317,6 @@ class CreateTransformedVersionsCVAE:
             metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
         )
 
-        # Early stopping and learning rate callbacks
         es = EarlyStopping(
             patience=patience,
             verbose=1,
@@ -376,10 +342,11 @@ class CreateTransformedVersionsCVAE:
         os.makedirs(weights_folder, exist_ok=True)
 
         weights_file = os.path.join(
-            weights_folder, f"{self.dataset_name}_vae.weights.h5"
+            weights_folder, f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5"
         )
         history_file = os.path.join(
-            weights_folder, f"{self.dataset_name}_training_history.json"
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_training_history.json",
         )
         history = None
 
@@ -404,7 +371,6 @@ class CreateTransformedVersionsCVAE:
                 verbose=1,
             )
 
-            # Train the model with callbacks
             history = cvae.fit(
                 x=data_temporalized,
                 epochs=epochs,
@@ -424,12 +390,74 @@ class CreateTransformedVersionsCVAE:
 
         return cvae, history, es
 
+    def update_best_scores(
+        self,
+        score,
+        latent_dim,
+        window_size,
+        patience,
+        kl_weight,
+        n_blocks,
+        n_hidden,
+        n_layers,
+        kernel_size,
+        pooling_mode,
+        batch_size,
+        epochs,
+        learning_rate,
+        last_activation,
+        bi_rnn,
+        shuffle,
+        noise_scale_init,
+    ):
+        scores_path = f"assets/model_weights/{self.dataset_name}_{self.dataset_group}_best_hyperparameters.jsonl"
+
+        if os.path.exists(scores_path):
+            with open(scores_path, "r") as f:
+                scores_data = [json.loads(line) for line in f.readlines()]
+        else:
+            scores_data = []
+
+        new_score = {
+            "latent_dim": latent_dim,
+            "window_size": window_size,
+            "patience": patience,
+            "kl_weight": kl_weight,
+            "n_blocks": n_blocks,
+            "n_hidden": n_hidden,
+            "n_layers": n_layers,
+            "kernel_size": kernel_size,
+            "pooling_mode": pooling_mode,
+            "batch_size": batch_size,
+            "epochs": epochs,
+            "learning_rate": learning_rate,
+            "last_activation": last_activation,
+            "bi_rnn": bi_rnn,
+            "shuffle": shuffle,
+            "noise_scale_init": noise_scale_init,
+            "score": score,
+        }
+
+        # if the list of scores is empty or the current score is better than the worst score
+        if not scores_data or score > min([entry["score"] for entry in scores_data]):
+            scores_data.append(new_score)
+            scores_data.sort(key=lambda x: x["score"])
+
+            # keep only the top 20 scores
+            scores_data = scores_data[:20]
+
+            os.makedirs(os.path.dirname(scores_path), exist_ok=True)
+            with open(scores_path, "w") as f:
+                for score_entry in scores_data:
+                    f.write(json.dumps(score_entry) + "\n")
+
+            print(f"Best scores updated and saved to {scores_path}")
+
     def objective(self, trial):
         """
         Objective function for Optuna to tune the CVAE hyperparameters.
         """
 
-        # Define hyperparameter trials
         latent_dim = trial.suggest_int("latent_dim", 8, 64, step=8)
         window_size = trial.suggest_int("window_size", 6, 24)
         patience = trial.suggest_int("patience", 90, 100, step=5)
@@ -449,7 +477,7 @@ class CreateTransformedVersionsCVAE:
         shuffle = trial.suggest_categorical("shuffle", [True, False])
         noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
-        data = self._feature_engineering(self.n_train)
+        data = self._feature_engineering()
 
         data_temporalized = TemporalizeGenerator(
             data,
@@ -459,7 +487,6 @@ class CreateTransformedVersionsCVAE:
             shuffle=shuffle,
         )
 
-        # Pass hyperparameters to the CVAE model
         encoder, decoder = get_CVAE(
             window_size=window_size,
             n_series=self.s,
@@ -507,35 +534,25 @@ class CreateTransformedVersionsCVAE:
             self.original_data_long, synthetic_data_long, "M"
         )
 
-        # Save best parameters and model
-        if not hasattr(self, "best_score") or score < self.best_score:
-            self.best_score = score
-            self.best_params = {
-                "latent_dim": latent_dim,
-                "window_size": window_size,
-                "patience": patience,
-                "kl_weight": kl_weight,
-                "n_blocks": n_blocks,
-                "n_hidden": n_hidden,
-                "n_layers": n_layers,
-                "kernel_size": kernel_size,
-                "pooling_mode": pooling_mode,
-                "batch_size": batch_size,
-                "epochs": epochs,
-                "learning_rate": learning_rate,
-                "last_activation": last_activation,
-                "bi_rnn": bi_rnn,
-                "shuffle": shuffle,
-                "noise_scale_init": noise_scale_init,
-                "score": score,
-            }
-            scores_path = "assets/model_weights/best_hyperparameters.json"
-            os.makedirs(os.path.dirname(scores_path), exist_ok=True)
-
-            with open(scores_path, "a") as f:
-                f.write(json.dumps(self.best_params) + "\n")
-
-            print(f"Best hyperparameters appended to {scores_path}")
+        self.update_best_scores(
+            score,
+            latent_dim,
+            window_size,
+            patience,
+            kl_weight,
+            n_blocks,
+            n_hidden,
+            n_layers,
+            kernel_size,
+            pooling_mode,
+            batch_size,
+            epochs,
+            learning_rate,
+            last_activation,
+            bi_rnn,
+            shuffle,
+            noise_scale_init,
+        )
 
         return score
 
@@ -543,9 +560,8 @@ class CreateTransformedVersionsCVAE:
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
-        data = self._feature_engineering(self.n_train)
+        data = self._feature_engineering()
 
-        # optuna study with persistence
         study = optuna.create_study(
             study_name="opt_vae", direction="minimize", load_if_exists=True
         )
@@ -555,7 +571,10 @@ class CreateTransformedVersionsCVAE:
         best_trial = study.best_trial
         self.best_params = best_trial.params
 
-        with open("assets/model_weights/best_params.json", "w") as f:
+        with open(
+            f"assets/model_weights/{self.dataset_name}_{self.dataset_group}_best_params.json",
+            "w",
+        ) as f:
             json.dump(self.best_params, f)
 
         print(f"Best Hyperparameters: {self.best_params}")
@@ -607,7 +626,10 @@ class CreateTransformedVersionsCVAE:
         # Save training history
         self.best_model = cvae
         self.best_history = history.history
-        with open("assets/model_weights/training_history.json", "w") as f:
+        with open(
+            f"assets/model_weights/{self.dataset_name}_{self.dataset_group}_training_history.json",
+            "w",
+        ) as f:
             json.dump(self.best_history, f)
 
         print("Training completed with the best hyperparameters.")

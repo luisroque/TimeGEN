@@ -1,6 +1,5 @@
 from keras import layers
 from keras import backend as K
-from .helper import Sampling
 from tensorflow import keras
 import tensorflow as tf
 from tensorflow.keras.utils import Sequence
@@ -28,7 +27,7 @@ class TemporalizeGenerator(Sequence):
         A generator that reshuffles and re-temporalizes the dataset before each epoch.
 
         Args:
-            data (tf.Tensor): The original time-series data (2D tensor: timesteps x features).
+            data (pd.Dataframe): The original time-series data (2D: timesteps x features).
             window_size (int): The size of each temporal window.
             stride (int): The step size for creating temporal windows.
             batch_size (int): The batch size for training.

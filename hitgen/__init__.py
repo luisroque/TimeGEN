@@ -1,7 +1,5 @@
-__version__ = "0.5.69"
+__version__ = "0.6.0"
 
 from hitgen import preprocessing
-from hitgen import visualization
 from hitgen import evaluation
 from hitgen import model
-from hitgen import e2e
