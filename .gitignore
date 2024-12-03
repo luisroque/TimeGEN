@@ -173,6 +173,7 @@ results/
 plots/
 logs/
 log/
+assets/
 
 # pip dist
 dist/

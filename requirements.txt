@@ -7,3 +7,4 @@ tsfeatures==0.4.5
 ydata-synthetic==1.4.0
 huggingface-hub==0.26.1
 optuna==4.0.0
+datasetsforecast==0.0.8

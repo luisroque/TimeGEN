@@ -4,7 +4,6 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
 
-
 from hitgen.model.create_dataset_versions_vae import CreateTransformedVersionsCVAE
 from hitgen.visualization.model_visualization import (
     plot_loss,
@@ -12,12 +11,11 @@ from hitgen.visualization.model_visualization import (
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize
 from hitgen.benchmarks.timegan import train_timegan_model, generate_synthetic_samples
-from hitgen.utils.helper import inverse_transform
 
 
 if __name__ == "__main__":
-    ###### Tourism
-    DATASET = "tourism"
+    DATASET = "Tourism"
+    DATASET_GROUP = "Monthly"
     FREQ = "M"
     TOP = None
     WINDOW_SIZE = 24
@@ -26,7 +24,6 @@ if __name__ == "__main__":
     EPOCHS = 750
     BATCH_SIZE = 8
     STRIDE_TEMPORALIZE = 1
-    NUM_SERIES = 304
     # LAST_ACTIVATION = "custom_relu_linear_saturation"
     # BI_RNN = True
     # SHUFFLE = True
@@ -49,11 +46,10 @@ if __name__ == "__main__":
 
     create_dataset_vae = CreateTransformedVersionsCVAE(
         dataset_name=DATASET,
+        dataset_group=DATASET_GROUP,
         freq=FREQ,
         top=TOP,
         window_size=WINDOW_SIZE,
-        val_steps=VAL_STEPS,
-        num_series=NUM_SERIES,
         stride_temporalize=STRIDE_TEMPORALIZE,
         batch_size=BATCH_SIZE,
         shuffle=SHUFFLE,
