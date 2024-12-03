@@ -29,6 +29,9 @@ from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
 )
 from hitgen.load_data.config import DATASETS, DATASETS_FREQ
+from hitgen.visualization.model_visualization import (
+    plot_generated_vs_original,
+)
 
 
 class InvalidFrequencyError(Exception):
@@ -392,6 +395,8 @@ class CreateTransformedVersionsCVAE:
 
     def update_best_scores(
         self,
+        original_data,
+        synthetic_data,
         score,
         latent_dim,
         window_size,
@@ -409,6 +414,7 @@ class CreateTransformedVersionsCVAE:
         bi_rnn,
         shuffle,
         noise_scale_init,
+        loss,
     ):
         scores_path = f"assets/model_weights/{self.dataset_name}_{self.dataset_group}_best_hyperparameters.jsonl"
 
@@ -435,11 +441,23 @@ class CreateTransformedVersionsCVAE:
             "bi_rnn": bi_rnn,
             "shuffle": shuffle,
             "noise_scale_init": noise_scale_init,
+            "loss": loss,
             "score": score,
         }
 
         # if the list of scores is empty or the current score is better than the worst score
         if not scores_data or score > min([entry["score"] for entry in scores_data]):
+
+            plot_generated_vs_original(
+                dec_pred_hat=synthetic_data,
+                X_train_raw=original_data,
+                score=score,
+                loss=loss,
+                dataset_name=self.dataset_name,
+                dataset_group=self.dataset_group,
+                n_series=8,
+            )
+
             scores_data.append(new_score)
             scores_data.sort(key=lambda x: x["score"])
 
@@ -468,7 +486,7 @@ class CreateTransformedVersionsCVAE:
         kernel_size = trial.suggest_int("kernel_size", 2, 5)
         pooling_mode = trial.suggest_categorical("pooling_mode", ["max", "average"])
         batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
-        epochs = trial.suggest_int("epochs", 1, 2000, step=100)
+        epochs = trial.suggest_int("epochs", 1, 2, step=100)
         learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
         last_activation = trial.suggest_categorical(
             "last_activation", ["relu", "custom_relu_linear_saturation"]
@@ -522,6 +540,8 @@ class CreateTransformedVersionsCVAE:
             callbacks=[es],
         )
 
+        loss = min(history.history["loss"])
+
         synthetic_data = self.predict(
             cvae,
             samples=data_temporalized.indices.shape[0],
@@ -535,6 +555,8 @@ class CreateTransformedVersionsCVAE:
         )
 
         self.update_best_scores(
+            self.original_data_long,
+            synthetic_data_long,
             score,
             latent_dim,
             window_size,
@@ -552,6 +574,7 @@ class CreateTransformedVersionsCVAE:
             bi_rnn,
             shuffle,
             noise_scale_init,
+            loss,
         )
 
         return score

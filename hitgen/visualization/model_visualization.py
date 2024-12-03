@@ -1,8 +1,6 @@
+import os
 import matplotlib.pyplot as plt
-from typing import Optional, Tuple
-from keras.callbacks import History
-import numpy as np
-import seaborn as sns
+import pandas as pd
 
 
 def plot_loss(history_dict):
@@ -41,43 +39,42 @@ def plot_loss(history_dict):
 
 
 def plot_generated_vs_original(
-    dec_pred_hat: np.ndarray,
-    X_train_raw: np.ndarray,
+    dec_pred_hat: pd.DataFrame,
+    X_train_raw: pd.DataFrame,
+    score: float,
+    loss: float,
     dataset_name: str,
-    transf_param: float,
-    model_version: str,
-    transformation: str,
+    dataset_group: str,
     n_series: int = 8,
-    directory: str = ".",
 ) -> None:
     """
     Plot generated series and the original series and store as pdf
-
-    Args:
-        dec_pred_hat: predictions
-        X_train_raw: original series
-        param_vae: the parameter used in the VAE sampling
-        dataset_name: name of the generated dataset
-        n_series: number of series to plot
-        directory: local directory to store the file
     """
     # n_series needs to be even
     if not n_series % 2 == 0:
         n_series -= 1
     _, ax = plt.subplots(int(n_series // 2), 2, figsize=(18, 10))
     ax = ax.ravel()
-    n_samples = X_train_raw.shape[0]
+    unique_ids = dec_pred_hat["unique_id"].unique()[:n_series]
     for i in range(n_series):
-        ax[i].plot(np.arange(n_samples), dec_pred_hat[:, i], label="new sample")
-        ax[i].plot(np.arange(n_samples), X_train_raw[:, i], label="orig")
+        ax[i].plot(
+            dec_pred_hat.loc[dec_pred_hat["unique_id"] == unique_ids[i]]["ds"],
+            dec_pred_hat.loc[dec_pred_hat["unique_id"] == unique_ids[i]]["y"],
+            label="new sample",
+        )
+        ax[i].plot(
+            X_train_raw.loc[X_train_raw["unique_id"] == unique_ids[i]]["ds"],
+            X_train_raw.loc[X_train_raw["unique_id"] == unique_ids[i]]["y"],
+            label="orig",
+        )
     plt.legend()
     plt.suptitle(
-        f"VAE generated dataset vs original -> {dataset_name} using {transformation} with sigma={transf_param}",
+        f"VAE generated dataset vs original -> {dataset_name}: {dataset_group}",
         fontsize=14,
     )
+    os.makedirs("assets/plots", exist_ok=True)
     plt.savefig(
-        f"assets/plots/vae_{model_version}_generated_vs_original_{dataset_name}_{transformation}_{transf_param}.pdf",
+        f"assets/plots/vae_generated_vs_original_{dataset_name}_{dataset_group}_{round(score,2)}_{round(loss,2)}.pdf",
         format="pdf",
         bbox_inches="tight",
     )
-    plt.show()
