@@ -235,7 +235,7 @@ class CreateTransformedVersionsCVAE:
     def _feature_engineering(
         self,
     ) -> pd.DataFrame:
-        """Apply preprocessing to raw time series, including train-validation split, using long-format data."""
+        """Apply preprocessing to raw time series."""
         # sort the data by 'unique_id' and 'ds' to ensure chronological order for each time series
         self.df = self.df.sort_values(by=["unique_id", "ds"])
 
@@ -244,21 +244,27 @@ class CreateTransformedVersionsCVAE:
         self.long_properties["ds"] = x_train_wide.reset_index()["ds"].values
         self.long_properties["unique_id"] = x_train_wide.columns.values
 
-        # perform padding
-        x_train_wide = x_train_wide.fillna(0)
+        # create mask before padding
+        mask_np = (~x_train_wide.isna()).astype(int).values
+        self.mask = tf.convert_to_tensor(mask_np, dtype=tf.float32)
 
-        self.original_data_long = x_train_wide.reset_index().melt(
+        # perform log returns directly, keeping nan values
+        # adding small coeff to avoid inf when applying the log
+        x_train_wide_log_returns = np.log(x_train_wide + 1)
+        x_train_wide_log_returns = x_train_wide_log_returns.diff()
+
+        # pad the data
+        x_train_wide_log_returns = x_train_wide_log_returns.fillna(0.0)
+
+        self.original_data_long = x_train_wide_log_returns.reset_index().melt(
             id_vars=["ds"], var_name="unique_id", value_name="y"
         )
 
-        x_train_wide = x_train_wide.reset_index(drop=True)
+        x_train_wide_log_returns = x_train_wide_log_returns.reset_index(drop=True)
 
-        self.X_train_raw = x_train_wide
+        self.X_train_raw = x_train_wide_log_returns
 
-        self.scaler_target = MinMaxScaler()
-        x_train_wide_scaled = self.scaler_target.fit_transform(x_train_wide)
-
-        return x_train_wide_scaled
+        return x_train_wide_log_returns
 
     @staticmethod
     def _generate_noise(self, n_batches, window_size):
@@ -293,8 +299,9 @@ class CreateTransformedVersionsCVAE:
         # Prepare features
         data = self._feature_engineering()
 
-        data_temporalized = TemporalizeGenerator(
+        data_mask_temporalized = TemporalizeGenerator(
             data,
+            self.mask,
             window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=self.batch_size,
@@ -375,7 +382,7 @@ class CreateTransformedVersionsCVAE:
             )
 
             history = cvae.fit(
-                x=data_temporalized,
+                x=data_mask_temporalized,
                 epochs=epochs,
                 batch_size=self.batch_size,
                 shuffle=False,
@@ -486,7 +493,7 @@ class CreateTransformedVersionsCVAE:
         kernel_size = trial.suggest_int("kernel_size", 2, 5)
         pooling_mode = trial.suggest_categorical("pooling_mode", ["max", "average"])
         batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
-        epochs = trial.suggest_int("epochs", 1, 2000, step=100)
+        epochs = trial.suggest_int("epochs", 1, 50, step=10)
         learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
         last_activation = trial.suggest_categorical(
             "last_activation", ["relu", "custom_relu_linear_saturation"]
@@ -497,8 +504,9 @@ class CreateTransformedVersionsCVAE:
 
         data = self._feature_engineering()
 
-        data_temporalized = TemporalizeGenerator(
+        data_mask_temporalized = TemporalizeGenerator(
             data,
+            self.mask,
             window_size=window_size,
             stride=self.stride_temporalize,
             batch_size=batch_size,
@@ -534,7 +542,7 @@ class CreateTransformedVersionsCVAE:
         )
 
         history = cvae.fit(
-            x=data_temporalized,
+            x=data_mask_temporalized,
             epochs=epochs,
             batch_size=batch_size,
             callbacks=[es],
@@ -544,7 +552,7 @@ class CreateTransformedVersionsCVAE:
 
         synthetic_data = self.predict(
             cvae,
-            samples=data_temporalized.indices.shape[0],
+            samples=data_mask_temporalized.indices.shape[0],
             window_size=window_size,
             latent_dim=latent_dim,
         )
@@ -602,8 +610,9 @@ class CreateTransformedVersionsCVAE:
 
         print(f"Best Hyperparameters: {self.best_params}")
 
-        data_temporalized = TemporalizeGenerator(
+        data_mask_temporalized = TemporalizeGenerator(
             data,
+            self.mask,
             window_size=self.best_params["latent_dim"],
             stride=self.stride_temporalize,
             batch_size=self.best_params["batch_size"],
@@ -640,7 +649,7 @@ class CreateTransformedVersionsCVAE:
             restore_best_weights=True,
         )
         history = cvae.fit(
-            x=data_temporalized,
+            x=data_mask_temporalized,
             epochs=self.best_params["epochs"],
             batch_size=self.best_params["batch_size"],
             callbacks=[early_stopping],
@@ -658,21 +667,33 @@ class CreateTransformedVersionsCVAE:
         print("Training completed with the best hyperparameters.")
 
     def predict(
-        self, cvae: CVAE, samples, window_size, latent_dim
+        self,
+        cvae: CVAE,
+        samples,
+        window_size,
+        latent_dim,
     ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """Predict original time series using VAE"""
         new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
-        generated_data = cvae.decoder.predict(new_latent_samples)
+        mask_temporalized = self.temporalize(self.mask, window_size)
+        generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
 
-        X_hat = detemporalize(
-            self.inverse_transform(generated_data, self.scaler_target)
-        )
+        X_hat = detemporalize(generated_data)
 
-        X_hat_complete = np.concatenate(
-            (self.X_train_raw[: self.window_size], X_hat), axis=0
-        )
+        return X_hat
 
-        return X_hat_complete
+    @staticmethod
+    def temporalize(tensor_2d, window_size):
+        shape = tf.shape(tensor_2d)
+        output = []
+
+        for idx in range(shape[0] - window_size + 1):
+            window = tensor_2d[idx : idx + window_size, :]
+            output.append(window)
+
+        output = tf.stack(output)
+
+        return output
 
     @staticmethod
     def inverse_transform(data, scaler):

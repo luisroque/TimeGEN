@@ -4,6 +4,7 @@ from tsfeatures import tsfeatures
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report
 from sklearn.metrics import f1_score
+from sklearn.utils import shuffle
 
 
 def split_train_test(data, train_ratio=0.8, max_train_series=50, max_test_series=10):
@@ -74,6 +75,9 @@ def compute_discriminative_score(original_data, synthetic_data, freq):
         (original_features_test, synthetic_features_test), ignore_index=True
     ).drop(columns=["unique_id"], errors="ignore")
     y_test = pd.concat((original_data_test_y, synthetic_data_test_y), ignore_index=True)
+
+    X_train, y_train = shuffle(X_train, y_train, random_state=42)
+    X_test, y_test = shuffle(X_test, y_test, random_state=42)
 
     classifier = DecisionTreeClassifier()
     classifier.fit(X_train, y_train)

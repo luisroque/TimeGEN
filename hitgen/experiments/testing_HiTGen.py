@@ -85,24 +85,17 @@ if __name__ == "__main__":
     generated_data = model.decoder.predict(new_latent_samples)
 
     generated_data = detemporalize(
-        inverse_transform(generated_data, create_dataset_vae.scaler_target),
+        generated_data,
         STRIDE_TEMPORALIZE,
     )
 
-    scaler = MinMaxScaler()
-    X_orig_scaled = scaler.fit_transform(X_orig)
-    generated_data_scaled = scaler.transform(generated_data)
-
-    plot_generated_vs_original(
-        dec_pred_hat=generated_data,
-        X_train_raw=X_orig,
-        dataset_name=DATASET,
-        transf_param=1.0,
-        model_version="1.0",
-        transformation="scaling",
-        n_series=8,
-        directory=".",
-    )
+    # plot_generated_vs_original(
+    #     dec_pred_hat=generated_data,
+    #     X_train_raw=X_orig,
+    #     dataset_name=DATASET,
+    #     dataset_group=DATASET_GROUP,
+    #     n_series=8,
+    # )
 
     # TimeGAN synthetic data generation
     time_gan_data = pd.DataFrame(
