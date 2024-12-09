@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 
-def split_train_test(data, train_ratio=0.8, max_train_series=50, max_test_series=10):
+def split_train_test(data, train_ratio=0.8, max_train_series=100, max_test_series=20):
     """Splits data indices into train and test indices with limits on the number of time series."""
 
     unique_ids = data["unique_id"].unique()
