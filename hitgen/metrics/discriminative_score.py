@@ -5,6 +5,8 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report
 from sklearn.metrics import f1_score
 from sklearn.utils import shuffle
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 
 def split_train_test(data, train_ratio=0.8, max_train_series=50, max_test_series=10):
@@ -35,7 +37,36 @@ def generate_features(data, freq):
     return tsfeatures(data, freq=freq)
 
 
-def compute_discriminative_score(original_data, synthetic_data, freq):
+def plot_feature_importance(
+    feature_names, feature_importances, score, loss, dataset_name, dataset_group
+):
+    """
+    Plots and saves feature importance.
+    """
+    sorted_idx = feature_importances.argsort()
+    sorted_features = feature_names[sorted_idx]
+    sorted_importances = feature_importances[sorted_idx]
+
+    plt.figure(figsize=(10, 6))
+    plt.barh(sorted_features, sorted_importances, color="skyblue")
+    plt.xlabel("Importance")
+    plt.ylabel("Features")
+    plt.title("Feature Importance")
+    plt.tight_layout()
+
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    filename = (
+        f"assets/plots/{current_datetime}_feature_importance_vae_generated_vs_original_"
+        f"{dataset_name}_{dataset_group}_{round(score, 2)}_{round(loss, 2)}.pdf"
+    )
+    plt.savefig(filename, format="pdf", bbox_inches="tight")
+    plt.close()
+    print(f"Feature importance plot saved to {filename}")
+
+
+def compute_discriminative_score(
+    original_data, synthetic_data, freq, dataset_name, dataset_group, loss
+):
     train_idx, test_idx = split_train_test(original_data)
 
     FREQS = {"H": 24, "D": 1, "M": 12, "Q": 4, "W": 1, "Y": 1}
@@ -66,14 +97,14 @@ def compute_discriminative_score(original_data, synthetic_data, freq):
     # Classifier
     X_train = pd.concat(
         (original_features_train, synthetic_features_train), ignore_index=True
-    ).drop(columns=["unique_id"], errors="ignore")
+    ).drop(columns=["unique_id", "trend"], errors="ignore")
     y_train = pd.concat(
         (original_data_train_y, synthetic_data_train_y), ignore_index=True
     )
 
     X_test = pd.concat(
         (original_features_test, synthetic_features_test), ignore_index=True
-    ).drop(columns=["unique_id"], errors="ignore")
+    ).drop(columns=["unique_id", "trend"], errors="ignore")
     y_test = pd.concat((original_data_test_y, synthetic_data_test_y), ignore_index=True)
 
     X_train, y_train = shuffle(X_train, y_train, random_state=42)
@@ -86,4 +117,12 @@ def compute_discriminative_score(original_data, synthetic_data, freq):
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
-    return f1_score(y_test, y_pred)
+    # feature importance
+    feature_importances = classifier.feature_importances_
+    score = f1_score(y_test, y_pred)
+    print("F1 score:", score)
+    plot_feature_importance(
+        X_train.columns, feature_importances, score, loss, dataset_name, dataset_group
+    )
+
+    return score
