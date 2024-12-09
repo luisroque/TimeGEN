@@ -94,7 +94,6 @@ class CreateTransformedVersionsCVAE:
         noise_scale: float = 0.1,
         amplitude: float = 1.0,
         stride_temporalize: int = 2,
-        last_activation: str = "relu",
         bi_rnn: bool = True,
         annealing: bool = True,
         kl_weight_init: float = None,
@@ -116,7 +115,6 @@ class CreateTransformedVersionsCVAE:
         self.stride_temporalize = stride_temporalize
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.last_activation = last_activation
         self.bi_rnn = bi_rnn
         self.annealing = annealing
         self.kl_weight_init = kl_weight_init
@@ -312,7 +310,6 @@ class CreateTransformedVersionsCVAE:
             window_size=self.window_size,
             n_series=data.shape[-1],
             latent_dim=latent_dim,
-            last_activation=self.last_activation,
             bi_rnn=self.bi_rnn,
             noise_scale_init=self.noise_scale_init,
         )
@@ -417,7 +414,6 @@ class CreateTransformedVersionsCVAE:
         batch_size,
         epochs,
         learning_rate,
-        last_activation,
         bi_rnn,
         shuffle,
         noise_scale_init,
@@ -444,7 +440,6 @@ class CreateTransformedVersionsCVAE:
             "batch_size": batch_size,
             "epochs": epochs,
             "learning_rate": learning_rate,
-            "last_activation": last_activation,
             "bi_rnn": bi_rnn,
             "shuffle": shuffle,
             "noise_scale_init": noise_scale_init,
@@ -495,9 +490,6 @@ class CreateTransformedVersionsCVAE:
         batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
         epochs = trial.suggest_int("epochs", 1, 2000, step=100)
         learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
-        last_activation = trial.suggest_categorical(
-            "last_activation", ["relu", "custom_relu_linear_saturation"]
-        )
         bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
         shuffle = trial.suggest_categorical("shuffle", [True, False])
         noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
@@ -517,7 +509,6 @@ class CreateTransformedVersionsCVAE:
             window_size=window_size,
             n_series=self.s,
             latent_dim=latent_dim,
-            last_activation=last_activation,
             bi_rnn=bi_rnn,
             noise_scale_init=noise_scale_init,
             n_blocks=n_blocks,
@@ -578,7 +569,6 @@ class CreateTransformedVersionsCVAE:
             batch_size,
             epochs,
             learning_rate,
-            last_activation,
             bi_rnn,
             shuffle,
             noise_scale_init,
@@ -623,7 +613,6 @@ class CreateTransformedVersionsCVAE:
             window_size=self.best_params["latent_dim"],
             n_series=self.s,
             latent_dim=self.best_params["latent_dim"],
-            last_activation=self.best_params["last_activation"],
             bi_rnn=self.best_params["bi_rnn"],
             noise_scale_init=self.best_params["noise_scale_init"],
             n_blocks=self.best_params["n_blocks"],

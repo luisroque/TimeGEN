@@ -28,7 +28,6 @@ if __name__ == "__main__":
     # BI_RNN = True
     # SHUFFLE = True
     SHUFFLE = True
-    LAST_ACTIVATION = "custom_relu_linear_saturation"
     BI_RNN = True
     ANNEALING = False
     KL_WEIGHT_INIT = 0.1
@@ -53,7 +52,6 @@ if __name__ == "__main__":
         stride_temporalize=STRIDE_TEMPORALIZE,
         batch_size=BATCH_SIZE,
         shuffle=SHUFFLE,
-        last_activation=LAST_ACTIVATION,
         bi_rnn=BI_RNN,
         annealing=ANNEALING,
         noise_scale_init=NOISE_SAMPLE_INIT,
