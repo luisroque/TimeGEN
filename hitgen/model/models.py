@@ -22,26 +22,28 @@ def custom_relu_linear_saturation(x):
 
 
 class TemporalizeGenerator(Sequence):
-    def __init__(self, data, window_size, stride=1, batch_size=8, shuffle=True):
+    def __init__(self, data, mask, window_size, stride=1, batch_size=8, shuffle=True):
         """
         A generator that reshuffles and re-temporalizes the dataset before each epoch.
 
         Args:
             data (pd.Dataframe): The original time-series data (2D: timesteps x features).
+            mask (np.array or Tensor): Mask data (2D: timesteps x features) with 1 for valid and 0 for padded timesteps.
             window_size (int): The size of each temporal window.
             stride (int): The step size for creating temporal windows.
             batch_size (int): The batch size for training.
-            shuffle (bool): Whether to shuffle the data at the start of each epoch.
+            shuffle (bool): Whether to shuffle the data and mask at the start of each epoch.
         """
         self.data = tf.convert_to_tensor(data, dtype=tf.float32)
+        self.mask = tf.convert_to_tensor(mask, dtype=tf.float32)
         self.window_size = window_size
         self.stride = stride
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.temporalized_data = None
-        self.indices = None
+        self.temporalized_data = self.temporalize(self.data)
+        self.temporalized_mask = self.temporalize(self.mask)
+        self.indices = tf.range(len(self.temporalized_data))
         self.epoch = 0
-        self.on_epoch_end()
 
     def __len__(self):
         """Number of batches per epoch, including the last incomplete batch."""
@@ -51,21 +53,25 @@ class TemporalizeGenerator(Sequence):
         return total_batches
 
     def __getitem__(self, index):
-        """Generate one batch of data."""
         batch_indices = self.indices[
             index * self.batch_size : (index + 1) * self.batch_size
         ]
-        batch = tf.gather(self.temporalized_data, batch_indices)
-        return batch
+        batch_data = tf.gather(self.temporalized_data, batch_indices)
+        batch_mask = tf.gather(self.temporalized_mask, batch_indices)
+        stacked_tensor = tf.stack([batch_data, batch_mask], axis=-1)
+
+        return stacked_tensor
 
     def on_epoch_end(self):
         """Shuffle data and re-temporalize."""
-        self.temporalized_data = self.temporalize(self.data)
         if self.shuffle:
-            self.temporalized_data = tf.random.shuffle(self.temporalized_data)
+            shuffled_indices = tf.random.shuffle(
+                tf.range(tf.shape(self.temporalized_data)[0])
+            )
+            self.temporalized_data = tf.gather(self.temporalized_data, shuffled_indices)
+            self.temporalized_mask = tf.gather(self.temporalized_mask, shuffled_indices)
+
             tf.print(f"SHUFFLING AND RE-TEMPORALIZING: Epoch {self.epoch}")
-        # update indices for new temporalized data
-        self.indices = tf.range(len(self.temporalized_data))
         self.epoch += 1
 
     def temporalize(self, data):
@@ -200,10 +206,12 @@ class CVAE(keras.Model):
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
 
     def call(self, inputs, training=None, mask=None):
-        inp_data = inputs
-        z_mean, z_log_var, z = self.encoder(inp_data)
+        batch_data = inputs[..., 0]
+        batch_mask = inputs[..., 1]
 
-        pred = self.decoder(z)
+        z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
+
+        pred = self.decoder([z, batch_mask])
 
         return pred, z_mean, z_log_var
 
@@ -227,14 +235,15 @@ class CVAE(keras.Model):
         return total_loss, reconstruction_loss, kl_loss
 
     def train_step(self, data):
-        inp_data = data
+        batch_data = data[..., 0]
+        batch_mask = data[..., 1]
 
         with tf.GradientTape() as tape:
-            z_mean, z_log_var, z = self.encoder(inp_data)
-            pred = self.decoder(z)
+            z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
+            pred = self.decoder([z, batch_mask])
 
             total_loss, reconstruction_loss, kl_loss = self.compute_loss(
-                inp_data, pred, z_mean, z_log_var
+                batch_data, pred, z_mean, z_log_var
             )
 
         grads = tape.gradient(total_loss, self.trainable_weights)
@@ -251,13 +260,14 @@ class CVAE(keras.Model):
         }
 
     def test_step(self, data):
-        inp_data = data
+        batch_data = data[..., 0]
+        batch_mask = data[..., 1]
 
-        z_mean, z_log_var, z = self.encoder(inp_data)
-        pred = self.decoder(z)
+        z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
+        pred = self.decoder([z, batch_mask])
 
         total_loss, reconstruction_loss, kl_loss = self.compute_loss(
-            inp_data, pred, z_mean, z_log_var
+            batch_data, pred, z_mean, z_log_var
         )
 
         return {
@@ -323,7 +333,6 @@ def get_CVAE(
         tuple[tf.keras.Model, tf.keras.Model]: The encoder and decoder models.
     """
     input_shape = (window_size, n_series)
-    output_shape = (window_size, n_series)
 
     enc = encoder(
         input_shape=input_shape,
@@ -338,7 +347,7 @@ def get_CVAE(
     )
 
     dec = decoder(
-        output_shape=output_shape,
+        output_shape=input_shape,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
         last_activation=last_activation,
@@ -413,8 +422,12 @@ def encoder(
     noise_scale_init=0.01,
 ):
     main_input = layers.Input(shape=input_shape, name="main_input")
+    mask_input = layers.Input(shape=input_shape, name="mask_input")
 
-    backcast_total = main_input
+    # apply mask to ignore padded values
+    masked_input = layers.Multiply(name="masked_input")([main_input, mask_input])
+
+    backcast_total = masked_input
     final_output = 0
 
     for i in range(n_blocks):
@@ -451,7 +464,7 @@ def encoder(
     )
 
     return tf.keras.Model(
-        inputs=[main_input], outputs=[z_mean, z_log_var, z], name="encoder"
+        inputs=[main_input, mask_input], outputs=[z_mean, z_log_var, z], name="encoder"
     )
 
 
@@ -480,6 +493,8 @@ def decoder(
         shape=(output_shape[0], latent_dim),
         name="latent_input",
     )
+
+    mask_input = layers.Input(shape=output_shape, name="mask_input")
 
     x = layers.TimeDistributed(layers.Dense(output_shape[1]))(latent_input)
 
@@ -514,4 +529,9 @@ def decoder(
         layers.Dense(output_shape[1], activation=last_activation)
     )(final_output)
 
-    return tf.keras.Model(inputs=[latent_input], outputs=[final_output], name="decoder")
+    # apply mask to the output
+    final_output = layers.Multiply(name="masked_output")([final_output, mask_input])
+
+    return tf.keras.Model(
+        inputs=[latent_input, mask_input], outputs=[final_output], name="decoder"
+    )

@@ -1,6 +1,7 @@
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+from datetime import datetime
 
 
 def plot_loss(history_dict):
@@ -50,6 +51,7 @@ def plot_generated_vs_original(
     """
     Plot generated series and the original series and store as pdf
     """
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M")
     # n_series needs to be even
     if not n_series % 2 == 0:
         n_series -= 1
@@ -74,7 +76,7 @@ def plot_generated_vs_original(
     )
     os.makedirs("assets/plots", exist_ok=True)
     plt.savefig(
-        f"assets/plots/vae_generated_vs_original_{dataset_name}_{dataset_group}_{round(score,2)}_{round(loss,2)}.pdf",
+        f"assets/plots/{current_datetime}_vae_generated_vs_original_{dataset_name}_{dataset_group}_{round(score,2)}_{round(loss,2)}.pdf",
         format="pdf",
         bbox_inches="tight",
     )
