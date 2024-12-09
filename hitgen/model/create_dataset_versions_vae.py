@@ -448,7 +448,11 @@ class CreateTransformedVersionsCVAE:
         }
 
         # if the list of scores is empty or the current score is better than the worst score
-        if not scores_data or score > min([entry["score"] for entry in scores_data]):
+        if (
+            not scores_data
+            or score < min([entry["score"] for entry in scores_data])
+            or len(scores_data) < 20
+        ):
 
             plot_generated_vs_original(
                 dec_pred_hat=synthetic_data,
@@ -472,6 +476,8 @@ class CreateTransformedVersionsCVAE:
                     f.write(json.dumps(score_entry) + "\n")
 
             print(f"Best scores updated and saved to {scores_path}")
+        else:
+            print(f"Score is worse than the worse score in {scores_path}")
 
     def objective(self, trial):
         """
@@ -488,7 +494,7 @@ class CreateTransformedVersionsCVAE:
         kernel_size = trial.suggest_int("kernel_size", 2, 5)
         pooling_mode = trial.suggest_categorical("pooling_mode", ["max", "average"])
         batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
-        epochs = trial.suggest_int("epochs", 1, 2000, step=100)
+        epochs = trial.suggest_int("epochs", 1, 20, step=1)
         learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
         bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
         shuffle = trial.suggest_categorical("shuffle", [True, False])
@@ -550,7 +556,12 @@ class CreateTransformedVersionsCVAE:
         synthetic_data_long = self.create_dataset_long_form(synthetic_data)
 
         score = compute_discriminative_score(
-            self.original_data_long, synthetic_data_long, "M"
+            self.original_data_long,
+            synthetic_data_long,
+            "M",
+            self.dataset_name,
+            self.dataset_group,
+            loss,
         )
 
         self.update_best_scores(
