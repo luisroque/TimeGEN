@@ -302,7 +302,6 @@ def get_CVAE(
     window_size: int,
     n_series: int,
     latent_dim: int,
-    last_activation: str = "relu",
     bi_rnn: bool = True,
     noise_scale_init: float = 0.01,
     n_blocks: int = 3,
@@ -319,7 +318,6 @@ def get_CVAE(
         window_size (int): The size of the input time series window.
         n_series (int): Number of series in the input.
         latent_dim (int): Dimensionality of the latent space.
-        last_activation (str): Activation function for the decoder output.
         bi_rnn (bool): Whether to use bidirectional RNNs.
         noise_scale_init (float): Initial noise scale for the encoder.
         n_blocks (int): Number of blocks in the encoder and decoder.
@@ -350,7 +348,6 @@ def get_CVAE(
         output_shape=input_shape,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
-        last_activation=last_activation,
         n_blocks=n_blocks,
         n_hidden=n_hidden,
         n_layers=n_layers,
@@ -477,17 +474,7 @@ def decoder(
     kernel_size=2,
     pooling_mode="max",
     bi_rnn=True,
-    last_activation="relu",
 ):
-    get_custom_objects().update(
-        {"custom_relu_linear_saturation": custom_relu_linear_saturation}
-    )
-
-    if not callable(last_activation):
-        try:
-            last_activation = tf.keras.activations.get(last_activation)
-        except ValueError:
-            raise ValueError(f"Unknown activation function: {last_activation}")
 
     latent_input = layers.Input(
         shape=(output_shape[0], latent_dim),
@@ -526,7 +513,7 @@ def decoder(
         final_output += backcast
 
     final_output = layers.TimeDistributed(
-        layers.Dense(output_shape[1], activation=last_activation)
+        layers.Dense(output_shape[1], activation="linear")
     )(final_output)
 
     # apply mask to the output
