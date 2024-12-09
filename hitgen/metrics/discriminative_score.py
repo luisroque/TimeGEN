@@ -97,14 +97,14 @@ def compute_discriminative_score(
     # Classifier
     X_train = pd.concat(
         (original_features_train, synthetic_features_train), ignore_index=True
-    ).drop(columns=["unique_id", "trend"], errors="ignore")
+    ).drop(columns=["unique_id", "trend", "stability"], errors="ignore")
     y_train = pd.concat(
         (original_data_train_y, synthetic_data_train_y), ignore_index=True
     )
 
     X_test = pd.concat(
         (original_features_test, synthetic_features_test), ignore_index=True
-    ).drop(columns=["unique_id", "trend"], errors="ignore")
+    ).drop(columns=["unique_id", "trend", "stability"], errors="ignore")
     y_test = pd.concat((original_data_test_y, synthetic_data_test_y), ignore_index=True)
 
     X_train, y_train = shuffle(X_train, y_train, random_state=42)
