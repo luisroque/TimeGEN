@@ -3,11 +3,17 @@ import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
+from hitgen.model.models import (
+    TemporalizeGenerator,
+)
 
 from hitgen.model.create_dataset_versions_vae import CreateTransformedVersionsCVAE
 from hitgen.visualization.model_visualization import (
     plot_loss,
     plot_generated_vs_original,
+)
+from hitgen.metrics.discriminative_score import (
+    compute_discriminative_score,
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize
 from hitgen.benchmarks.timegan import train_timegan_model, generate_synthetic_samples
@@ -59,33 +65,31 @@ if __name__ == "__main__":
     )
 
     # hypertuning
-    create_dataset_vae.hyper_tune_and_train()
+    # create_dataset_vae.hyper_tune_and_train()
 
     # fit
     model, history, _ = create_dataset_vae.fit(latent_dim=LATENT_DIM, epochs=EPOCHS)
     plot_loss(history)
 
-    # prepare data for predictions
-    data = create_dataset_vae._feature_engineering(create_dataset_vae.n, val_steps=0)
+    data = create_dataset_vae._feature_engineering()
 
-    X_orig = create_dataset_vae.X_train_raw
-
-    zeros = np.zeros((95, 304))
-    X_orig = np.concatenate((X_orig, zeros), axis=0)
-
-    # Generate synthetic data using HiTGen
-    # z_mean, z_log_vars, z = model.encoder.predict(gen_data)
-
-    # epsilon = np.random.normal(size=z_mean.shape)
-    # z_sampled = z_mean + np.exp(0.5 * z_log_vars) * epsilon
-    new_latent_samples = np.random.normal(size=(300, 24, 304))
-
-    generated_data = model.decoder.predict(new_latent_samples)
-
-    generated_data = detemporalize(
-        generated_data,
-        STRIDE_TEMPORALIZE,
+    data_mask_temporalized = TemporalizeGenerator(
+        data,
+        create_dataset_vae.mask,
+        window_size=WINDOW_SIZE,
+        stride=create_dataset_vae.stride_temporalize,
+        batch_size=BATCH_SIZE,
+        shuffle=SHUFFLE,
     )
+
+    synth_hitgen = create_dataset_vae.predict(
+        model,
+        samples=data_mask_temporalized.indices.shape[0],
+        window_size=WINDOW_SIZE,
+        latent_dim=LATENT_DIM,
+    )
+
+    synthetic_hitgen_long = create_dataset_vae.create_dataset_long_form(synth_hitgen)
 
     # plot_generated_vs_original(
     #     dec_pred_hat=generated_data,
@@ -96,15 +100,8 @@ if __name__ == "__main__":
     # )
 
     # TimeGAN synthetic data generation
-    time_gan_data = pd.DataFrame(
-        create_dataset_vae.dataset["train"]["data"],
-        columns=[
-            f"series_{j}"
-            for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
-        ],
-    )
     timegan = train_timegan_model(
-        time_gan_data,
+        data,
         gan_args=ModelParameters(
             batch_size=128,
             lr=5e-4,
@@ -116,59 +113,33 @@ if __name__ == "__main__":
         train_args=TrainParameters(
             epochs=5000,
             sequence_length=WINDOW_SIZE,
-            number_sequences=create_dataset_vae.s,
+            number_sequences=data.shape[1],
         ),
-        model_path=f"assets/model_weights/timegan_{DATASET}.pkl",
+        model_path=f"assets/model_weights/timegan_{DATASET}_{DATASET_GROUP}.pkl",
     )
-    num_samples = len(time_gan_data) + 13
-    synth_timegan_data = generate_synthetic_samples(timegan, num_samples, detemporalize)
+    synth_timegan_data = generate_synthetic_samples(
+        timegan, data.shape[0], detemporalize
+    )
 
     # Benchmark evaluation
-    benchmark_data_dict = {"TimeGAN": synth_timegan_data}
+    original_data_long = create_dataset_vae.original_data_long
 
-    original_data = pd.DataFrame(
-        create_dataset_vae.dataset["predict"]["data"],
-        columns=[
-            f"series_{j}"
-            for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
-        ],
-    )
-    original_data["ds"] = create_dataset_vae.dataset["dates"]
-    melted_original_data = original_data.melt(
-        id_vars=["ds"], var_name="unique_id", value_name="y"
+    synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
+        synth_timegan_data
     )
 
-    synthetic_data = pd.DataFrame(
-        generated_data,
-        columns=[
-            f"series_{j}"
-            for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
-        ],
-    )
-    synthetic_data["ds"] = create_dataset_vae.dataset["dates"]
-    melted_synthetic_data = synthetic_data.melt(
-        id_vars=["ds"], var_name="unique_id", value_name="y"
+    score_hitgen = compute_discriminative_score(
+        original_data_long, synthetic_hitgen_long, "M", DATASET, DATASET_GROUP, 0.0
     )
 
-    melted_synthetic_data.to_csv(
-        "assets/results/hi2gen_synthetic_data.csv", index=False
+    print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
+
+    print("\nComputing discriminative score for TimeGAN synthetic data...")
+    score_timegan = compute_discriminative_score(
+        original_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
     )
 
-    synthetic_timegan_data = pd.DataFrame(
-        synth_timegan_data,
-        columns=[
-            f"series_{j}"
-            for j in range(create_dataset_vae.dataset["train"]["data"].shape[1])
-        ],
-    )
-    synthetic_timegan_data["ds"] = create_dataset_vae.dataset["dates"]
-    melted_synthetic_timegan_data = synthetic_timegan_data.melt(
-        id_vars=["ds"], var_name="unique_id", value_name="y"
-    )
-
-    melted_synthetic_timegan_data.to_csv(
-        "assets/results/timegan_synthetic_data.csv", index=False
-    )
+    print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
 
     # results = evaluate_discriminative_scores(
     #     X_orig_scaled=X_orig_scaled,
