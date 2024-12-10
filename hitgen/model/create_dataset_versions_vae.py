@@ -484,7 +484,7 @@ class CreateTransformedVersionsCVAE:
         Objective function for Optuna to tune the CVAE hyperparameters.
         """
 
-        latent_dim = trial.suggest_int("latent_dim", 8, 64, step=8)
+        latent_dim = trial.suggest_int("latent_dim", 8, 512, step=8)
         window_size = trial.suggest_int("window_size", 6, 24)
         patience = trial.suggest_int("patience", 90, 100, step=5)
         kl_weight = trial.suggest_float("kl_weight", 0.05, 1)
