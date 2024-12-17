@@ -23,6 +23,7 @@ from hitgen.benchmarks.timegan import (
     train_timegan_with_best_params,
     hyper_tune_timegan,
 )
+from hitgen.feature_engineering.tsfeatures import compute_feature_loss
 
 
 if __name__ == "__main__":
@@ -75,7 +76,7 @@ if __name__ == "__main__":
 
     # fit
     model, history, _ = create_dataset_vae.fit(latent_dim=LATENT_DIM, epochs=EPOCHS)
-    # plot_loss(history)
+    plot_loss(history)
 
     data = create_dataset_vae._feature_engineering()
 
