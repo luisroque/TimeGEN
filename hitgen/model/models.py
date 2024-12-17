@@ -2,8 +2,11 @@ from keras import layers
 from keras import backend as K
 from tensorflow import keras
 import tensorflow as tf
+import pandas as pd
 from tensorflow.keras.utils import Sequence
-from tensorflow.keras.utils import get_custom_objects
+from tsfeatures import tsfeatures
+from sklearn.metrics.pairwise import cosine_similarity
+from keras.regularizers import l2
 
 
 def custom_relu_linear_saturation(x):
@@ -228,7 +231,7 @@ class CVAE(keras.Model):
         Returns:
             tuple: total_loss, reconstruction_loss, kl_loss, tcn_loss, sem_loss.
         """
-        reconstruction_loss = tf.keras.losses.MeanAbsoluteError()(inp_data, pred)
+        reconstruction_loss = tf.keras.losses.MeanSquaredError()(inp_data, pred)
         kl_loss = -0.5 * K.mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
         total_loss = reconstruction_loss + self.kl_weight * kl_loss
 
@@ -512,9 +515,19 @@ def decoder(
 
         final_output += backcast
 
-    final_output = layers.TimeDistributed(
-        layers.Dense(output_shape[1], activation="linear")
-    )(final_output)
+    # final_output = layers.TimeDistributed(
+    #     layers.Dense(output_shape[1], activation="linear")
+    # )(final_output)
+
+    out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_output)
+    out = layers.Dense(
+        output_shape[0] * output_shape[1],
+        kernel_regularizer=l2(0.001),
+        name="dense_output_CVAE",
+    )(out)
+    out = layers.Reshape(
+        (output_shape[0], output_shape[1]), name="reshape_final_output_CVAE"
+    )(out)
 
     # apply mask to the output
     final_output = layers.Multiply(name="masked_output")([final_output, mask_input])

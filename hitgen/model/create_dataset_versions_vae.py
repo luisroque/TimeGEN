@@ -314,11 +314,7 @@ class CreateTransformedVersionsCVAE:
             noise_scale_init=self.noise_scale_init,
         )
 
-        cvae = CVAE(
-            encoder,
-            decoder,
-            kl_weight_initial=self.kl_weight_init,
-        )
+        cvae = CVAE(encoder, decoder, kl_weight_initial=self.kl_weight_init)
         cvae.compile(
             optimizer=keras.optimizers.legacy.Adam(learning_rate=learning_rate),
             metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
