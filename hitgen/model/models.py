@@ -234,7 +234,7 @@ class CVAE(keras.Model):
 
         feature_loss = compute_feature_loss(inp_data, pred)
         kl_loss = -0.5 * K.mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
-        total_loss = reconstruction_loss + feature_loss + self.kl_weight * kl_loss
+        total_loss = reconstruction_loss + 0.5 * feature_loss + self.kl_weight * kl_loss
 
         return total_loss, reconstruction_loss, feature_loss, kl_loss
 
