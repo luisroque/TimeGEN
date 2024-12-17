@@ -10,7 +10,6 @@ def plot_loss(history_dict):
     # Total Loss
     plt.subplot(2, 1, 1)
     plt.plot(history_dict["loss"], label="Training Loss")
-    # plt.plot(history_dict["val_loss"], label="Validation Loss")
     plt.title("Total Loss")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
@@ -19,10 +18,15 @@ def plot_loss(history_dict):
     # Reconstruction Loss
     plt.subplot(2, 1, 2)
     plt.plot(history_dict["reconstruction_loss"], label="Training Reconstruction Loss")
-    # plt.plot(
-    #     history_dict["val_reconstruction_loss"], label="Validation Reconstruction Loss"
-    # )
     plt.title("Reconstruction Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+
+    # Feature Loss
+    plt.subplot(2, 1, 2)
+    plt.plot(history_dict["feature_loss"], label="Training feature Loss")
+    plt.title("Feature Loss")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.legend()
@@ -30,7 +34,6 @@ def plot_loss(history_dict):
     # KL Loss
     plt.figure(figsize=(12, 4))
     plt.plot(history_dict["kl_loss"], label="Training KL Loss")
-    # plt.plot(history_dict["val_kl_loss"], label="Validation KL Loss")
     plt.title("KL Divergence Loss")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")

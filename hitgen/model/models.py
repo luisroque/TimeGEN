@@ -2,11 +2,9 @@ from keras import layers
 from keras import backend as K
 from tensorflow import keras
 import tensorflow as tf
-import pandas as pd
 from tensorflow.keras.utils import Sequence
-from tsfeatures import tsfeatures
-from sklearn.metrics.pairwise import cosine_similarity
 from keras.regularizers import l2
+from hitgen.feature_engineering.tsfeatures import compute_feature_loss
 
 
 def custom_relu_linear_saturation(x):
@@ -206,6 +204,7 @@ class CVAE(keras.Model):
         self.reconstruction_loss_tracker = keras.metrics.Mean(
             name="reconstruction_loss"
         )
+        self.feature_loss_tracker = keras.metrics.Mean(name="feature_loss")
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
 
     def call(self, inputs, training=None, mask=None):
@@ -232,10 +231,12 @@ class CVAE(keras.Model):
             tuple: total_loss, reconstruction_loss, kl_loss, tcn_loss, sem_loss.
         """
         reconstruction_loss = tf.keras.losses.MeanSquaredError()(inp_data, pred)
-        kl_loss = -0.5 * K.mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
-        total_loss = reconstruction_loss + self.kl_weight * kl_loss
 
-        return total_loss, reconstruction_loss, kl_loss
+        feature_loss = compute_feature_loss(inp_data, pred)
+        kl_loss = -0.5 * K.mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+        total_loss = reconstruction_loss + feature_loss + self.kl_weight * kl_loss
+
+        return total_loss, reconstruction_loss, feature_loss, kl_loss
 
     def train_step(self, data):
         batch_data = data[..., 0]
@@ -245,7 +246,7 @@ class CVAE(keras.Model):
             z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
             pred = self.decoder([z, batch_mask])
 
-            total_loss, reconstruction_loss, kl_loss = self.compute_loss(
+            total_loss, reconstruction_loss, feature_loss, kl_loss = self.compute_loss(
                 batch_data, pred, z_mean, z_log_var
             )
 
@@ -254,11 +255,13 @@ class CVAE(keras.Model):
 
         self.total_loss_tracker.update_state(total_loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
+        self.feature_loss_tracker.update_state(feature_loss)
         self.kl_loss_tracker.update_state(kl_loss)
 
         return {
             "loss": self.total_loss_tracker.result(),
             "reconstruction_loss": self.reconstruction_loss_tracker.result(),
+            "feature_loss": self.feature_loss_tracker.result(),
             "kl_loss": self.kl_loss_tracker.result(),
         }
 
@@ -269,13 +272,14 @@ class CVAE(keras.Model):
         z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
         pred = self.decoder([z, batch_mask])
 
-        total_loss, reconstruction_loss, kl_loss = self.compute_loss(
+        total_loss, reconstruction_loss, feature_loss, kl_loss = self.compute_loss(
             batch_data, pred, z_mean, z_log_var
         )
 
         return {
             "loss": total_loss,
             "reconstruction_loss": reconstruction_loss,
+            "feature_loss": feature_loss,
             "kl_loss": kl_loss,
         }
 
