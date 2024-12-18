@@ -14,6 +14,7 @@ from hitgen.feature_engineering.feature_transformations import detemporalize
 
 def train_timegan_model(train_data, gan_args, train_args, model_path):
     if os.path.exists(model_path):
+        print(f"Loading existing model from {model_path}")
         synth = TimeSeriesSynthesizer.load(model_path)
     else:
         synth = TimeSeriesSynthesizer(modelname="timegan", model_parameters=gan_args)

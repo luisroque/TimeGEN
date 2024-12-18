@@ -483,7 +483,8 @@ class CreateTransformedVersionsCVAE:
         dataset_name,
         dataset_group,
         loss,
-        num_iterations=5,
+        num_iterations=2,
+        generate_feature_plot=False,
     ):
         scores = []
         for i in range(num_iterations):
@@ -494,6 +495,7 @@ class CreateTransformedVersionsCVAE:
                 dataset_name,
                 dataset_group,
                 loss,
+                generate_feature_plot=generate_feature_plot,
             )
             scores.append(score)
 
@@ -505,8 +507,8 @@ class CreateTransformedVersionsCVAE:
         Objective function for Optuna to tune the CVAE hyperparameters.
         """
 
-        latent_dim = trial.suggest_int("latent_dim", 8, 512, step=8)
-        window_size = trial.suggest_int("window_size", 6, 24)
+        latent_dim = trial.suggest_int("latent_dim", 8, 256, step=8)
+        # window_size = trial.suggest_int("window_size", 6, 24)
         patience = trial.suggest_int("patience", 90, 100, step=5)
         kl_weight = trial.suggest_float("kl_weight", 0.05, 1)
         n_blocks = trial.suggest_int("n_blocks", 1, 5)
@@ -517,23 +519,26 @@ class CreateTransformedVersionsCVAE:
         batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
         epochs = trial.suggest_int("epochs", 1, 2000, step=100)
         learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
-        bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
-        shuffle = trial.suggest_categorical("shuffle", [True, False])
+        # bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
+        # shuffle = trial.suggest_categorical("shuffle", [True, False])
         noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
+
+        bi_rnn = True
+        shuffle = True
 
         data = self._feature_engineering()
 
         data_mask_temporalized = TemporalizeGenerator(
             data,
             self.mask,
-            window_size=window_size,
+            window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=batch_size,
             shuffle=shuffle,
         )
 
         encoder, decoder = get_CVAE(
-            window_size=window_size,
+            window_size=self.window_size,
             n_series=self.s,
             latent_dim=latent_dim,
             bi_rnn=bi_rnn,
@@ -571,7 +576,7 @@ class CreateTransformedVersionsCVAE:
         synthetic_data = self.predict(
             cvae,
             samples=data_mask_temporalized.indices.shape[0],
-            window_size=window_size,
+            window_size=self.window_size,
             latent_dim=latent_dim,
         )
         synthetic_data_long = self.create_dataset_long_form(synthetic_data)
@@ -585,6 +590,7 @@ class CreateTransformedVersionsCVAE:
             self.dataset_name,
             self.dataset_group,
             loss,
+            generate_feature_plot=False,
         )
 
         self.update_best_scores(
@@ -592,7 +598,7 @@ class CreateTransformedVersionsCVAE:
             synthetic_data_long,
             score,
             latent_dim,
-            window_size,
+            self.window_size,
             patience,
             kl_weight,
             n_blocks,

@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from joblib import Parallel, delayed
+from statsmodels.tsa.seasonal import seasonal_decompose
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
 from hitgen.model.models import (
     TemporalizeGenerator,
@@ -162,43 +163,88 @@ if __name__ == "__main__":
     plt.show()
 
     # TimeGAN synthetic data generation
+
+    def run_timegan(target_df, dataset, dataset_group, unique_id):
+
+        hyperparameter_sets = [
+            {
+                "gan_args": ModelParameters(
+                    batch_size=16,
+                    lr=2e-4,
+                    noise_dim=16,
+                    layers_dim=32,
+                    latent_dim=32,
+                ),
+            },
+            {
+                "gan_args": ModelParameters(
+                    batch_size=32,
+                    lr=1e-4,
+                    noise_dim=8,
+                    layers_dim=64,
+                    latent_dim=64,
+                ),
+            },
+            {
+                "gan_args": ModelParameters(
+                    batch_size=8,
+                    lr=5e-4,
+                    noise_dim=32,
+                    layers_dim=16,
+                    latent_dim=16,
+                ),
+            },
+        ]
+
+        for idx, params in enumerate(hyperparameter_sets):
+            try:
+                print(f"Trying hyperparameter set {idx + 1}")
+                timegan = train_timegan_model(
+                    target_df,
+                    gan_args=params["gan_args"],
+                    train_args=TrainParameters(
+                        epochs=1000, sequence_length=WINDOW_SIZE, number_sequences=4
+                    ),
+                    model_path=f"assets/model_weights/timegan/timegan_{dataset}_{dataset_group}_{unique_id}.pkl",
+                )
+                print(f"Training successful with hyperparameter set {idx + 1}")
+                break
+            except Exception as e:
+                print(f"Failed with hyperparameter set {idx + 1}: {e}")
+        return timegan
+
     def train_and_generate_synthetic(
         unique_id, data, dataset, dataset_group, window_size
     ):
         print(f"Training TimeGAN for time series: {unique_id}")
 
-        # ts_data = data[data["unique_id"] == unique_id]
+        ts_data = data[data["unique_id"] == unique_id]
 
-        ts_data = data[data["unique_id"].isin(["m1", "m100", "m101", "m104"])]
-        ts_data["unique_id"] = "m1"
-        ts_data["ds"] = np.arange(ts_data.shape[0])
+        # ts_data = data[data["unique_id"].isin(["m1", "m100", "m101", "m104"])]
+        # ts_data["unique_id"] = "m1"
+        # ts_data["ds"] = np.arange(ts_data.shape[0])
 
         target_df = ts_data.pivot(index="ds", columns="unique_id", values="y")
         target_df.columns.name = None
         target_df = target_df.reset_index(drop=True)
+
+        # decompose to make it multivariate
+        result = seasonal_decompose(target_df, model="additive", period=12)
+
+        target_df["trend"] = result.trend
+        target_df["seasonal"] = result.seasonal
+        target_df["residual"] = result.resid
 
         scaler = MinMaxScaler()
         scaled_target_df = pd.DataFrame(
             scaler.fit_transform(target_df), columns=target_df.columns
         )
 
+        scaled_target_df.fillna(0, inplace=True)
+
         os.makedirs("assets/model_weights/timegan/", exist_ok=True)
 
-        timegan = train_timegan_model(
-            scaled_target_df,
-            gan_args=ModelParameters(
-                batch_size=32,
-                lr=2e-4,
-                noise_dim=32,
-                layers_dim=128,
-                latent_dim=128,
-                gamma=1,
-            ),
-            train_args=TrainParameters(
-                epochs=1000, sequence_length=window_size, number_sequences=1
-            ),
-            model_path=f"assets/model_weights/timegan/timegan_{dataset}_{dataset_group}_{unique_id}.pkl",
-        )
+        timegan = run_timegan(scaled_target_df, dataset, dataset_group, unique_id)
 
         synth_scaled_data = generate_synthetic_samples(
             timegan, ts_data.shape[0] - WINDOW_SIZE + 1, detemporalize
@@ -208,7 +254,6 @@ if __name__ == "__main__":
             scaler.inverse_transform(synth_scaled_data), columns=target_df.columns
         )
 
-        # Convert synthetic data to DataFrame
         synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
 
         plot_dir = "assets/plots/timegan/"
@@ -216,7 +261,6 @@ if __name__ == "__main__":
 
         import matplotlib.pyplot as plt
 
-        # Plot the original vs. synthetic series
         plt.figure(figsize=(10, 6))
         plt.plot(
             target_df[unique_id],
@@ -237,7 +281,7 @@ if __name__ == "__main__":
         plt.savefig(plot_path, dpi=300)
         plt.close()
 
-        return synth_timegan_data
+        return synth_timegan_data[unique_id]
 
     # parallel timegan training and synthetic data generation
     # synth_timegan_data_all = Parallel(n_jobs=6)(
@@ -246,25 +290,25 @@ if __name__ == "__main__":
     #     )
     #     for ts in original_data_long["unique_id"].unique()
     # )
-    # synth_timegan_data_all = []
-    # for ts in original_data_long["unique_id"].unique():
-    #     synth_timegan_data_all.append(
-    #         train_and_generate_synthetic(
-    #             ts, original_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
-    #         )
-    #     )
-    #
-    # best_params = hyper_tune_timegan(
-    #     data, DATASET, DATASET_GROUP, window_size=24, n_trials=50
-    # )
-    # final_model = train_timegan_with_best_params(
-    #     data, best_params, DATASET, DATASET_GROUP, window_size=24
-    # )
+    synth_timegan_data_all = []
+    for ts in original_data_long["unique_id"].unique():
+        synth_timegan_data_all.append(
+            train_and_generate_synthetic(
+                ts, original_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
+            )
+        )
 
-    # print("Transforming synthetic TimeGAN data into long form...")
-    # synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
-    #     synth_timegan_data_all
-    # )
+    best_params = hyper_tune_timegan(
+        data, DATASET, DATASET_GROUP, window_size=24, n_trials=50
+    )
+    final_model = train_timegan_with_best_params(
+        data, best_params, DATASET, DATASET_GROUP, window_size=24
+    )
+
+    print("Transforming synthetic TimeGAN data into long form...")
+    synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
+        synth_timegan_data_all
+    )
 
     print("\nComputing discriminative score for HiTGen synthetic data...")
     score_hitgen = compute_discriminative_score(
@@ -272,11 +316,11 @@ if __name__ == "__main__":
     )
     print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
 
-    # print("\nComputing discriminative score for TimeGAN synthetic data...")
-    # score_timegan = compute_discriminative_score(
-    #     original_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
-    # )
-    # print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
+    print("\nComputing discriminative score for TimeGAN synthetic data...")
+    score_timegan = compute_discriminative_score(
+        original_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
+    )
+    print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
 
     # results = evaluate_discriminative_scores(
     #     X_orig_scaled=X_orig_scaled,
