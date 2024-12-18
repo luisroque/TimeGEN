@@ -65,7 +65,13 @@ def plot_feature_importance(
 
 
 def compute_discriminative_score(
-    original_data, synthetic_data, freq, dataset_name, dataset_group, loss
+    original_data,
+    synthetic_data,
+    freq,
+    dataset_name,
+    dataset_group,
+    loss,
+    generate_feature_plot=True,
 ):
     train_idx, test_idx = split_train_test(original_data)
 
@@ -121,8 +127,14 @@ def compute_discriminative_score(
     feature_importances = classifier.feature_importances_
     score = f1_score(y_test, y_pred)
     print("F1 score:", score)
-    plot_feature_importance(
-        X_train.columns, feature_importances, score, loss, dataset_name, dataset_group
-    )
+    if generate_feature_plot:
+        plot_feature_importance(
+            X_train.columns,
+            feature_importances,
+            score,
+            loss,
+            dataset_name,
+            dataset_group,
+        )
 
     return score
