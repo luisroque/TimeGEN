@@ -23,14 +23,6 @@ def plot_loss(history_dict):
     plt.ylabel("Loss")
     plt.legend()
 
-    # Feature Loss
-    plt.subplot(2, 1, 2)
-    plt.plot(history_dict["feature_loss"], label="Training feature Loss")
-    plt.title("Feature Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.legend()
-
     # KL Loss
     plt.figure(figsize=(12, 4))
     plt.plot(history_dict["kl_loss"], label="Training KL Loss")

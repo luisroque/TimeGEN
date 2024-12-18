@@ -96,7 +96,22 @@ if __name__ == "__main__":
         latent_dim=LATENT_DIM,
     )
 
-    ######## GENERATE more samples into the future
+    # generate more samples into the future to check on overfitting
+    # new_latent_samples = np.random.normal(
+    #     size=(
+    #         data_mask_temporalized.indices.shape[0] + WINDOW_SIZE,
+    #         WINDOW_SIZE,
+    #         LATENT_DIM,
+    #     )
+    # )
+    # n_series = data.shape[1]
+    # future_mask = tf.ones((WINDOW_SIZE, n_series), dtype=tf.float32)
+    #
+    # mask = tf.concat([create_dataset_vae.mask, future_mask], axis=0)
+    # mask_temporalized = create_dataset_vae.temporalize(mask, WINDOW_SIZE)
+    # generated_data = model.decoder.predict([new_latent_samples, mask_temporalized])
+    #
+    # synth_hitgen = detemporalize(generated_data)
 
     synthetic_hitgen_long = create_dataset_vae.create_dataset_long_form(synth_hitgen)
 
@@ -152,11 +167,11 @@ if __name__ == "__main__":
     ):
         print(f"Training TimeGAN for time series: {unique_id}")
 
-        ts_data = data[data["unique_id"] == unique_id]
+        # ts_data = data[data["unique_id"] == unique_id]
 
-        # ts_data = data[data["unique_id"].isin(["m1", "m100", "m101", "m104"])]
-        # ts_data["unique_id"] = "m1"
-        # ts_data["ds"] = np.arange(ts_data.shape[0])
+        ts_data = data[data["unique_id"].isin(["m1", "m100", "m101", "m104"])]
+        ts_data["unique_id"] = "m1"
+        ts_data["ds"] = np.arange(ts_data.shape[0])
 
         target_df = ts_data.pivot(index="ds", columns="unique_id", values="y")
         target_df.columns.name = None
@@ -172,7 +187,7 @@ if __name__ == "__main__":
         timegan = train_timegan_model(
             scaled_target_df,
             gan_args=ModelParameters(
-                batch_size=8,
+                batch_size=32,
                 lr=2e-4,
                 noise_dim=32,
                 layers_dim=128,
@@ -180,7 +195,7 @@ if __name__ == "__main__":
                 gamma=1,
             ),
             train_args=TrainParameters(
-                epochs=5000, sequence_length=window_size, number_sequences=1
+                epochs=1000, sequence_length=window_size, number_sequences=1
             ),
             model_path=f"assets/model_weights/timegan/timegan_{dataset}_{dataset_group}_{unique_id}.pkl",
         )
@@ -231,39 +246,37 @@ if __name__ == "__main__":
     #     )
     #     for ts in original_data_long["unique_id"].unique()
     # )
-    synth_timegan_data_all = []
-    for ts in original_data_long["unique_id"].unique():
-        synth_timegan_data_all.append(
-            train_and_generate_synthetic(
-                ts, original_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
-            )
-        )
+    # synth_timegan_data_all = []
+    # for ts in original_data_long["unique_id"].unique():
+    #     synth_timegan_data_all.append(
+    #         train_and_generate_synthetic(
+    #             ts, original_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
+    #         )
+    #     )
+    #
+    # best_params = hyper_tune_timegan(
+    #     data, DATASET, DATASET_GROUP, window_size=24, n_trials=50
+    # )
+    # final_model = train_timegan_with_best_params(
+    #     data, best_params, DATASET, DATASET_GROUP, window_size=24
+    # )
 
-    best_params = hyper_tune_timegan(
-        data, DATASET, DATASET_GROUP, window_size=24, n_trials=50
-    )
-    final_model = train_timegan_with_best_params(
-        data, best_params, DATASET, DATASET_GROUP, window_size=24
-    )
+    # print("Transforming synthetic TimeGAN data into long form...")
+    # synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
+    #     synth_timegan_data_all
+    # )
 
-    # Combine synthetic datasets into long form
-    print("Transforming synthetic TimeGAN data into long form...")
-    synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
-        synth_timegan_data_all
-    )
-
-    # Compute discriminative scores
     print("\nComputing discriminative score for HiTGen synthetic data...")
     score_hitgen = compute_discriminative_score(
         original_data_long, synthetic_hitgen_long, "M", DATASET, DATASET_GROUP, 0.0
     )
     print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
 
-    print("\nComputing discriminative score for TimeGAN synthetic data...")
-    score_timegan = compute_discriminative_score(
-        original_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
-    )
-    print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
+    # print("\nComputing discriminative score for TimeGAN synthetic data...")
+    # score_timegan = compute_discriminative_score(
+    #     original_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
+    # )
+    # print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
 
     # results = evaluate_discriminative_scores(
     #     X_orig_scaled=X_orig_scaled,

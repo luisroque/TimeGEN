@@ -475,6 +475,31 @@ class CreateTransformedVersionsCVAE:
         else:
             print(f"Score is worse than the worse score in {scores_path}")
 
+    @staticmethod
+    def compute_mean_discriminative_score(
+        original_data,
+        synthetic_data,
+        column,
+        dataset_name,
+        dataset_group,
+        loss,
+        num_iterations=5,
+    ):
+        scores = []
+        for i in range(num_iterations):
+            score = compute_discriminative_score(
+                original_data,
+                synthetic_data,
+                column,
+                dataset_name,
+                dataset_group,
+                loss,
+            )
+            scores.append(score)
+
+        mean_score = np.mean(scores)
+        return mean_score
+
     def objective(self, trial):
         """
         Objective function for Optuna to tune the CVAE hyperparameters.
@@ -551,7 +576,9 @@ class CreateTransformedVersionsCVAE:
         )
         synthetic_data_long = self.create_dataset_long_form(synthetic_data)
 
-        score = compute_discriminative_score(
+        # compute the discriminative score x times to account
+        # for variability
+        score = self.compute_mean_discriminative_score(
             self.original_data_long,
             synthetic_data_long,
             "M",
