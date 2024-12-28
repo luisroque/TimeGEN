@@ -122,6 +122,7 @@ class CreateTransformedVersionsCVAE:
         (self.data, self.s, self.freq) = self.load_data(
             self.dataset_name, self.dataset_group
         )
+        self.s_train = None
         if window_size:
             self.window_size = window_size
         self.y = self.data
@@ -134,8 +135,12 @@ class CreateTransformedVersionsCVAE:
         self.features_input = (None, None, None)
         self._create_directories()
         # self._save_original_file()
-        self.original_data_long = None
         self.long_properties = {}
+        self.split_path = "assets/model_weights/data_split/data_split.json"
+        self.split_path_absolute = (
+            "assets/model_weights/data_split/data_split_absolute.json"
+        )
+        self.unique_ids = self.df["unique_id"].unique()
 
     @staticmethod
     def load_data(dataset_name, group):
@@ -230,39 +235,129 @@ class CreateTransformedVersionsCVAE:
         # Create directory to store transformed datasets if does not exist
         Path(f"{self.input_dir}data").mkdir(parents=True, exist_ok=True)
 
-    def _feature_engineering(
+    def _load_or_create_split(
         self,
-    ) -> pd.DataFrame:
-        """Apply preprocessing to raw time series."""
-        # sort the data by 'unique_id' and 'ds' to ensure chronological order for each time series
-        self.df = self.df.sort_values(by=["unique_id", "ds"])
+        train_test_split: float,
+        train_test_absolute: int,
+    ) -> (np.ndarray, np.ndarray):
+        """Load split from file if it exists, otherwise create and save a new split."""
+        if os.path.exists(self.split_path):
+            with open(self.split_path, "r") as f:
+                split_data = json.load(f)
+                return np.array(split_data["train_ids"]), np.array(
+                    split_data["test_ids"]
+                )
 
-        x_train_wide = self.df.pivot(index="ds", columns="unique_id", values="y")
+        # create new split
+        np.random.shuffle(self.unique_ids)
+        train_size = int(len(self.unique_ids) * train_test_split)
+        if train_test_absolute:
+            train_ids = self.unique_ids[:train_test_absolute]
+            split_path = self.split_path
+        else:
+            train_ids = self.unique_ids[:train_size]
+            split_path = self.split_path_absolute
 
-        self.long_properties["ds"] = x_train_wide.reset_index()["ds"].values
-        self.long_properties["unique_id"] = x_train_wide.columns.values
+        test_ids = self.unique_ids[train_size:]
+
+        os.makedirs(os.path.dirname(split_path), exist_ok=True)
+        with open(split_path, "w") as f:
+            json.dump(
+                {"train_ids": train_ids.tolist(), "test_ids": test_ids.tolist()}, f
+            )
+
+        return train_ids, test_ids
+
+    def _preprocess_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Sort and preprocess the data for feature engineering."""
+        df = df.sort_values(by=["unique_id", "ds"])
+        x_wide = df.pivot(index="ds", columns="unique_id", values="y")
+
+        self.long_properties["ds"] = x_wide.reset_index()["ds"].values
+        self.long_properties["unique_id"] = x_wide.columns.values
 
         # create mask before padding
-        mask_np = (~x_train_wide.isna()).astype(int).values
-        self.mask = tf.convert_to_tensor(mask_np, dtype=tf.float32)
+        mask = (~x_wide.isna()).astype(int)
 
-        # perform log returns directly, keeping nan values
-        # adding small coeff to avoid inf when applying the log
-        x_train_wide_log_returns = np.log(x_train_wide + 1)
-        x_train_wide_log_returns = x_train_wide_log_returns.diff()
+        # perform log returns
+        x_wide_log_returns = np.log(x_wide + 1)
+        x_wide_log_returns = x_wide_log_returns.diff()
 
-        # pad the data
-        x_train_wide_log_returns = x_train_wide_log_returns.fillna(0.0)
+        # padding
+        x_wide_log_returns = x_wide_log_returns.fillna(0.0)
 
-        self.original_data_long = x_train_wide_log_returns.reset_index().melt(
+        return x_wide_log_returns, mask
+
+    def _feature_engineering(
+        self, train_test_split=0.7, train_size_absolute=None
+    ) -> Tuple[
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+    ]:
+        """Apply preprocessing to raw time series and split into training and testing."""
+        x_wide_log_returns, mask_wide = self._preprocess_data(self.df)
+        x_long_log_returns = self.create_dataset_long_form(x_wide_log_returns)
+        mask_long = self.create_dataset_long_form(mask_wide)
+
+        train_ids, test_ids = self._load_or_create_split(
+            train_test_split, train_size_absolute
+        )
+
+        self.s_train = len(train_ids)
+
+        train_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(train_ids)]
+        mask_train = mask_long[mask_long["unique_id"].isin(train_ids)]
+        test_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(test_ids)]
+        mask_test = mask_long[mask_long["unique_id"].isin(test_ids)]
+        original_data = x_long_log_returns
+        original_mask = mask_long
+
+        x_train_wide = train_data.pivot(index="ds", columns="unique_id", values="y")
+        x_test_wide = test_data.pivot(index="ds", columns="unique_id", values="y")
+        x_original_wide = original_data.pivot(
+            index="ds", columns="unique_id", values="y"
+        )
+        mask_train_wide = mask_train.pivot(index="ds", columns="unique_id", values="y")
+        mask_test_wide = mask_test.pivot(index="ds", columns="unique_id", values="y")
+        self.mask_test_tf = tf.convert_to_tensor(
+            mask_test_wide.values, dtype=tf.float32
+        )
+        mask_original_wide = original_mask.pivot(
+            index="ds", columns="unique_id", values="y"
+        )
+
+        original_data_train_long = x_train_wide.reset_index().melt(
+            id_vars=["ds"], var_name="unique_id", value_name="y"
+        )
+        original_data_test_long = x_test_wide.reset_index().melt(
+            id_vars=["ds"], var_name="unique_id", value_name="y"
+        )
+        original_data_long = x_original_wide.reset_index().melt(
             id_vars=["ds"], var_name="unique_id", value_name="y"
         )
 
-        x_train_wide_log_returns = x_train_wide_log_returns.reset_index(drop=True)
+        self.X_train_raw = x_train_wide.reset_index(drop=True)
+        self.X_test_raw = x_test_wide.reset_index(drop=True)
+        self.X_orig_raw = x_test_wide.reset_index(drop=True)
 
-        self.X_train_raw = x_train_wide_log_returns
-
-        return x_train_wide_log_returns
+        return (
+            x_train_wide,
+            x_test_wide,
+            x_original_wide,
+            original_data_train_long,
+            original_data_test_long,
+            original_data_long,
+            mask_train_wide,
+            mask_test_wide,
+            mask_original_wide,
+        )
 
     @staticmethod
     def _generate_noise(self, n_batches, window_size):
@@ -295,11 +390,11 @@ class CreateTransformedVersionsCVAE:
     ) -> tuple[CVAE, dict, EarlyStopping]:
         """Training our CVAE"""
         # Prepare features
-        data = self._feature_engineering()
+        data_train, _, _, _, _, _, mask_train, _, _ = self._feature_engineering()
 
         data_mask_temporalized = TemporalizeGenerator(
-            data,
-            self.mask,
+            data_train,
+            mask_train,
             window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=self.batch_size,
@@ -308,7 +403,7 @@ class CreateTransformedVersionsCVAE:
 
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
-            n_series=data.shape[-1],
+            n_series=self.s_train,
             latent_dim=latent_dim,
             bi_rnn=self.bi_rnn,
             noise_scale_init=self.noise_scale_init,
@@ -526,11 +621,13 @@ class CreateTransformedVersionsCVAE:
         bi_rnn = False
         shuffle = True
 
-        data = self._feature_engineering()
+        train_data, _, _, original_data_train_long, _, _, train_mask, _, _ = (
+            self._feature_engineering()
+        )
 
         data_mask_temporalized = TemporalizeGenerator(
-            data,
-            self.mask,
+            train_data,
+            train_mask,
             window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=batch_size,
@@ -539,7 +636,7 @@ class CreateTransformedVersionsCVAE:
 
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
-            n_series=self.s,
+            n_series=self.s_train,
             latent_dim=latent_dim,
             bi_rnn=bi_rnn,
             noise_scale_init=noise_scale_init,
@@ -584,7 +681,7 @@ class CreateTransformedVersionsCVAE:
         # compute the discriminative score x times to account
         # for variability
         score = self.compute_mean_discriminative_score(
-            self.original_data_long,
+            original_data_train_long,
             synthetic_data_long,
             "M",
             self.dataset_name,
@@ -594,7 +691,7 @@ class CreateTransformedVersionsCVAE:
         )
 
         self.update_best_scores(
-            self.original_data_long,
+            original_data_train_long,
             synthetic_data_long,
             score,
             latent_dim,
@@ -621,7 +718,7 @@ class CreateTransformedVersionsCVAE:
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
-        data = self._feature_engineering()
+        data_train, _, _, _, _, _, mask_train, _, _ = self._feature_engineering()
 
         study = optuna.create_study(
             study_name="opt_vae", direction="minimize", load_if_exists=True
@@ -641,8 +738,8 @@ class CreateTransformedVersionsCVAE:
         print(f"Best Hyperparameters: {self.best_params}")
 
         data_mask_temporalized = TemporalizeGenerator(
-            data,
-            self.mask,
+            data_train,
+            mask_train,
             window_size=self.best_params["latent_dim"],
             stride=self.stride_temporalize,
             batch_size=self.best_params["batch_size"],
@@ -651,7 +748,7 @@ class CreateTransformedVersionsCVAE:
 
         encoder, decoder = get_CVAE(
             window_size=self.best_params["latent_dim"],
-            n_series=self.s,
+            n_series=self.s_train,
             latent_dim=self.best_params["latent_dim"],
             bi_rnn=self.best_params["bi_rnn"],
             noise_scale_init=self.best_params["noise_scale_init"],
@@ -701,15 +798,25 @@ class CreateTransformedVersionsCVAE:
         samples,
         window_size,
         latent_dim,
+        train_test_split=0.7,
+        train_size_absolute=None,
     ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """Predict original time series using VAE"""
         new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
-        mask_temporalized = self.temporalize(self.mask, window_size)
+        mask_temporalized = self.temporalize(self.mask_test_tf, window_size)
         generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
 
         X_hat = detemporalize(generated_data)
 
-        return X_hat
+        train_ids, test_ids = self._load_or_create_split(
+            train_test_split, train_size_absolute
+        )
+
+        X_hat_train = X_hat[X_hat["unique_id"].isin(train_ids)]
+        X_hat_test = X_hat[X_hat["unique_id"].isin(test_ids)]
+        X_hat_all = X_hat
+
+        return X_hat_train, X_hat_test, X_hat_all
 
     @staticmethod
     def temporalize(tensor_2d, window_size):
