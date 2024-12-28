@@ -79,10 +79,12 @@ if __name__ == "__main__":
     model, history, _ = create_dataset_vae.fit(latent_dim=LATENT_DIM, epochs=EPOCHS)
     plot_loss(history)
 
-    data = create_dataset_vae._feature_engineering()
+    _, _, original_data, train_data_long, test_data_long, original_data_long = (
+        create_dataset_vae._feature_engineering()
+    )
 
     data_mask_temporalized = TemporalizeGenerator(
-        data,
+        original_data,
         create_dataset_vae.mask,
         window_size=WINDOW_SIZE,
         stride=create_dataset_vae.stride_temporalize,
@@ -90,7 +92,7 @@ if __name__ == "__main__":
         shuffle=SHUFFLE,
     )
 
-    synth_hitgen = create_dataset_vae.predict(
+    _, synth_hitgen_test, _ = create_dataset_vae.predict(
         model,
         samples=data_mask_temporalized.indices.shape[0],
         window_size=WINDOW_SIZE,
@@ -123,8 +125,6 @@ if __name__ == "__main__":
     #     dataset_group=DATASET_GROUP,
     #     n_series=8,
     # )
-
-    original_data_long = create_dataset_vae.original_data_long
 
     import matplotlib.pyplot as plt
 
@@ -290,19 +290,29 @@ if __name__ == "__main__":
     #     )
     #     for ts in original_data_long["unique_id"].unique()
     # )
+
+    (
+        train_data,
+        test_data,
+        original_data,
+        train_data_long,
+        test_data_long,
+        original_data_long,
+    ) = create_dataset_vae._feature_engineering(train_size_absolute=25)
+
     synth_timegan_data_all = []
-    for ts in original_data_long["unique_id"].unique():
+    for ts in test_data_long["unique_id"].unique():
         synth_timegan_data_all.append(
             train_and_generate_synthetic(
-                ts, original_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
+                ts, test_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
             )
         )
 
     best_params = hyper_tune_timegan(
-        data, DATASET, DATASET_GROUP, window_size=24, n_trials=50
+        train_data_long, DATASET, DATASET_GROUP, window_size=24, n_trials=50
     )
     final_model = train_timegan_with_best_params(
-        data, best_params, DATASET, DATASET_GROUP, window_size=24
+        test_data_long, best_params, DATASET, DATASET_GROUP, window_size=24
     )
 
     print("Transforming synthetic TimeGAN data into long form...")
@@ -312,13 +322,13 @@ if __name__ == "__main__":
 
     print("\nComputing discriminative score for HiTGen synthetic data...")
     score_hitgen = compute_discriminative_score(
-        original_data_long, synthetic_hitgen_long, "M", DATASET, DATASET_GROUP, 0.0
+        test_data_long, synthetic_hitgen_long, "M", DATASET, DATASET_GROUP, 0.0
     )
     print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
 
     print("\nComputing discriminative score for TimeGAN synthetic data...")
     score_timegan = compute_discriminative_score(
-        original_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
+        test_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
     )
     print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
 
