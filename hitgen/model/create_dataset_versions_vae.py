@@ -680,13 +680,12 @@ class CreateTransformedVersionsCVAE:
 
         loss = min(history.history["loss"])
 
-        synthetic_data = self.predict_train(
+        synthetic_data_long = self.predict_train(
             cvae,
             samples=data_mask_temporalized.indices.shape[0],
             window_size=self.window_size,
             latent_dim=latent_dim,
         )
-        synthetic_data_long = self.create_dataset_long_form(synthetic_data)
 
         # compute the discriminative score x times to account
         # for variability
