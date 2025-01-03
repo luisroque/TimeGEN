@@ -42,10 +42,14 @@ if __name__ == "__main__":
     # BI_RNN = True
     # SHUFFLE = True
     SHUFFLE = True
-    BI_RNN = True
+    BI_RNN = False
     ANNEALING = False
     KL_WEIGHT_INIT = 0.1
     NOISE_SAMPLE_INIT = 0.05
+
+    SYNTHETIC_FILE_PATH = (
+        f"assets/model_weights/{DATASET}_{DATASET_GROUP}_synthetic_timegan_long.pkl"
+    )
 
     ###### M5
     # dataset = "m5"
@@ -73,26 +77,34 @@ if __name__ == "__main__":
     )
 
     # hypertuning
-    create_dataset_vae.hyper_tune_and_train()
+    # create_dataset_vae.hyper_tune_and_train()
 
     # fit
     model, history, _ = create_dataset_vae.fit(latent_dim=LATENT_DIM, epochs=EPOCHS)
     plot_loss(history)
 
-    _, _, original_data, train_data_long, test_data_long, original_data_long = (
-        create_dataset_vae._feature_engineering()
-    )
+    (
+        _,
+        _,
+        original_data,
+        train_data_long,
+        test_data_long,
+        original_data_long,
+        _,
+        _,
+        original_mask,
+    ) = create_dataset_vae._feature_engineering()
 
     data_mask_temporalized = TemporalizeGenerator(
         original_data,
-        create_dataset_vae.mask,
+        original_mask,
         window_size=WINDOW_SIZE,
         stride=create_dataset_vae.stride_temporalize,
         batch_size=BATCH_SIZE,
         shuffle=SHUFFLE,
     )
 
-    _, synth_hitgen_test, _ = create_dataset_vae.predict(
+    _, synth_hitgen_test_long, _ = create_dataset_vae.predict(
         model,
         samples=data_mask_temporalized.indices.shape[0],
         window_size=WINDOW_SIZE,
@@ -116,8 +128,6 @@ if __name__ == "__main__":
     #
     # synth_hitgen = detemporalize(generated_data)
 
-    synthetic_hitgen_long = create_dataset_vae.create_dataset_long_form(synth_hitgen)
-
     # plot_generated_vs_original(
     #     dec_pred_hat=generated_data,
     #     X_train_raw=X_orig,
@@ -128,7 +138,7 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
 
-    unique_ids = synthetic_hitgen_long["unique_id"].unique()[:4]
+    unique_ids = synth_hitgen_test_long["unique_id"].unique()[:4]
 
     fig, axes = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
     for idx, unique_id in enumerate(unique_ids):
@@ -136,8 +146,8 @@ if __name__ == "__main__":
         original_series = original_data_long[
             original_data_long["unique_id"] == unique_id
         ]
-        synthetic_series = synthetic_hitgen_long[
-            synthetic_hitgen_long["unique_id"] == unique_id
+        synthetic_series = synth_hitgen_test_long[
+            synth_hitgen_test_long["unique_id"] == unique_id
         ]
 
         ax.plot(
@@ -291,38 +301,47 @@ if __name__ == "__main__":
     #     for ts in original_data_long["unique_id"].unique()
     # )
 
-    (
-        train_data,
-        test_data,
-        original_data,
-        train_data_long,
-        test_data_long,
-        original_data_long,
-    ) = create_dataset_vae._feature_engineering(train_size_absolute=25)
+    # best_params = hyper_tune_timegan(
+    #     train_data_long, DATASET, DATASET_GROUP, window_size=24, n_trials=50
+    # )
+    # final_model = train_timegan_with_best_params(
+    #     test_data_long, best_params, DATASET, DATASET_GROUP, window_size=24
+    # )
 
-    synth_timegan_data_all = []
-    for ts in test_data_long["unique_id"].unique():
-        synth_timegan_data_all.append(
-            train_and_generate_synthetic(
-                ts, test_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
+    if os.path.exists(SYNTHETIC_FILE_PATH):
+        print("Synthetic TimeGAN data already exists. Loading the file...")
+        synthetic_timegan_long = pd.read_pickle(SYNTHETIC_FILE_PATH)
+    else:
+        print("Synthetic TimeGAN data not found. Generating new data...")
+        synth_timegan_data_all = []
+        count = 0
+        for ts in test_data_long["unique_id"].unique():
+            synth_timegan_data_all.append(
+                train_and_generate_synthetic(
+                    ts, test_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
+                )
             )
+            count += 1
+            print(
+                f"Generating synth data using TimeGAN for {ts}, which is {count}/{test_data_long['unique_id'].nunique()}"
+            )
+
+        synth_timegan_data_all_df = pd.concat(
+            synth_timegan_data_all, ignore_index=True, axis=1
         )
 
-    best_params = hyper_tune_timegan(
-        train_data_long, DATASET, DATASET_GROUP, window_size=24, n_trials=50
-    )
-    final_model = train_timegan_with_best_params(
-        test_data_long, best_params, DATASET, DATASET_GROUP, window_size=24
-    )
+        print("Transforming synthetic TimeGAN data into long form...")
+        synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
+            data=synth_timegan_data_all_df,
+            unique_ids=test_data_long["unique_id"].unique(),
+        )
 
-    print("Transforming synthetic TimeGAN data into long form...")
-    synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
-        synth_timegan_data_all
-    )
+        synthetic_timegan_long.to_pickle(SYNTHETIC_FILE_PATH)
+        print(f"Synthetic TimeGAN data saved to {SYNTHETIC_FILE_PATH}")
 
     print("\nComputing discriminative score for HiTGen synthetic data...")
     score_hitgen = compute_discriminative_score(
-        test_data_long, synthetic_hitgen_long, "M", DATASET, DATASET_GROUP, 0.0
+        test_data_long, synth_hitgen_test_long, "M", DATASET, DATASET_GROUP, 0.0
     )
     print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
 

@@ -162,10 +162,13 @@ class CreateTransformedVersionsCVAE:
         n_series = ds.nunique()["unique_id"]
         return ds, n_series, freq
 
-    def create_dataset_long_form(self, data):
+    def create_dataset_long_form(self, data, unique_ids=None):
         df = pd.DataFrame(data)
 
-        df.columns = self.long_properties["unique_id"]
+        if unique_ids is None:
+            df.columns = self.long_properties["unique_id"]
+        else:
+            df.columns = unique_ids
         df["ds"] = pd.date_range(
             self.long_properties["ds"][0],
             periods=data.shape[0],
@@ -173,6 +176,7 @@ class CreateTransformedVersionsCVAE:
         )
 
         data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
+
         return data_long
 
     # def preprocess_freq(self):
@@ -332,6 +336,9 @@ class CreateTransformedVersionsCVAE:
         mask_original_wide = original_mask.pivot(
             index="ds", columns="unique_id", values="y"
         )
+        self.mask_original_tf = tf.convert_to_tensor(
+            mask_original_wide.values, dtype=tf.float32
+        )
 
         original_data_train_long = x_train_wide.reset_index().melt(
             id_vars=["ds"], var_name="unique_id", value_name="y"
@@ -389,12 +396,11 @@ class CreateTransformedVersionsCVAE:
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
         """Training our CVAE"""
-        # Prepare features
-        data_train, _, _, _, _, _, mask_train, _, _ = self._feature_engineering()
+        _, _, original_data, _, _, _, _, _, original_mask = self._feature_engineering()
 
         data_mask_temporalized = TemporalizeGenerator(
-            data_train,
-            mask_train,
+            original_data,
+            original_mask,
             window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=self.batch_size,
@@ -403,7 +409,7 @@ class CreateTransformedVersionsCVAE:
 
         encoder, decoder = get_CVAE(
             window_size=self.window_size,
-            n_series=self.s_train,
+            n_series=self.s,
             latent_dim=latent_dim,
             bi_rnn=self.bi_rnn,
             noise_scale_init=self.noise_scale_init,
@@ -538,13 +544,19 @@ class CreateTransformedVersionsCVAE:
             "score": score,
         }
 
-        # if the list of scores is empty or the current score is better than the worst score
-        if (
-            not scores_data
-            or score < min([entry["score"] for entry in scores_data])
-            or len(scores_data) < 20
-        ):
+        added_score = False
 
+        # always add the score if there are fewer than 20 entries
+        if len(scores_data) < 20:
+            scores_data.append(new_score)
+            added_score = True
+
+        # if the list is full, add only if the score is better than the worst
+        elif score < max([entry["score"] for entry in scores_data]):
+            scores_data.append(new_score)
+            added_score = True
+
+        if added_score:
             plot_generated_vs_original(
                 dec_pred_hat=synthetic_data,
                 X_train_raw=original_data,
@@ -555,20 +567,15 @@ class CreateTransformedVersionsCVAE:
                 n_series=8,
             )
 
-            scores_data.append(new_score)
-            scores_data.sort(key=lambda x: x["score"])
+        scores_data.sort(key=lambda x: x["score"])
+        scores_data = scores_data[:20]
 
-            # keep only the top 20 scores
-            scores_data = scores_data[:20]
+        os.makedirs(os.path.dirname(scores_path), exist_ok=True)
+        with open(scores_path, "w") as f:
+            for score_entry in scores_data:
+                f.write(json.dumps(score_entry) + "\n")
 
-            os.makedirs(os.path.dirname(scores_path), exist_ok=True)
-            with open(scores_path, "w") as f:
-                for score_entry in scores_data:
-                    f.write(json.dumps(score_entry) + "\n")
-
-            print(f"Best scores updated and saved to {scores_path}")
-        else:
-            print(f"Score is worse than the worse score in {scores_path}")
+        print(f"Best scores updated and saved to {scores_path}")
 
     @staticmethod
     def compute_mean_discriminative_score(
@@ -803,7 +810,7 @@ class CreateTransformedVersionsCVAE:
     ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """Predict original time series using VAE"""
         new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
-        mask_temporalized = self.temporalize(self.mask_test_tf, window_size)
+        mask_temporalized = self.temporalize(self.mask_original_tf, window_size)
         generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
 
         X_hat = detemporalize(generated_data)
@@ -812,11 +819,13 @@ class CreateTransformedVersionsCVAE:
             train_test_split, train_size_absolute
         )
 
-        X_hat_train = X_hat[X_hat["unique_id"].isin(train_ids)]
-        X_hat_test = X_hat[X_hat["unique_id"].isin(test_ids)]
-        X_hat_all = X_hat
+        x_hat_long = self.create_dataset_long_form(X_hat)
 
-        return X_hat_train, X_hat_test, X_hat_all
+        X_hat_train_long = x_hat_long[x_hat_long["unique_id"].isin(train_ids)]
+        X_hat_test_long = x_hat_long[x_hat_long["unique_id"].isin(test_ids)]
+        X_hat_all_long = x_hat_long
+
+        return X_hat_train_long, X_hat_test_long, X_hat_all_long
 
     @staticmethod
     def temporalize(tensor_2d, window_size):
