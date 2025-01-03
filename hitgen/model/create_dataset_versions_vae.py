@@ -162,7 +162,7 @@ class CreateTransformedVersionsCVAE:
         n_series = ds.nunique()["unique_id"]
         return ds, n_series, freq
 
-    def create_dataset_long_form(self, data, unique_ids=None):
+    def create_dataset_long_form(self, data, unique_ids=None) -> pd.DataFrame:
         df = pd.DataFrame(data)
 
         if unique_ids is None:
@@ -329,6 +329,9 @@ class CreateTransformedVersionsCVAE:
             index="ds", columns="unique_id", values="y"
         )
         mask_train_wide = mask_train.pivot(index="ds", columns="unique_id", values="y")
+        self.mask_train_tf = tf.convert_to_tensor(
+            mask_train_wide.values, dtype=tf.float32
+        )
         mask_test_wide = mask_test.pivot(index="ds", columns="unique_id", values="y")
         self.mask_test_tf = tf.convert_to_tensor(
             mask_test_wide.values, dtype=tf.float32
@@ -677,7 +680,7 @@ class CreateTransformedVersionsCVAE:
 
         loss = min(history.history["loss"])
 
-        synthetic_data = self.predict(
+        synthetic_data = self.predict_train(
             cvae,
             samples=data_mask_temporalized.indices.shape[0],
             window_size=self.window_size,
@@ -826,6 +829,30 @@ class CreateTransformedVersionsCVAE:
         X_hat_all_long = x_hat_long
 
         return X_hat_train_long, X_hat_test_long, X_hat_all_long
+
+    def predict_train(
+        self,
+        cvae: CVAE,
+        samples,
+        window_size,
+        latent_dim,
+        train_test_split=0.7,
+        train_size_absolute=None,
+    ) -> pd.DataFrame:
+        """Predict original time series using VAE"""
+        new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
+        mask_temporalized = self.temporalize(self.mask_train_tf, window_size)
+        generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
+
+        X_hat = detemporalize(generated_data)
+
+        train_ids, test_ids = self._load_or_create_split(
+            train_test_split, train_size_absolute
+        )
+
+        X_hat_train_long = self.create_dataset_long_form(X_hat, train_ids)
+
+        return X_hat_train_long
 
     @staticmethod
     def temporalize(tensor_2d, window_size):
