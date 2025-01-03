@@ -28,7 +28,8 @@ def split_train_test(data, train_ratio=0.8, max_train_series=100, max_test_serie
 def filter_data_by_indices(data, indices, label_value):
     """Filters data by indices and assigns labels."""
     filtered_data = data[data["unique_id"].isin(indices)]
-    labels = pd.DataFrame([label_value] * len(indices))
+    unique_ids_n = filtered_data["unique_id"].nunique()
+    labels = pd.DataFrame([label_value] * unique_ids_n)
     return filtered_data, labels
 
 
