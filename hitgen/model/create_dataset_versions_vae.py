@@ -744,6 +744,9 @@ class CreateTransformedVersionsCVAE:
         ) as f:
             json.dump(self.best_params, f)
 
+        self.best_params["bi_rnn"] = False
+        self.best_params["shuffle"] = True
+
         print(f"Best Hyperparameters: {self.best_params}")
 
         data_mask_temporalized = TemporalizeGenerator(
