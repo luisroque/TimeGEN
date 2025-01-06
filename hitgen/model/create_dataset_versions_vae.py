@@ -550,7 +550,7 @@ class CreateTransformedVersionsCVAE:
         dataset_name,
         dataset_group,
         loss,
-        num_iterations=3,
+        num_iterations=1,
         generate_feature_plot=False,
     ):
         scores = []
@@ -563,7 +563,7 @@ class CreateTransformedVersionsCVAE:
                 dataset_name,
                 dataset_group,
                 loss,
-                samples=num_iterations,
+                samples=3,
                 generate_feature_plot=generate_feature_plot,
             )
             scores.append(score)

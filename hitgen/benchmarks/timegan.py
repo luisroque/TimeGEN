@@ -3,6 +3,7 @@ import json
 import optuna
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 from ydata_synthetic.synthesizers.timeseries import TimeSeriesSynthesizer
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
@@ -59,15 +60,11 @@ def train_and_generate_synthetic(unique_id, data, dataset, dataset_group, window
         timegan, ts_data.shape[0], detemporalize
     )
 
-    # Convert synthetic data to DataFrame
     synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
 
     plot_dir = "assets/plots/timegan/"
     os.makedirs(plot_dir, exist_ok=True)
 
-    import matplotlib.pyplot as plt
-
-    # Plot the original vs. synthetic series
     plt.figure(figsize=(10, 6))
     plt.plot(target_df[unique_id], label="Original", linestyle="-", marker="o")
     plt.plot(synthetic_df[unique_id], label="Synthetic", linestyle="--", marker="x")
@@ -93,7 +90,7 @@ def objective(trial, data_subset, dataset_name, dataset_group, window_size):
     gamma = trial.suggest_float("gamma", 0.1, 10)
     learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
     batch_size = trial.suggest_int("batch_size", 64, 256, step=64)
-    epochs = trial.suggest_int("epochs", 500, 5000, step=500)
+    epochs = trial.suggest_int("epochs", 100, 2000, step=100)
 
     gan_args = ModelParameters(
         batch_size=batch_size,
