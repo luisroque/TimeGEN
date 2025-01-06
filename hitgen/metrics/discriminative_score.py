@@ -1,5 +1,8 @@
+from typing import Tuple, List
 import pandas as pd
 import numpy as np
+import json
+import os
 from tsfeatures import tsfeatures
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report
@@ -9,23 +12,49 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 
-def split_train_test(data, train_ratio=0.8, max_train_series=100, max_test_series=20):
-    """Splits data indices into train and test indices with limits on the number of time series."""
+def split_train_test(
+    unique_ids, key, train_ratio=0.8, max_train_series=100, max_test_series=20
+):
+    """
+    Splits data indices into train and test indices, stores them in a JSON file,
+    and retrieves them by a numeric key.
+    """
+    split_dir = "assets/model_weights/data_split_discriminator"
+    os.makedirs(split_dir, exist_ok=True)
+    split_file = os.path.join(split_dir, "splits.json")
 
-    unique_ids = data["unique_id"].unique()
+    if os.path.exists(split_file):
+        with open(split_file, "r") as f:
+            splits = json.load(f)
+    else:
+        splits = {}
+
+    if str(key) in splits:
+        print(f"         Key {key} already exists. Skipping split creation.")
+        return splits[str(key)]["train_indices"], splits[str(key)]["test_indices"]
+
     n_series = len(unique_ids)
 
-    # limit the number of time series for training and testing
     n_series_train = min(int(train_ratio * n_series), max_train_series)
     n_series_test = min(n_series - n_series_train, max_test_series)
 
     train_indices = np.random.choice(unique_ids, size=n_series_train, replace=False)
     test_indices = np.setdiff1d(unique_ids, train_indices)[:n_series_test]
 
-    return train_indices, test_indices
+    splits[str(key)] = {
+        "train_indices": train_indices.tolist(),
+        "test_indices": test_indices.tolist(),
+    }
+
+    with open(split_file, "w") as f:
+        json.dump(splits, f, indent=4)
+
+    return splits[str(key)]["train_indices"], splits[str(key)]["test_indices"]
 
 
-def filter_data_by_indices(data, indices, label_value):
+def filter_data_by_indices(
+    data: pd.DataFrame, indices: List[str], label_value: int
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Filters data by indices and assigns labels."""
     filtered_data = data[data["unique_id"].isin(indices)]
     unique_ids_n = filtered_data["unique_id"].nunique()
@@ -66,6 +95,7 @@ def plot_feature_importance(
 
 
 def compute_discriminative_score(
+    unique_ids,
     original_data,
     synthetic_data,
     freq,
@@ -73,69 +103,78 @@ def compute_discriminative_score(
     dataset_group,
     loss,
     generate_feature_plot=True,
+    samples=1,
 ):
-    train_idx, test_idx = split_train_test(original_data)
-
+    scores = []
     FREQS = {"H": 24, "D": 1, "M": 12, "Q": 4, "W": 1, "Y": 1}
     freq = FREQS[freq]
+    for sample in range(samples):
+        print(f"    Sample {sample} of {samples}")
+        train_idx, test_idx = split_train_test(unique_ids, sample)
 
-    # original data
-    original_data_train, original_data_train_y = filter_data_by_indices(
-        original_data, train_idx, label_value=0
-    )
-    original_data_test, original_data_test_y = filter_data_by_indices(
-        original_data, test_idx, label_value=0
-    )
-
-    original_features_train = generate_features(original_data_train, freq=freq)
-    original_features_test = generate_features(original_data_test, freq=freq)
-
-    # synthetic data
-    synthetic_data_train, synthetic_data_train_y = filter_data_by_indices(
-        synthetic_data, train_idx, label_value=1
-    )
-    synthetic_data_test, synthetic_data_test_y = filter_data_by_indices(
-        synthetic_data, test_idx, label_value=1
-    )
-
-    synthetic_features_train = generate_features(synthetic_data_train, freq=freq)
-    synthetic_features_test = generate_features(synthetic_data_test, freq=freq)
-
-    # Classifier
-    X_train = pd.concat(
-        (original_features_train, synthetic_features_train), ignore_index=True
-    ).drop(columns=["unique_id"], errors="ignore")
-    y_train = pd.concat(
-        (original_data_train_y, synthetic_data_train_y), ignore_index=True
-    )
-
-    X_test = pd.concat(
-        (original_features_test, synthetic_features_test), ignore_index=True
-    ).drop(columns=["unique_id"], errors="ignore")
-    y_test = pd.concat((original_data_test_y, synthetic_data_test_y), ignore_index=True)
-
-    X_train, y_train = shuffle(X_train, y_train, random_state=42)
-    X_test, y_test = shuffle(X_test, y_test, random_state=42)
-
-    classifier = DecisionTreeClassifier()
-    classifier.fit(X_train, y_train)
-
-    y_pred = classifier.predict(X_test)
-    print("Classification Report:")
-    print(classification_report(y_test, y_pred))
-
-    # feature importance
-    feature_importances = classifier.feature_importances_
-    score = f1_score(y_test, y_pred)
-    print("F1 score:", score)
-    if generate_feature_plot:
-        plot_feature_importance(
-            X_train.columns,
-            feature_importances,
-            score,
-            loss,
-            dataset_name,
-            dataset_group,
+        # original data
+        original_data_train, original_data_train_y = filter_data_by_indices(
+            original_data, train_idx, label_value=0
+        )
+        original_data_test, original_data_test_y = filter_data_by_indices(
+            original_data, test_idx, label_value=0
         )
 
-    return score
+        original_features_train = generate_features(original_data_train, freq=freq)
+        original_features_test = generate_features(original_data_test, freq=freq)
+
+        # synthetic data
+        synthetic_data_train, synthetic_data_train_y = filter_data_by_indices(
+            synthetic_data, train_idx, label_value=1
+        )
+        synthetic_data_test, synthetic_data_test_y = filter_data_by_indices(
+            synthetic_data, test_idx, label_value=1
+        )
+
+        synthetic_features_train = generate_features(synthetic_data_train, freq=freq)
+        synthetic_features_test = generate_features(synthetic_data_test, freq=freq)
+
+        # Classifier
+        X_train = pd.concat(
+            (original_features_train, synthetic_features_train), ignore_index=True
+        ).drop(columns=["unique_id"], errors="ignore")
+        y_train = pd.concat(
+            (original_data_train_y, synthetic_data_train_y), ignore_index=True
+        )
+
+        X_test = pd.concat(
+            (original_features_test, synthetic_features_test), ignore_index=True
+        ).drop(columns=["unique_id"], errors="ignore")
+        y_test = pd.concat(
+            (original_data_test_y, synthetic_data_test_y), ignore_index=True
+        )
+
+        X_train, y_train = shuffle(X_train, y_train, random_state=42)
+        X_test, y_test = shuffle(X_test, y_test, random_state=42)
+
+        classifier = DecisionTreeClassifier()
+        classifier.fit(X_train, y_train)
+
+        y_pred = classifier.predict(X_test)
+        print("Classification Report:")
+        print(classification_report(y_test, y_pred))
+
+        # feature importance
+        feature_importances = classifier.feature_importances_
+        score = f1_score(y_test, y_pred)
+        print("F1 score:", score)
+        if generate_feature_plot:
+            plot_feature_importance(
+                X_train.columns,
+                feature_importances,
+                score,
+                loss,
+                dataset_name,
+                dataset_group,
+            )
+        scores.append(score)
+
+    final_score = np.average(scores)
+    print(f"\n\n### -> Final score: {final_score:.4f}")
+
+    return final_score

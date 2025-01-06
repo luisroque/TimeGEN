@@ -27,39 +27,54 @@ from hitgen.benchmarks.timegan import (
 from hitgen.feature_engineering.tsfeatures import compute_feature_loss
 
 
+DATASET_CONFIGS = {
+    "Tourism": {
+        "Monthly": {
+            "latent_dim": 56,
+            "patience": 95,
+            "kl_weight": 0.7187173280781497,
+            "n_blocks": 3,
+            "n_hidden": 16,
+            "n_layers": 3,
+            "kernel_size": 2,
+            "pooling_mode": "average",
+            "batch_size": 8,
+            "epochs": 801,
+            "learning_rate": 6.292263002881687e-05,
+            "noise_scale_init": 0.09374107362343356,
+        }
+    },
+    # add other datasets
+}
+
 if __name__ == "__main__":
     DATASET = "Tourism"
     DATASET_GROUP = "Monthly"
+
     FREQ = "M"
     TOP = None
     WINDOW_SIZE = 24
     VAL_STEPS = 0
-    LATENT_DIM = 50
-    EPOCHS = 750
-    BATCH_SIZE = 8
+    LATENT_DIM = DATASET_CONFIGS[DATASET][DATASET_GROUP]["latent_dim"]
+    EPOCHS = DATASET_CONFIGS[DATASET][DATASET_GROUP]["epochs"]
+    BATCH_SIZE = DATASET_CONFIGS[DATASET][DATASET_GROUP]["batch_size"]
     STRIDE_TEMPORALIZE = 1
-    # LAST_ACTIVATION = "custom_relu_linear_saturation"
-    # BI_RNN = True
-    # SHUFFLE = True
     SHUFFLE = True
     BI_RNN = False
     ANNEALING = False
-    KL_WEIGHT_INIT = 0.1
-    NOISE_SAMPLE_INIT = 0.05
+    KL_WEIGHT_INIT = DATASET_CONFIGS[DATASET][DATASET_GROUP]["kl_weight"]
+    NOISE_SAMPLE_INIT = DATASET_CONFIGS[DATASET][DATASET_GROUP]["noise_scale_init"]
+    N_BLOCKS = DATASET_CONFIGS[DATASET][DATASET_GROUP]["n_blocks"]
+    N_HIDDEN = DATASET_CONFIGS[DATASET][DATASET_GROUP]["n_hidden"]
+    N_LAYERS = DATASET_CONFIGS[DATASET][DATASET_GROUP]["n_layers"]
+    KERNEL_SIZE = DATASET_CONFIGS[DATASET][DATASET_GROUP]["kernel_size"]
+    POOLING_MODE = DATASET_CONFIGS[DATASET][DATASET_GROUP]["pooling_mode"]
+    LEARNING_RATE = DATASET_CONFIGS[DATASET][DATASET_GROUP]["learning_rate"]
+    PATIENCE = DATASET_CONFIGS[DATASET][DATASET_GROUP]["patience"]
 
     SYNTHETIC_FILE_PATH = (
         f"assets/model_weights/{DATASET}_{DATASET_GROUP}_synthetic_timegan_long.pkl"
     )
-
-    ###### M5
-    # dataset = "m5"
-    # freq = "W"
-    # top = 500
-    # window_size = 26
-    # val_steps = 26
-    # latent_dim = 500
-    # epochs = 5
-    # batch_size = 8
 
     create_dataset_vae = CreateTransformedVersionsCVAE(
         dataset_name=DATASET,
@@ -77,10 +92,15 @@ if __name__ == "__main__":
     )
 
     # hypertuning
-    create_dataset_vae.hyper_tune_and_train()
+    # create_dataset_vae.hyper_tune_and_train()
 
     # fit
-    model, history, _ = create_dataset_vae.fit(latent_dim=LATENT_DIM, epochs=EPOCHS)
+    model, history, _ = create_dataset_vae.fit(
+        latent_dim=LATENT_DIM,
+        epochs=EPOCHS,
+        patience=PATIENCE,
+        learning_rate=LEARNING_RATE,
+    )
     plot_loss(history)
 
     (
@@ -308,6 +328,8 @@ if __name__ == "__main__":
     #     test_data_long, best_params, DATASET, DATASET_GROUP, window_size=24
     # )
 
+    test_unique_ids = test_data_long["unique_id"].unique()
+
     if os.path.exists(SYNTHETIC_FILE_PATH):
         print("Synthetic TimeGAN data already exists. Loading the file...")
         synthetic_timegan_long = pd.read_pickle(SYNTHETIC_FILE_PATH)
@@ -315,7 +337,7 @@ if __name__ == "__main__":
         print("Synthetic TimeGAN data not found. Generating new data...")
         synth_timegan_data_all = []
         count = 0
-        for ts in test_data_long["unique_id"].unique():
+        for ts in test_unique_ids:
             synth_timegan_data_all.append(
                 train_and_generate_synthetic(
                     ts, test_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
@@ -333,7 +355,7 @@ if __name__ == "__main__":
         print("Transforming synthetic TimeGAN data into long form...")
         synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
             data=synth_timegan_data_all_df,
-            unique_ids=test_data_long["unique_id"].unique(),
+            unique_ids=test_unique_ids,
         )
 
         synthetic_timegan_long.to_pickle(SYNTHETIC_FILE_PATH)
@@ -341,14 +363,29 @@ if __name__ == "__main__":
 
     print("\nComputing discriminative score for HiTGen synthetic data...")
     score_hitgen = compute_discriminative_score(
-        test_data_long, synth_hitgen_test_long, "M", DATASET, DATASET_GROUP, 0.0
+        unique_ids=test_unique_ids,
+        original_data=test_data_long,
+        synthetic_data=synth_hitgen_test_long,
+        freq="M",
+        dataset_name=DATASET,
+        dataset_group=DATASET_GROUP,
+        loss=0.0,
+        samples=5,
     )
-    print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
 
     print("\nComputing discriminative score for TimeGAN synthetic data...")
     score_timegan = compute_discriminative_score(
-        test_data_long, synthetic_timegan_long, "M", DATASET, DATASET_GROUP, 0.0
+        unique_ids=test_unique_ids,
+        original_data=test_data_long,
+        synthetic_data=synthetic_timegan_long,
+        freq="M",
+        dataset_name=DATASET,
+        dataset_group=DATASET_GROUP,
+        loss=0.0,
+        samples=5,
     )
+
+    print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
     print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
 
     # results = evaluate_discriminative_scores(

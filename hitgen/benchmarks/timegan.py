@@ -111,7 +111,8 @@ def objective(trial, data_subset, dataset_name, dataset_group, window_size):
     )
 
     synth_timegan_data = []
-    for ts in data_subset["unique_id"].unique():
+    unique_ids = data_subset["unique_id"].unique()
+    for ts in unique_ids:
         timegan, synth_timegan_data = train_and_generate_synthetic(
             ts, data_subset, dataset_name, dataset_group, window_size
         )
@@ -122,7 +123,13 @@ def objective(trial, data_subset, dataset_name, dataset_group, window_size):
 
     synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
     score = compute_discriminative_score(
-        original_data_long, synthetic_data_long, "M", dataset_name, dataset_group, 0.0
+        unique_ids,
+        original_data_long,
+        synthetic_data_long,
+        "M",
+        dataset_name,
+        dataset_group,
+        0.0,
     )
 
     return score
