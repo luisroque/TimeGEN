@@ -98,6 +98,11 @@ class CreateTransformedVersionsCVAE:
         annealing: bool = True,
         kl_weight_init: float = None,
         noise_scale_init: float = None,
+        n_blocks: int = 3,
+        n_hidden: int = 16,
+        n_layers: int = 3,
+        kernel_size: int = 2,
+        pooling_mode: str = "average",
     ):
         self.dataset_name = dataset_name
         self.dataset_group = dataset_group
@@ -119,6 +124,11 @@ class CreateTransformedVersionsCVAE:
         self.annealing = annealing
         self.kl_weight_init = kl_weight_init
         self.noise_scale_init = noise_scale_init
+        self.n_blocks = n_blocks
+        self.n_hidden = n_hidden
+        self.n_layers = n_layers
+        self.kernel_size = kernel_size
+        self.pooling_mode = pooling_mode
         (self.data, self.s, self.freq) = self.load_data(
             self.dataset_name, self.dataset_group
         )
@@ -128,18 +138,12 @@ class CreateTransformedVersionsCVAE:
         self.y = self.data
         self.n = self.data.shape[0]
         self.df = pd.DataFrame(self.data)
-        # self.df = self.df.set_index("Date")
         self.df.asfreq(self.freq)
-        # self.preprocess_freq()
 
         self.features_input = (None, None, None)
         self._create_directories()
-        # self._save_original_file()
         self.long_properties = {}
         self.split_path = "assets/model_weights/data_split/data_split.json"
-        self.split_path_absolute = (
-            "assets/model_weights/data_split/data_split_absolute.json"
-        )
         self.unique_ids = self.df["unique_id"].unique()
 
     @staticmethod
@@ -178,37 +182,6 @@ class CreateTransformedVersionsCVAE:
         data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
 
         return data_long
-
-    # def preprocess_freq(self):
-    #     end_date = None
-    #
-    #     # Create dataset with window_size more dates in the future to be used
-    #     if self.freq in ["Q", "QS"]:
-    #         if self.freq == "Q":
-    #             self.freq += "S"
-    #         end_date = self.df.index[-1] + pd.DateOffset(months=self.window_size * 3)
-    #     elif self.freq in ["M", "MS"]:
-    #         if self.freq == "M":
-    #             self.freq += "S"
-    #         end_date = self.df.index[-1] + pd.DateOffset(months=self.window_size)
-    #     elif self.freq == "W":
-    #         end_date = self.df.index[-1] + pd.DateOffset(weeks=self.window_size)
-    #     elif self.freq == "D":
-    #         end_date = self.df.index[-1] + pd.DateOffset(days=self.window_size)
-    #     elif self.freq == "H":
-    #         end_date = self.df.index[-1] + pd.DateOffset(days=self.window_size)
-    #     else:
-    #         raise InvalidFrequencyError(
-    #             f"Invalid frequency - {self.freq}. Please use one of the defined frequencies: Q, QS, M, MS, W, or D."
-    #         )
-    #
-    #     ix = pd.date_range(
-    #         start=self.df.index[0],
-    #         end=end_date,
-    #         freq=self.freq,
-    #     )
-    #     self.df_generate = self.df.copy()
-    #     self.df_generate = self.df_generate.reindex(ix)
 
     def _get_dataset(self):
         """
@@ -252,20 +225,17 @@ class CreateTransformedVersionsCVAE:
                     split_data["test_ids"]
                 )
 
-        # create new split
         np.random.shuffle(self.unique_ids)
         train_size = int(len(self.unique_ids) * train_test_split)
         if train_test_absolute:
             train_ids = self.unique_ids[:train_test_absolute]
-            split_path = self.split_path
         else:
             train_ids = self.unique_ids[:train_size]
-            split_path = self.split_path_absolute
 
         test_ids = self.unique_ids[train_size:]
 
-        os.makedirs(os.path.dirname(split_path), exist_ok=True)
-        with open(split_path, "w") as f:
+        os.makedirs(os.path.dirname(self.split_path), exist_ok=True)
+        with open(self.split_path, "w") as f:
             json.dump(
                 {"train_ids": train_ids.tolist(), "test_ids": test_ids.tolist()}, f
             )
@@ -391,10 +361,6 @@ class CreateTransformedVersionsCVAE:
         patience: int = 100,
         latent_dim: int = 32,
         learning_rate: float = 0.001,
-        kl_weight_final: float = 1.0,
-        noise_scale_initial: float = 0.01,
-        noise_scale_final: float = 1.0,
-        annealing_epochs: int = 150,
         hyper_tuning: bool = False,
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
@@ -416,6 +382,11 @@ class CreateTransformedVersionsCVAE:
             latent_dim=latent_dim,
             bi_rnn=self.bi_rnn,
             noise_scale_init=self.noise_scale_init,
+            n_blocks=self.n_blocks,
+            n_hidden=self.n_hidden,
+            n_layers=self.n_layers,
+            kernel_size=self.kernel_size,
+            pooling_mode=self.pooling_mode,
         )
 
         cvae = CVAE(encoder, decoder, kl_weight_initial=self.kl_weight_init)
@@ -433,16 +404,6 @@ class CreateTransformedVersionsCVAE:
         )
         reduce_lr = ReduceLROnPlateau(
             monitor="loss", factor=0.5, patience=5, min_lr=1e-6, verbose=1
-        )
-
-        kl_and_noise_callback = KLAnnealingAndNoiseScalingCallback(
-            model=cvae,
-            kl_weight_initial=self.kl_weight_init,
-            kl_weight_final=kl_weight_final,
-            noise_scale_initial=noise_scale_initial,
-            noise_scale_final=noise_scale_final,
-            annealing_epochs=annealing_epochs,
-            annealing=self.annealing,
         )
 
         weights_folder = "assets/model_weights"
@@ -483,7 +444,7 @@ class CreateTransformedVersionsCVAE:
                 epochs=epochs,
                 batch_size=self.batch_size,
                 shuffle=False,
-                callbacks=[es, mc, reduce_lr, kl_and_noise_callback],
+                callbacks=[es, mc, reduce_lr],
             )
 
             if history is not None:
@@ -582,9 +543,10 @@ class CreateTransformedVersionsCVAE:
 
     @staticmethod
     def compute_mean_discriminative_score(
+        unique_ids,
         original_data,
         synthetic_data,
-        column,
+        freq,
         dataset_name,
         dataset_group,
         loss,
@@ -594,9 +556,10 @@ class CreateTransformedVersionsCVAE:
         scores = []
         for i in range(num_iterations):
             score = compute_discriminative_score(
+                unique_ids,
                 original_data,
                 synthetic_data,
-                column,
+                freq,
                 dataset_name,
                 dataset_group,
                 loss,
@@ -687,15 +650,15 @@ class CreateTransformedVersionsCVAE:
             latent_dim=latent_dim,
         )
 
-        # compute the discriminative score x times to account
-        # for variability
+        # compute the discriminative score x times to account for variability
         score = self.compute_mean_discriminative_score(
-            original_data_train_long,
-            synthetic_data_long,
-            "M",
-            self.dataset_name,
-            self.dataset_group,
-            loss,
+            unique_ids=original_data_train_long["unique_ids"].unique(),
+            original_data=original_data_train_long,
+            synthetic_data=synthetic_data_long,
+            freq="M",
+            dataset_name=self.dataset_name,
+            dataset_group=self.dataset_group,
+            loss=loss,
             generate_feature_plot=False,
         )
 
