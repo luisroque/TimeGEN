@@ -652,7 +652,7 @@ class CreateTransformedVersionsCVAE:
 
         # compute the discriminative score x times to account for variability
         score = self.compute_mean_discriminative_score(
-            unique_ids=original_data_train_long["unique_ids"].unique(),
+            unique_ids=original_data_train_long["unique_id"].unique(),
             original_data=original_data_train_long,
             synthetic_data=synthetic_data_long,
             freq="M",
