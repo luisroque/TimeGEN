@@ -67,6 +67,7 @@ def safe_generate_features(data, freq):
     Safely generates time series features using tsfeatures, handling errors gracefully.
     """
     try:
+        print(f"Generating features...")
         features = tsfeatures(data, freq=freq)
         return features
     except Exception as e:

@@ -766,13 +766,11 @@ class CreateTransformedVersionsCVAE:
         )
 
         # Save training history
-        self.best_model = cvae
-        self.best_history = history.history
         with open(
             f"assets/model_weights/{self.dataset_name}_{self.dataset_group}_training_history.json",
             "w",
         ) as f:
-            json.dump(self.best_history, f)
+            json.dump(history.history, f)
 
         print("Training completed with the best hyperparameters.")
 
