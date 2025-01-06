@@ -18,12 +18,7 @@ from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize
-from hitgen.benchmarks.timegan import (
-    train_timegan_model,
-    generate_synthetic_samples,
-    train_timegan_with_best_params,
-    hyper_tune_timegan,
-)
+from hitgen.benchmarks.timegan import workflow_timegan
 from hitgen.feature_engineering.tsfeatures import compute_feature_loss
 
 
@@ -92,7 +87,7 @@ if __name__ == "__main__":
     )
 
     # hypertuning
-    create_dataset_vae.hyper_tune_and_train()
+    # create_dataset_vae.hyper_tune_and_train()
 
     # fit
     model, history, _ = create_dataset_vae.fit(
@@ -194,125 +189,6 @@ if __name__ == "__main__":
 
     # TimeGAN synthetic data generation
 
-    def run_timegan(target_df, dataset, dataset_group, unique_id):
-
-        hyperparameter_sets = [
-            {
-                "gan_args": ModelParameters(
-                    batch_size=16,
-                    lr=2e-4,
-                    noise_dim=16,
-                    layers_dim=32,
-                    latent_dim=32,
-                ),
-            },
-            {
-                "gan_args": ModelParameters(
-                    batch_size=32,
-                    lr=1e-4,
-                    noise_dim=8,
-                    layers_dim=64,
-                    latent_dim=64,
-                ),
-            },
-            {
-                "gan_args": ModelParameters(
-                    batch_size=8,
-                    lr=5e-4,
-                    noise_dim=32,
-                    layers_dim=16,
-                    latent_dim=16,
-                ),
-            },
-        ]
-
-        for idx, params in enumerate(hyperparameter_sets):
-            try:
-                print(f"Trying hyperparameter set {idx + 1}")
-                timegan = train_timegan_model(
-                    target_df,
-                    gan_args=params["gan_args"],
-                    train_args=TrainParameters(
-                        epochs=1000, sequence_length=WINDOW_SIZE, number_sequences=4
-                    ),
-                    model_path=f"assets/model_weights/timegan/timegan_{dataset}_{dataset_group}_{unique_id}.pkl",
-                )
-                print(f"Training successful with hyperparameter set {idx + 1}")
-                break
-            except Exception as e:
-                print(f"Failed with hyperparameter set {idx + 1}: {e}")
-        return timegan
-
-    def train_and_generate_synthetic(
-        unique_id, data, dataset, dataset_group, window_size
-    ):
-        print(f"Training TimeGAN for time series: {unique_id}")
-
-        ts_data = data[data["unique_id"] == unique_id]
-
-        # ts_data = data[data["unique_id"].isin(["m1", "m100", "m101", "m104"])]
-        # ts_data["unique_id"] = "m1"
-        # ts_data["ds"] = np.arange(ts_data.shape[0])
-
-        target_df = ts_data.pivot(index="ds", columns="unique_id", values="y")
-        target_df.columns.name = None
-        target_df = target_df.reset_index(drop=True)
-
-        # decompose to make it multivariate
-        result = seasonal_decompose(target_df, model="additive", period=12)
-
-        target_df["trend"] = result.trend
-        target_df["seasonal"] = result.seasonal
-        target_df["residual"] = result.resid
-
-        scaler = MinMaxScaler()
-        scaled_target_df = pd.DataFrame(
-            scaler.fit_transform(target_df), columns=target_df.columns
-        )
-
-        scaled_target_df.fillna(0, inplace=True)
-
-        os.makedirs("assets/model_weights/timegan/", exist_ok=True)
-
-        timegan = run_timegan(scaled_target_df, dataset, dataset_group, unique_id)
-
-        synth_scaled_data = generate_synthetic_samples(
-            timegan, ts_data.shape[0] - WINDOW_SIZE + 1, detemporalize
-        )
-
-        synth_timegan_data = pd.DataFrame(
-            scaler.inverse_transform(synth_scaled_data), columns=target_df.columns
-        )
-
-        synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
-
-        plot_dir = "assets/plots/timegan/"
-        os.makedirs(plot_dir, exist_ok=True)
-
-        import matplotlib.pyplot as plt
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(
-            target_df[unique_id],
-            label="Original",
-            linestyle="-",
-        )
-        plt.plot(
-            synthetic_df[unique_id],
-            label="Synthetic",
-            linestyle="--",
-        )
-        plt.title(f"Original vs Synthetic Time Series for ID: {unique_id}")
-        plt.xlabel("Time Steps")
-        plt.ylabel("Value")
-        plt.legend()
-        plt.grid()
-        plot_path = f"{plot_dir}timegan_{dataset}_{dataset_group}_{unique_id}.png"
-        plt.savefig(plot_path, dpi=300)
-        plt.close()
-
-        return synth_timegan_data[unique_id]
-
     # parallel timegan training and synthetic data generation
     # synth_timegan_data_all = Parallel(n_jobs=6)(
     #     delayed(train_and_generate_synthetic)(
@@ -330,36 +206,16 @@ if __name__ == "__main__":
 
     test_unique_ids = test_data_long["unique_id"].unique()
 
-    if os.path.exists(SYNTHETIC_FILE_PATH):
-        print("Synthetic TimeGAN data already exists. Loading the file...")
-        synthetic_timegan_long = pd.read_pickle(SYNTHETIC_FILE_PATH)
-    else:
-        print("Synthetic TimeGAN data not found. Generating new data...")
-        synth_timegan_data_all = []
-        count = 0
-        for ts in test_unique_ids:
-            synth_timegan_data_all.append(
-                train_and_generate_synthetic(
-                    ts, test_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
-                )
-            )
-            count += 1
-            print(
-                f"Generating synth data using TimeGAN for {ts}, which is {count}/{test_data_long['unique_id'].nunique()}"
-            )
-
-        synth_timegan_data_all_df = pd.concat(
-            synth_timegan_data_all, ignore_index=True, axis=1
-        )
-
-        print("Transforming synthetic TimeGAN data into long form...")
-        synthetic_timegan_long = create_dataset_vae.create_dataset_long_form(
-            data=synth_timegan_data_all_df,
-            unique_ids=test_unique_ids,
-        )
-
-        synthetic_timegan_long.to_pickle(SYNTHETIC_FILE_PATH)
-        print(f"Synthetic TimeGAN data saved to {SYNTHETIC_FILE_PATH}")
+    synthetic_timegan_long = workflow_timegan(
+        test_unique_ids,
+        SYNTHETIC_FILE_PATH,
+        test_data_long,
+        DATASET,
+        DATASET_GROUP,
+        WINDOW_SIZE,
+        create_dataset_vae.long_properties,
+        FREQ,
+    )
 
     print("\nComputing discriminative score for HiTGen synthetic data...")
     score_hitgen = compute_discriminative_score(
