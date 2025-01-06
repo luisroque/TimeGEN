@@ -39,6 +39,22 @@ DATASET_CONFIGS = {
             "noise_scale_init": 0.09374107362343356,
         }
     },
+    "M3": {
+        "Monthly": {
+            "latent_dim": 56,
+            "patience": 95,
+            "kl_weight": 0.7187173280781497,
+            "n_blocks": 3,
+            "n_hidden": 16,
+            "n_layers": 3,
+            "kernel_size": 2,
+            "pooling_mode": "average",
+            "batch_size": 8,
+            "epochs": 801,
+            "learning_rate": 6.292263002881687e-05,
+            "noise_scale_init": 0.09374107362343356,
+        }
+    },
     # add other datasets
 }
 
