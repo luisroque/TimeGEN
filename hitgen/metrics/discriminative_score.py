@@ -62,9 +62,16 @@ def filter_data_by_indices(
     return filtered_data, labels
 
 
-def generate_features(data, freq):
-    """Generates time series features using tsfeatures."""
-    return tsfeatures(data, freq=freq)
+def safe_generate_features(data, freq):
+    """
+    Safely generates time series features using tsfeatures, handling errors gracefully.
+    """
+    try:
+        features = tsfeatures(data, freq=freq)
+        return features
+    except Exception as e:
+        print(f"Error generating features: {e}")
+        return None
 
 
 def plot_feature_importance(
@@ -120,8 +127,12 @@ def compute_discriminative_score(
             original_data, test_idx, label_value=0
         )
 
-        original_features_train = generate_features(original_data_train, freq=freq)
-        original_features_test = generate_features(original_data_test, freq=freq)
+        original_features_train = safe_generate_features(original_data_train, freq=freq)
+        original_features_test = safe_generate_features(original_data_test, freq=freq)
+
+        if original_features_train is None or original_features_test is None:
+            print("Feature generation failed for original data. Skipping iteration.")
+            continue
 
         # synthetic data
         synthetic_data_train, synthetic_data_train_y = filter_data_by_indices(
@@ -131,8 +142,14 @@ def compute_discriminative_score(
             synthetic_data, test_idx, label_value=1
         )
 
-        synthetic_features_train = generate_features(synthetic_data_train, freq=freq)
-        synthetic_features_test = generate_features(synthetic_data_test, freq=freq)
+        synthetic_features_train = safe_generate_features(
+            synthetic_data_train, freq=freq
+        )
+        synthetic_features_test = safe_generate_features(synthetic_data_test, freq=freq)
+
+        if synthetic_features_train is None or synthetic_features_test is None:
+            print("Feature generation failed for synthetic data. Skipping iteration.")
+            continue
 
         # Classifier
         X_train = pd.concat(
@@ -174,7 +191,11 @@ def compute_discriminative_score(
             )
         scores.append(score)
 
-    final_score = np.average(scores)
-    print(f"\n\n### -> Final score: {final_score:.4f}")
+    if scores:
+        final_score = np.average(scores)
+        print(f"\n\n### -> Final score: {final_score:.4f}")
+    else:
+        print("No valid iterations completed. Final score is undefined.")
+        final_score = None
 
     return final_score
