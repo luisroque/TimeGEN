@@ -266,11 +266,13 @@ def objective(trial, data_subset, dataset_name, dataset_group, window_size):
     return score
 
 
-def hyper_tune_timegan(data, dataset_name, dataset_group, window_size, n_trials=50):
+def hyper_tune_timegan(
+    data, dataset_name, dataset_group, window_size, n_trials=25, subset_size=25
+):
     """
     Hyperparameter tuning for TimeGAN using Optuna.
     """
-    # randomly select 10% of the time series
+    # select subset of training data
     unique_ids = data["unique_id"].unique()
     subset_ids = np.random.choice(
         unique_ids, size=int(len(unique_ids) * 0.1), replace=False
