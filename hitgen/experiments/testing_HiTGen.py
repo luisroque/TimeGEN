@@ -387,14 +387,3 @@ if __name__ == "__main__":
 
     print(f"Discriminative score for HiTGen synthetic data: {score_hitgen:.4f}")
     print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
-
-    # results = evaluate_discriminative_scores(
-    #     X_orig_scaled=X_orig_scaled,
-    #     main_model_data_scaled=generated_data_scaled,
-    #     benchmark_data_dict=benchmark_data_dict,
-    #     compute_discriminative_score=compute_discriminative_score,
-    #     num_runs=20,
-    #     num_samples=2,
-    #     plot_first_run=True,
-
-    # )
