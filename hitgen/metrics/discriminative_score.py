@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import warnings
 from tsfeatures import tsfeatures
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report
@@ -64,15 +65,20 @@ def filter_data_by_indices(
 
 def safe_generate_features(data, freq):
     """
-    Safely generates time series features using tsfeatures, handling errors gracefully.
+    Safely generates time series features using tsfeatures, with warning filtering.
     """
-    try:
-        print(f"Generating features...")
-        features = tsfeatures(data, freq=freq)
-        return features
-    except Exception as e:
-        print(f"Error generating features: {e}")
-        return None
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        try:
+            features = tsfeatures(data, freq=freq)
+            for warning in w:
+                if "divide by zero" in str(warning.message):
+                    print("Detected problematic data. Skipping.")
+                    return None
+            return features
+        except Exception as e:
+            print(f"Error generating features: {e}")
+            return None
 
 
 def plot_feature_importance(
