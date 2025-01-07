@@ -152,7 +152,7 @@ def train_and_generate_synthetic(
     synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
 
     if not hypertune:
-        plot_dir = "assets/plots/timegan/"
+        plot_dir = f"assets/plots/timegan/{dataset}_{dataset_group}/"
         os.makedirs(plot_dir, exist_ok=True)
 
         import matplotlib.pyplot as plt
@@ -219,16 +219,15 @@ def workflow_timegan(
         synth_timegan_data_all = []
         count = 0
         for ts in test_unique_ids:
-            synth_timegan_data_all.append(
-                train_and_generate_synthetic(
-                    ts,
-                    test_data_long,
-                    dataset,
-                    dataset_group,
-                    window_size,
-                    hyperparameter_sets=hyperparameter_sets,
-                )
+            timegan, synth_timegan_data = train_and_generate_synthetic(
+                ts,
+                test_data_long,
+                dataset,
+                dataset_group,
+                window_size,
+                hyperparameter_sets=hyperparameter_sets,
             )
+            synth_timegan_data_all.append(synth_timegan_data)
             count += 1
             print(
                 f"Generating synth data using TimeGAN for {ts}, which is {count}/{test_data_long['unique_id'].nunique()}"
