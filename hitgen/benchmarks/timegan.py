@@ -3,6 +3,7 @@ import json
 import optuna
 import numpy as np
 import pandas as pd
+import uuid
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from joblib import Parallel, delayed
@@ -31,58 +32,85 @@ def generate_synthetic_samples(synth, num_samples, detemporalize_func):
     return detemporalize_func(synth_data)
 
 
-def run_timegan(target_df, dataset, dataset_group, unique_id, window_size):
+def run_timegan(
+    target_df,
+    dataset,
+    dataset_group,
+    unique_id,
+    model_path,
+    hyperparameter_sets,
+):
 
-    hyperparameter_sets = [
-        {
-            "gan_args": ModelParameters(
-                batch_size=16,
-                lr=2e-4,
-                noise_dim=16,
-                layers_dim=32,
-                latent_dim=32,
-            ),
-        },
-        {
-            "gan_args": ModelParameters(
-                batch_size=32,
-                lr=1e-4,
-                noise_dim=8,
-                layers_dim=64,
-                latent_dim=64,
-            ),
-        },
-        {
-            "gan_args": ModelParameters(
-                batch_size=8,
-                lr=5e-4,
-                noise_dim=32,
-                layers_dim=16,
-                latent_dim=16,
-            ),
-        },
-    ]
+    # hyperparameter_sets = [
+    #     {
+    #         "gan_args": ModelParameters(
+    #             batch_size=16,
+    #             lr=2e-4,
+    #             noise_dim=16,
+    #             layers_dim=32,
+    #             latent_dim=32,
+    #         ),
+    #     },
+    #     {
+    #         "gan_args": ModelParameters(
+    #             batch_size=32,
+    #             lr=1e-4,
+    #             noise_dim=8,
+    #             layers_dim=64,
+    #             latent_dim=64,
+    #         ),
+    #     },
+    #     {
+    #         "gan_args": ModelParameters(
+    #             batch_size=8,
+    #             lr=5e-4,
+    #             noise_dim=32,
+    #             layers_dim=16,
+    #             latent_dim=16,
+    #         ),
+    #     },
+    # ]
 
-    for idx, params in enumerate(hyperparameter_sets):
-        try:
-            print(f"Trying hyperparameter set {idx + 1}")
-            timegan = train_timegan_model(
-                target_df,
-                gan_args=params["gan_args"],
-                train_args=TrainParameters(
-                    epochs=1000, sequence_length=window_size, number_sequences=4
-                ),
-                model_path=f"assets/model_weights/timegan/timegan_{dataset}_{dataset_group}_{unique_id}.pkl",
-            )
-            print(f"Training successful with hyperparameter set {idx + 1}")
-            break
-        except Exception as e:
-            print(f"Failed with hyperparameter set {idx + 1}: {e}")
+    os.makedirs(model_path, exist_ok=True)
+
+    try:
+        print(f"Training TimeGAN with new hyperparameter set")
+        timegan = train_timegan_model(
+            target_df,
+            gan_args=hyperparameter_sets["gan_args"],
+            train_args=hyperparameter_sets["train_args"],
+            model_path=f"{model_path}/timegan_{dataset}_{dataset_group}_{unique_id}.pkl",
+        )
+    except Exception as e:
+        print(f"Failed with hyperparameter set {hyperparameter_sets}: {e}")
     return timegan
 
 
-def train_and_generate_synthetic(unique_id, data, dataset, dataset_group, window_size):
+def train_and_generate_synthetic(
+    unique_id,
+    data,
+    dataset,
+    dataset_group,
+    window_size,
+    hyperparameter_sets,
+    hyperparameters_to_store,
+    hypertune=False,
+):
     print(f"Training TimeGAN for time series: {unique_id}")
+
+    if not hypertune:
+        model_path = f"assets/model_weights/timegan/{dataset}_{dataset_group}/"
+    else:
+        unique_uuid_iter = str(uuid.uuid4())
+
+        model_path = f"assets/model_weights/timegan/hypertuning/{dataset}_{dataset_group}/iter_{unique_uuid_iter}/"
+        os.makedirs(model_path, exist_ok=True)
+
+        hyperparameter_file_path = os.path.join(model_path, f"hyperparameter_set.json")
+        with open(hyperparameter_file_path, "w") as f:
+            json.dump(hyperparameters_to_store, f, indent=4)
+
+        print(f"Hyperparameter set saved to {hyperparameter_file_path}")
 
     ts_data = data[data["unique_id"] == unique_id]
 
@@ -104,10 +132,13 @@ def train_and_generate_synthetic(unique_id, data, dataset, dataset_group, window
 
     scaled_target_df.fillna(0, inplace=True)
 
-    os.makedirs("assets/model_weights/timegan/", exist_ok=True)
-
     timegan = run_timegan(
-        scaled_target_df, dataset, dataset_group, unique_id, window_size
+        scaled_target_df,
+        dataset,
+        dataset_group,
+        unique_id,
+        model_path=model_path,
+        hyperparameter_sets=hyperparameter_sets,
     )
 
     synth_scaled_data = generate_synthetic_samples(
@@ -120,30 +151,31 @@ def train_and_generate_synthetic(unique_id, data, dataset, dataset_group, window
 
     synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
 
-    plot_dir = "assets/plots/timegan/"
-    os.makedirs(plot_dir, exist_ok=True)
+    if not hypertune:
+        plot_dir = "assets/plots/timegan/"
+        os.makedirs(plot_dir, exist_ok=True)
 
-    import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(
-        target_df[unique_id],
-        label="Original",
-        linestyle="-",
-    )
-    plt.plot(
-        synthetic_df[unique_id],
-        label="Synthetic",
-        linestyle="--",
-    )
-    plt.title(f"Original vs Synthetic Time Series for ID: {unique_id}")
-    plt.xlabel("Time Steps")
-    plt.ylabel("Value")
-    plt.legend()
-    plt.grid()
-    plot_path = f"{plot_dir}timegan_{dataset}_{dataset_group}_{unique_id}.png"
-    plt.savefig(plot_path, dpi=300)
-    plt.close()
+        plt.figure(figsize=(10, 6))
+        plt.plot(
+            target_df[unique_id],
+            label="Original",
+            linestyle="-",
+        )
+        plt.plot(
+            synthetic_df[unique_id],
+            label="Synthetic",
+            linestyle="--",
+        )
+        plt.title(f"Original vs Synthetic Time Series for ID: {unique_id}")
+        plt.xlabel("Time Steps")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.grid()
+        plot_path = f"{plot_dir}timegan_{dataset}_{dataset_group}_{unique_id}.png"
+        plt.savefig(plot_path, dpi=300)
+        plt.close()
 
     return synth_timegan_data[unique_id]
 
@@ -177,6 +209,7 @@ def workflow_timegan(
     window_size,
     long_properties,
     freq,
+    hyperparameter_sets,
 ):
     if os.path.exists(synthetic_file_path):
         print("Synthetic TimeGAN data already exists. Loading the file...")
@@ -188,7 +221,12 @@ def workflow_timegan(
         for ts in test_unique_ids:
             synth_timegan_data_all.append(
                 train_and_generate_synthetic(
-                    ts, test_data_long, dataset, dataset_group, window_size
+                    ts,
+                    test_data_long,
+                    dataset,
+                    dataset_group,
+                    window_size,
+                    hyperparameter_sets=hyperparameter_sets,
                 )
             )
             count += 1
@@ -214,7 +252,17 @@ def workflow_timegan(
     return synthetic_timegan_long
 
 
-def objective(trial, data_subset, dataset_name, dataset_group, window_size):
+def objective(
+    trial,
+    data_subset,
+    dataset_name,
+    dataset_group,
+    window_size,
+    freq,
+    long_properties,
+    train_unique_ids,
+    train_data_long,
+):
     """
     Objective function for Optuna to tune TimeGAN hyperparameters.
     """
@@ -238,51 +286,128 @@ def objective(trial, data_subset, dataset_name, dataset_group, window_size):
     train_args = TrainParameters(
         epochs=epochs,
         sequence_length=window_size,
-        number_sequences=data_subset.shape[1],
+        number_sequences=4,
     )
 
-    synth_timegan_data = []
+    hyperparameter_sets = {"gan_args": gan_args, "train_args": train_args}
+    hyperparameters_to_store = {
+        "latent_dim": latent_dim,
+        "noise_dim": noise_dim,
+        "layers_dim": layers_dim,
+        "gamma": gamma,
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "epochs": epochs,
+    }
+
+    synth_timegan_data_all = []
     unique_ids = data_subset["unique_id"].unique()
     for ts in unique_ids:
         timegan, synth_timegan_data = train_and_generate_synthetic(
-            ts, data_subset, dataset_name, dataset_group, window_size
+            ts,
+            data_subset,
+            dataset_name,
+            dataset_group,
+            window_size,
+            hyperparameter_sets=hyperparameter_sets,
+            hyperparameters_to_store=hyperparameters_to_store,
+            hypertune=True,
         )
 
-        synth_timegan_data.append(
+        synth_timegan_data_all.append(
             generate_synthetic_samples(timegan, ts.shape[0], detemporalize)
         )
 
-    synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
-    score = compute_discriminative_score(
-        unique_ids,
-        original_data_long,
-        synthetic_data_long,
-        "M",
-        dataset_name,
-        dataset_group,
-        0.0,
+    synth_timegan_data_all_df = pd.concat(
+        synth_timegan_data_all, ignore_index=True, axis=1
     )
 
-    return score
+    print("Transforming synthetic TimeGAN data into long form...")
+    synthetic_timegan_long = create_dataset_long_form(
+        data=synth_timegan_data_all_df,
+        unique_ids=train_unique_ids,
+        long_properties=long_properties,
+        freq=freq,
+    )
+
+    score_timegan = compute_discriminative_score(
+        unique_ids=train_unique_ids,
+        original_data=train_data_long,
+        synthetic_data=synthetic_timegan_long,
+        freq="M",
+        dataset_name=dataset_name,
+        dataset_group=dataset_group,
+        loss=0.0,
+        samples=5,
+    )
+
+    return score_timegan
+
+
+def select_training_data_subset(
+    data,
+    subset_size,
+    file_path,
+):
+    """
+    Select a subset of training data using the specified subset size.
+    """
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    if os.path.exists(file_path):
+        print(f"Loading subset indexes from {file_path}")
+        with open(file_path, "r") as f:
+            subset_ids = json.load(f)
+    else:
+        print("Selecting new subset of training data...")
+        unique_ids = data["unique_id"].unique()
+
+        subset_size = min(subset_size, len(unique_ids))
+        subset_ids = np.random.choice(
+            unique_ids, size=subset_size, replace=False
+        ).tolist()
+
+        with open(file_path, "w") as f:
+            json.dump(subset_ids, f)
+
+    data_subset = data[data["unique_id"].isin(subset_ids)]
+
+    print(f"Selected {len(subset_ids)} time series for hypertuning.")
+    return data_subset, subset_ids
 
 
 def hyper_tune_timegan(
-    data, dataset_name, dataset_group, window_size, n_trials=25, subset_size=25
+    data,
+    dataset_name,
+    dataset_group,
+    window_size,
+    long_properties,
+    freq,
+    n_trials=25,
+    subset_size=25,
 ):
     """
     Hyperparameter tuning for TimeGAN using Optuna.
     """
-    # select subset of training data
-    unique_ids = data["unique_id"].unique()
-    subset_ids = np.random.choice(
-        unique_ids, size=int(len(unique_ids) * 0.1), replace=False
+    data_subset, subset_ids = select_training_data_subset(
+        data,
+        subset_size=subset_size,
+        file_path=f"assets/model_weights/timegan/hypertuning/{dataset_name}_{dataset_group}/data_subset/"
+        f"timegan_hypertuning_data_subset.json",
     )
-    data_subset = data[data["unique_id"].isin(subset_ids)]
 
     study = optuna.create_study(direction="minimize", study_name="timegan_optuna")
     study.optimize(
         lambda trial: objective(
-            trial, data_subset, dataset_name, dataset_group, window_size
+            trial,
+            data_subset,
+            dataset_name,
+            dataset_group,
+            window_size,
+            freq=freq,
+            long_properties=long_properties,
+            train_unique_ids=subset_ids,
+            train_data_long=data_subset,
         ),
         n_trials=n_trials,
     )

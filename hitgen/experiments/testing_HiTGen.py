@@ -18,7 +18,7 @@ from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize
-from hitgen.benchmarks.timegan import workflow_timegan
+from hitgen.benchmarks.timegan import workflow_timegan, hyper_tune_timegan
 from hitgen.feature_engineering.tsfeatures import compute_feature_loss
 
 
@@ -59,7 +59,7 @@ DATASET_CONFIGS = {
 }
 
 if __name__ == "__main__":
-    DATASET = "M3"
+    DATASET = "Tourism"
     DATASET_GROUP = "Monthly"
 
     FREQ = "M"
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     )
 
     # hypertuning
-    create_dataset_vae.hyper_tune_and_train()
+    # create_dataset_vae.hyper_tune_and_train()
 
     # fit
     model, history, _ = create_dataset_vae.fit(
@@ -221,6 +221,16 @@ if __name__ == "__main__":
     # )
 
     test_unique_ids = test_data_long["unique_id"].unique()
+
+    # hypertuning timegan
+    hyper_tune_timegan(
+        data=original_data_long,
+        dataset_name=DATASET,
+        dataset_group=DATASET_GROUP,
+        window_size=WINDOW_SIZE,
+        long_properties=create_dataset_vae.long_properties,
+        freq=FREQ,
+    )
 
     synthetic_timegan_long = workflow_timegan(
         test_unique_ids,
