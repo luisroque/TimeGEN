@@ -103,7 +103,7 @@ def train_and_generate_synthetic(
     else:
         unique_uuid_iter = str(uuid.uuid4())
 
-        model_path = f"assets/model_weights/timegan/hypertuning/{dataset}_{dataset_group}/iter_{unique_uuid_iter}/"
+        model_path = f"assets/model_weights/timegan/{dataset}_{dataset_group}/hypertuning/iter_{unique_uuid_iter}/"
         os.makedirs(model_path, exist_ok=True)
 
         hyperparameter_file_path = os.path.join(model_path, f"hyperparameter_set.json")
@@ -391,7 +391,7 @@ def hyper_tune_timegan(
     data_subset, subset_ids = select_training_data_subset(
         data,
         subset_size=subset_size,
-        file_path=f"assets/model_weights/timegan/hypertuning/{dataset_name}_{dataset_group}/data_subset/"
+        file_path=f"assets/model_weights/timegan/{dataset_name}_{dataset_group}/hypertuning/data_subset/"
         f"timegan_hypertuning_data_subset.json",
     )
 
@@ -411,7 +411,7 @@ def hyper_tune_timegan(
         n_trials=n_trials,
     )
 
-    best_params_path = f"assets/model_weights/timegan/timegan_{dataset_name}_{dataset_group}_best_params.json"
+    best_params_path = f"assets/model_weights/timegan/{dataset_name}_{dataset_group}/timegan_{dataset_name}_{dataset_group}_best_params.json"
     os.makedirs(os.path.dirname(best_params_path), exist_ok=True)
     with open(best_params_path, "w") as f:
         json.dump(study.best_params, f)
