@@ -271,7 +271,7 @@ def objective(
     gamma = trial.suggest_float("gamma", 0.1, 10)
     learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
     batch_size = trial.suggest_int("batch_size", 64, 256, step=64)
-    epochs = trial.suggest_int("epochs", 100, 2000, step=100)
+    epochs = trial.suggest_int("epochs", 1, 2, step=1)
 
     gan_args = ModelParameters(
         batch_size=batch_size,
@@ -314,7 +314,7 @@ def objective(
         )
 
         synth_timegan_data_all.append(
-            generate_synthetic_samples(timegan, ts.shape[0], detemporalize)
+            generate_synthetic_samples(timegan, data_subset.shape[0], detemporalize)
         )
 
     synth_timegan_data_all_df = pd.concat(
