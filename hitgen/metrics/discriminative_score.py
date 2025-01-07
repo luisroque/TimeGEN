@@ -14,13 +14,17 @@ from datetime import datetime
 
 
 def split_train_test(
-    unique_ids, key, train_ratio=0.8, max_train_series=100, max_test_series=20
+    unique_ids,
+    key,
+    split_dir,
+    train_ratio=0.8,
+    max_train_series=100,
+    max_test_series=20,
 ):
     """
     Splits data indices into train and test indices, stores them in a JSON file,
     and retrieves them by a numeric key.
     """
-    split_dir = "assets/model_weights/data_split_discriminator"
     os.makedirs(split_dir, exist_ok=True)
     split_file = os.path.join(split_dir, "splits.json")
 
@@ -124,7 +128,11 @@ def compute_discriminative_score(
     freq = FREQS[freq]
     for sample in range(samples):
         print(f"    Sample {sample} of {samples}")
-        train_idx, test_idx = split_train_test(unique_ids, sample)
+        train_idx, test_idx = split_train_test(
+            unique_ids,
+            sample,
+            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_data_split_discriminator",
+        )
 
         # original data
         original_data_train, original_data_train_y = filter_data_by_indices(
