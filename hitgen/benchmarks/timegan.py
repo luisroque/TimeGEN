@@ -177,7 +177,7 @@ def train_and_generate_synthetic(
         plt.savefig(plot_path, dpi=300)
         plt.close()
 
-    return synth_timegan_data[unique_id]
+    return timegan, synth_timegan_data[unique_id]
 
 
 def create_dataset_long_form(
