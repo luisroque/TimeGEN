@@ -271,7 +271,7 @@ def objective(
     gamma = trial.suggest_float("gamma", 0.1, 10)
     learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
     batch_size = trial.suggest_int("batch_size", 64, 256, step=64)
-    epochs = trial.suggest_int("epochs", 1, 2, step=1)
+    epochs = trial.suggest_int("epochs", 100, 1000, step=100)
 
     gan_args = ModelParameters(
         batch_size=batch_size,
