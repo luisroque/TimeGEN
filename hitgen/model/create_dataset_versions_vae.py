@@ -143,7 +143,7 @@ class CreateTransformedVersionsCVAE:
         self.features_input = (None, None, None)
         self._create_directories()
         self.long_properties = {}
-        self.split_path = "assets/model_weights/data_split/data_split.json"
+        self.split_path = f"assets/model_weights/data_split/{dataset_name}_{dataset_group}_data_split.json"
         self.unique_ids = self.df["unique_id"].unique()
 
     @staticmethod
