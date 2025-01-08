@@ -350,7 +350,7 @@ def workflow_timegan(
         synth_timegan_data_all = []
         count = 0
         for ts in test_unique_ids:
-            synth_timegan_data = train_and_generate_synthetic(
+            synth_timegan_data = train_and_generate_synthetic_multiprocess(
                 ts,
                 test_data_long,
                 dataset,
@@ -447,7 +447,7 @@ def objective(
     print(f"Hyperparameter set saved to {hyperparameter_file_path}")
 
     for ts in unique_ids:
-        synth_timegan_data = train_and_generate_synthetic(
+        synth_timegan_data = train_and_generate_synthetic_multiprocess(
             ts,
             data_subset,
             dataset_name,

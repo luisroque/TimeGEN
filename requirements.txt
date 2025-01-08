@@ -8,3 +8,4 @@ ydata-synthetic==1.4.0
 huggingface-hub==0.26.1
 optuna==4.0.0
 datasetsforecast==0.0.8
+metaforecast==0.1.7
