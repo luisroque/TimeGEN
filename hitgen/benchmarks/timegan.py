@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import uuid
 import gc
+import multiprocessing
+from multiprocessing import Pipe
 from tensorflow.keras import backend as K
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
@@ -86,6 +88,142 @@ def run_timegan(
     except Exception as e:
         print(f"Failed with hyperparameter set {hyperparameter_sets}: {e}")
     return timegan
+
+
+def _worker_process(
+    conn,
+    unique_id,
+    data,
+    dataset,
+    dataset_group,
+    window_size,
+    hyperparameter_sets,
+    model_path,
+    hypertune,
+):
+    """
+    Worker function that runs the full train_and_generate_synthetic logic
+    in a separate process.
+    """
+    try:
+        print(
+            f"[Worker PID={os.getpid()}] Training TimeGAN for time series: {unique_id}"
+        )
+
+        ts_data = data[data["unique_id"] == unique_id]
+
+        target_df = ts_data.pivot(index="ds", columns="unique_id", values="y")
+        target_df.columns.name = None
+        target_df = target_df.reset_index(drop=True)
+
+        result = seasonal_decompose(target_df, model="additive", period=12)
+        target_df["trend"] = result.trend
+        target_df["seasonal"] = result.seasonal
+        target_df["residual"] = result.resid
+
+        scaler = MinMaxScaler()
+        scaled_target_df = pd.DataFrame(
+            scaler.fit_transform(target_df), columns=target_df.columns
+        )
+        scaled_target_df.fillna(0, inplace=True)
+
+        timegan = run_timegan(
+            scaled_target_df,
+            dataset,
+            dataset_group,
+            unique_id,
+            model_path=model_path,
+            hyperparameter_sets=hyperparameter_sets,
+        )
+
+        synth_scaled_data = generate_synthetic_samples(
+            timegan, ts_data.shape[0] - window_size + 1, detemporalize
+        )
+
+        synth_timegan_data = pd.DataFrame(
+            scaler.inverse_transform(synth_scaled_data), columns=target_df.columns
+        )
+
+        synthetic_df = pd.DataFrame(synth_timegan_data, columns=[unique_id])
+
+        if not hypertune:
+            plot_dir = f"assets/plots/timegan/{dataset}_{dataset_group}/"
+            os.makedirs(plot_dir, exist_ok=True)
+
+            plt.figure(figsize=(10, 6))
+            plt.plot(
+                target_df[unique_id],
+                label="Original",
+                linestyle="-",
+            )
+            plt.plot(
+                synthetic_df[unique_id],
+                label="Synthetic",
+                linestyle="--",
+            )
+            plt.title(f"Original vs Synthetic Time Series for ID: {unique_id}")
+            plt.xlabel("Time Steps")
+            plt.ylabel("Value")
+            plt.legend()
+            plt.grid()
+            plot_path = f"{plot_dir}timegan_{dataset}_{dataset_group}_{unique_id}.png"
+            plt.savefig(plot_path, dpi=300)
+            plt.close()
+
+        del timegan
+        del synthetic_df
+        K.clear_session()
+        gc.collect()
+
+        # send back just one column (the synthetic data for unique_id)
+        conn.send(synth_timegan_data[unique_id])
+
+    except Exception as e:
+        print(f"[Worker PID={os.getpid()}] Error: {e}")
+        conn.send(None)
+
+    finally:
+        conn.close()
+
+
+def train_and_generate_synthetic_multiprocess(
+    unique_id,
+    data,
+    dataset,
+    dataset_group,
+    window_size,
+    hyperparameter_sets,
+    model_path,
+    hypertune=False,
+):
+    """
+    Wrapper function that spawns a brand-new subprocess for each call,
+    runs the worker code, and returns the synthetic data (Series) when done.
+    """
+    parent_conn, child_conn = multiprocessing.Pipe()
+
+    # create a new process running _worker_process
+    p = multiprocessing.Process(
+        target=_worker_process,
+        args=(
+            child_conn,
+            unique_id,
+            data,
+            dataset,
+            dataset_group,
+            window_size,
+            hyperparameter_sets,
+            model_path,
+            hypertune,
+        ),
+    )
+
+    p.start()
+    # receive the result (blocks until the worker calls conn.send(...) or hits an exception)
+    result = parent_conn.recv()
+    p.join()
+
+    return result
 
 
 def train_and_generate_synthetic(
@@ -320,7 +458,7 @@ def objective(
             hypertune=True,
         )
 
-        synth_timegan_data_all.append(train_and_generate_synthetic)
+        synth_timegan_data_all.append(synth_timegan_data)
 
     synth_timegan_data_all_df = pd.concat(
         synth_timegan_data_all, ignore_index=True, axis=1
