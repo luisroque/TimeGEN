@@ -4,6 +4,8 @@ import optuna
 import numpy as np
 import pandas as pd
 import uuid
+import gc
+from tensorflow.keras import backend as K
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from joblib import Parallel, delayed
@@ -93,24 +95,10 @@ def train_and_generate_synthetic(
     dataset_group,
     window_size,
     hyperparameter_sets,
-    hyperparameters_to_store,
+    model_path,
     hypertune=False,
 ):
     print(f"Training TimeGAN for time series: {unique_id}")
-
-    if not hypertune:
-        model_path = f"assets/model_weights/timegan/{dataset}_{dataset_group}/"
-    else:
-        unique_uuid_iter = str(uuid.uuid4())
-
-        model_path = f"assets/model_weights/timegan/{dataset}_{dataset_group}/hypertuning/iter_{unique_uuid_iter}/"
-        os.makedirs(model_path, exist_ok=True)
-
-        hyperparameter_file_path = os.path.join(model_path, f"hyperparameter_set.json")
-        with open(hyperparameter_file_path, "w") as f:
-            json.dump(hyperparameters_to_store, f, indent=4)
-
-        print(f"Hyperparameter set saved to {hyperparameter_file_path}")
 
     ts_data = data[data["unique_id"] == unique_id]
 
@@ -177,7 +165,12 @@ def train_and_generate_synthetic(
         plt.savefig(plot_path, dpi=300)
         plt.close()
 
-    return timegan, synth_timegan_data[unique_id]
+    del timegan
+    del synthetic_df
+    K.clear_session()
+    gc.collect()
+
+    return synth_timegan_data[unique_id]
 
 
 def create_dataset_long_form(
@@ -219,12 +212,13 @@ def workflow_timegan(
         synth_timegan_data_all = []
         count = 0
         for ts in test_unique_ids:
-            timegan, synth_timegan_data = train_and_generate_synthetic(
+            synth_timegan_data = train_and_generate_synthetic(
                 ts,
                 test_data_long,
                 dataset,
                 dataset_group,
                 window_size,
+                model_path=f"assets/model_weights/timegan/{dataset}_{dataset_group}/",
                 hyperparameter_sets=hyperparameter_sets,
             )
             synth_timegan_data_all.append(synth_timegan_data)
@@ -301,21 +295,32 @@ def objective(
 
     synth_timegan_data_all = []
     unique_ids = data_subset["unique_id"].unique()
+
+    # store hyperparams
+    unique_uuid_iter = str(uuid.uuid4())
+
+    model_path = f"assets/model_weights/timegan/{dataset_name}_{dataset_group}/hypertuning/iter_{unique_uuid_iter}/"
+    os.makedirs(model_path, exist_ok=True)
+
+    hyperparameter_file_path = os.path.join(model_path, f"hyperparameter_set.json")
+    with open(hyperparameter_file_path, "w") as f:
+        json.dump(hyperparameters_to_store, f, indent=4)
+
+    print(f"Hyperparameter set saved to {hyperparameter_file_path}")
+
     for ts in unique_ids:
-        timegan, synth_timegan_data = train_and_generate_synthetic(
+        synth_timegan_data = train_and_generate_synthetic(
             ts,
             data_subset,
             dataset_name,
             dataset_group,
             window_size,
             hyperparameter_sets=hyperparameter_sets,
-            hyperparameters_to_store=hyperparameters_to_store,
+            model_path=model_path,
             hypertune=True,
         )
 
-        synth_timegan_data_all.append(
-            generate_synthetic_samples(timegan, data_subset.shape[0], detemporalize)
-        )
+        synth_timegan_data_all.append(train_and_generate_synthetic)
 
     synth_timegan_data_all_df = pd.concat(
         synth_timegan_data_all, ignore_index=True, axis=1
