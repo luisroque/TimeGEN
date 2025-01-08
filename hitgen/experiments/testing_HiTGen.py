@@ -1,3 +1,4 @@
+import multiprocessing
 from hitgen.model.models import (
     TemporalizeGenerator,
 )
@@ -48,6 +49,8 @@ DATASET_CONFIGS = {
 }
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn")
+
     DATASET = "Tourism"
     DATASET_GROUP = "Monthly"
 
