@@ -15,6 +15,7 @@ from hitgen.benchmarks.timegan import workflow_timegan, hyper_tune_timegan
 DATASET_CONFIGS = {
     "Tourism": {
         "Monthly": {
+            "freq": "M",
             "latent_dim": 56,
             "patience": 95,
             "kl_weight": 0.7187173280781497,
@@ -31,6 +32,7 @@ DATASET_CONFIGS = {
     },
     "M3": {
         "Monthly": {
+            "freq": "M",
             "latent_dim": 56,
             "patience": 95,
             "kl_weight": 0.7187173280781497,
@@ -43,7 +45,54 @@ DATASET_CONFIGS = {
             "epochs": 801,
             "learning_rate": 6.292263002881687e-05,
             "noise_scale_init": 0.09374107362343356,
-        }
+        },
+        "Quarterly": {
+            "freq": "Q",
+            "latent_dim": 56,
+            "patience": 95,
+            "kl_weight": 0.7187173280781497,
+            "n_blocks": 3,
+            "n_hidden": 16,
+            "n_layers": 3,
+            "kernel_size": 2,
+            "pooling_mode": "average",
+            "batch_size": 8,
+            "epochs": 801,
+            "learning_rate": 6.292263002881687e-05,
+            "noise_scale_init": 0.09374107362343356,
+        },
+        "Yearly": {
+            "freq": "Y",
+            "latent_dim": 56,
+            "patience": 95,
+            "kl_weight": 0.7187173280781497,
+            "n_blocks": 3,
+            "n_hidden": 16,
+            "n_layers": 3,
+            "kernel_size": 2,
+            "pooling_mode": "average",
+            "batch_size": 8,
+            "epochs": 801,
+            "learning_rate": 6.292263002881687e-05,
+            "noise_scale_init": 0.09374107362343356,
+        },
+    },
+    "M4": {
+        "Monthly": {
+            "freq": "M",
+            "latent_dim": 56,
+            "patience": 95,
+            "kl_weight": 0.7187173280781497,
+            "n_blocks": 3,
+            "n_hidden": 16,
+            "n_layers": 3,
+            "kernel_size": 2,
+            "pooling_mode": "average",
+            "batch_size": 8,
+            "epochs": 801,
+            "learning_rate": 6.292263002881687e-05,
+            "noise_scale_init": 0.09374107362343356,
+        },
     },
     # add other datasets
 }
@@ -51,10 +100,10 @@ DATASET_CONFIGS = {
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
 
-    DATASET = "Tourism"
-    DATASET_GROUP = "Monthly"
+    DATASET = "M3"
+    DATASET_GROUP = "Quarterly"
 
-    FREQ = "M"
+    FREQ = DATASET_CONFIGS[DATASET][DATASET_GROUP]["freq"]
     TOP = None
     WINDOW_SIZE = 24
     VAL_STEPS = 0
