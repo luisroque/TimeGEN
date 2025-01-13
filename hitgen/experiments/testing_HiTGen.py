@@ -126,8 +126,8 @@ DATASET_CONFIGS = {
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
 
-    DATASET = "M5"
-    DATASET_GROUP = "Daily"
+    DATASET = "M3"
+    DATASET_GROUP = "Yearly"
 
     FREQ = DATASET_CONFIGS[DATASET][DATASET_GROUP]["freq"]
     TOP = None
