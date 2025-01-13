@@ -11,6 +11,15 @@ from hitgen.metrics.discriminative_score import (
 )
 from hitgen.benchmarks.timegan import workflow_timegan, hyper_tune_timegan
 
+import tensorflow as tf
+
+if not tf.config.list_physical_devices("GPU"):
+    print("Warning: No GPU detected. Running on CPU.")
+
+try:
+    import tensorrt
+except ImportError:
+    print("TensorRT not installed. Skipping optimization.")
 
 DATASET_CONFIGS = {
     "Tourism": {
