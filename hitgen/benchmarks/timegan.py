@@ -78,7 +78,6 @@ def run_timegan(
     os.makedirs(model_path, exist_ok=True)
 
     try:
-        print(f"Training TimeGAN with new hyperparameter set")
         timegan = train_timegan_model(
             target_df,
             gan_args=hyperparameter_sets["gan_args"],
