@@ -1,6 +1,5 @@
 import pandas as pd
 from metaforecast.synth import (
-    KernelSynth,
     DBA,
     Jittering,
     Scaling,
@@ -9,13 +8,10 @@ from metaforecast.synth import (
     SeasonalMBB,
     TSMixup,
     GaussianDiffusion,
-    Diffusion,
 )
 
 
-def generate_synthetic_data(
-    df: pd.DataFrame, freq: str, n_obs: int, n_series: int
-) -> pd.DataFrame:
+def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     """
     Applies multiple synthetic/augmentation techniques to a time-series dataset.
     """
@@ -26,9 +22,10 @@ def generate_synthetic_data(
         )
     per = FREQS[freq]
 
-    kernel_synth = KernelSynth(max_kernels=7, n_obs=n_obs, freq=freq)
-    df_ker = kernel_synth.transform(n_series=n_series)
-    df_ker["method"] = "KernelSynth"
+    print("Starting to generate synthetic series using multiple methods...")
+    print(
+        "Methods used for this generation: DBA, Jitter, Scaling, MagWarp, TimeWarp, MBB, TSMixup, GaussDiff"
+    )
 
     dba_synth = DBA(max_n_uids=10)
     df_dba = dba_synth.transform(df)
@@ -62,14 +59,9 @@ def generate_synthetic_data(
     df_gaussdiff = gauss_diff.transform(df)
     df_gaussdiff["method"] = "GaussDiff"
 
-    diff = Diffusion()
-    df_diff = diff.transform(df)
-    df_diff["method"] = "Diffusion"
-
     df_synthetic = pd.concat(
         [
             df,
-            df_ker,
             df_dba,
             df_jitter,
             df_scaling,
@@ -78,7 +70,6 @@ def generate_synthetic_data(
             df_mbb,
             df_mixup,
             df_gaussdiff,
-            df_diff,
         ],
         ignore_index=True,
     )
@@ -86,5 +77,7 @@ def generate_synthetic_data(
     df_synthetic = df_synthetic.sort_values(by=["unique_id", "ds"]).reset_index(
         drop=True
     )
+
+    print("Synthetic series generation completed.")
 
     return df_synthetic
