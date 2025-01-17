@@ -188,3 +188,6 @@ build/
 *deprecated*.py
 workspace/
 *.DS_Store
+
+lightning_logs
+datasets

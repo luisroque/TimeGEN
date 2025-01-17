@@ -12,6 +12,11 @@ from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+from neuralforecast import NeuralForecast
+from neuralforecast.models import NHITS
+
 
 def split_train_test(
     unique_ids,
@@ -214,3 +219,163 @@ def compute_discriminative_score(
         final_score = None
 
     return final_score
+
+
+def compute_downstream_forecast(
+    unique_ids,
+    original_data,
+    synthetic_data,
+    freq,
+    dataset_name,
+    dataset_group,
+    horizon,
+    samples=1,
+    generate_plot=False,
+):
+    """
+    Train two NHITS models:
+        1) On original_data only.
+        2) On original_data + synthetic_data (concatenated).
+    Compare their performance on a hold-out test set.
+    """
+
+    results_original = []
+    results_concatenated = []
+
+    for sample_idx in range(samples):
+        print(f"\n--- Sample {sample_idx+1} of {samples} ---")
+
+        train_idx, test_idx = split_train_test(
+            unique_ids,
+            sample_idx,
+            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_data_split_forecast",
+        )
+
+        df_train_original, _ = filter_data_by_indices(
+            original_data, train_idx, label_value=0
+        )
+        df_test_original, _ = filter_data_by_indices(
+            original_data, test_idx, label_value=0
+        )
+
+        df_train_synthetic, _ = filter_data_by_indices(
+            synthetic_data, train_idx, label_value=0
+        )
+        df_test_synthetic, _ = filter_data_by_indices(
+            synthetic_data, test_idx, label_value=0
+        )
+
+        df_train_concat = pd.concat(
+            [df_train_original, df_train_synthetic], ignore_index=True
+        )
+        df_test_concat = pd.concat(
+            [df_test_original, df_test_synthetic], ignore_index=True
+        )
+
+        input_size = 50
+
+        print("    Training NHITS on original data...")
+        model_original = NHITS(
+            h=horizon,
+            max_steps=10,
+            input_size=input_size,
+            start_padding_enabled=True,
+        )
+
+        nf_orig = NeuralForecast(models=[model_original], freq=freq)
+        cv_model_orig = nf_orig.cross_validation(
+            df=df_test_original, test_size=horizon, n_windows=None
+        )
+        cv_model_orig = cv_model_orig.reset_index()
+
+        print("    Training NHITS on original + synthetic data...")
+        model_concat = NHITS(
+            h=horizon,
+            max_steps=10,
+            input_size=input_size,
+            start_padding_enabled=True,
+        )
+
+        nf_concat = NeuralForecast(models=[model_concat], freq=freq)
+        cv_model_concat = nf_concat.cross_validation(
+            df=df_test_concat, test_size=horizon, n_windows=None
+        )
+        cv_model_concat = cv_model_concat.reset_index()
+
+        pass
+    #     nf_concat.fit(df_train_concat)
+    #
+    #     print("    Forecasting on test set...")
+    #
+    #     fcst_original = nf_original.predict(df_test_original)
+    #     fcst_concat = nf_concat.predict(df_test_original)
+    #
+    #     df_test_original = df_test_original.reset_index(drop=True)
+    #     df_test_merged_original = pd.merge(
+    #         df_test_original, fcst_original, on=["unique_id", "ds"], how="inner"
+    #     ).dropna(subset=["y", "y_hat"])
+    #
+    #     df_test_merged_concat = pd.merge(
+    #         df_test_original, fcst_concat, on=["unique_id", "ds"], how="inner"
+    #     ).dropna(subset=["y", "y_hat"])
+    #
+    #     mae_original = np.mean(
+    #         np.abs(df_test_merged_original["y"] - df_test_merged_original["y_hat"])
+    #     )
+    #     mae_concat = np.mean(
+    #         np.abs(df_test_merged_concat["y"] - df_test_merged_concat["y_hat"])
+    #     )
+    #
+    #     print(f"    MAE (original-only): {mae_original:.4f}")
+    #     print(f"    MAE (concat):        {mae_concat:.4f}")
+    #
+    #     results_original.append(mae_original)
+    #     results_concatenated.append(mae_concat)
+    #
+    #     if generate_plot:
+    #
+    #         import matplotlib.pyplot as plt
+    #
+    #         some_id = df_test_merged_original["unique_id"].unique()[0]
+    #         subset_orig = df_test_merged_original[
+    #             df_test_merged_original["unique_id"] == some_id
+    #         ]
+    #         subset_concat = df_test_merged_concat[
+    #             df_test_merged_concat["unique_id"] == some_id
+    #         ]
+    #
+    #         plt.figure(figsize=(10, 5))
+    #         plt.plot(subset_orig["ds"], subset_orig["y"], label="Actual", color="black")
+    #         plt.plot(
+    #             subset_orig["ds"],
+    #             subset_orig["y_hat"],
+    #             label="Original Model",
+    #             color="blue",
+    #         )
+    #         plt.plot(
+    #             subset_concat["ds"],
+    #             subset_concat["y_hat"],
+    #             label="Concatenated Model",
+    #             color="red",
+    #         )
+    #         plt.title(f"Forecast Comparison for unique_id={some_id}")
+    #         plt.legend()
+    #         plt.show()
+    #
+    # if results_original and results_concatenated:
+    #     avg_mae_original = np.mean(results_original)
+    #     avg_mae_concat = np.mean(results_concatenated)
+    #     print("\n\n### Final Results across samples ###")
+    #     print(f"Avg MAE (original-only): {avg_mae_original:.4f}")
+    #     print(f"Avg MAE (concat):        {avg_mae_concat:.4f}")
+    # else:
+    #     avg_mae_original = None
+    #     avg_mae_concat = None
+    #     print("No valid iterations completed. Final results are undefined.")
+    #
+    # final_results = {
+    #     "avg_mae_original": avg_mae_original,
+    #     "avg_mae_concat": avg_mae_concat,
+    # }
+    #
+    # return final_results

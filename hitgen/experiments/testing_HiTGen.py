@@ -8,10 +8,12 @@ from hitgen.visualization.model_visualization import (
 )
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
+    compute_downstream_forecast,
 )
 from hitgen.benchmarks.timegan import workflow_timegan, hyper_tune_timegan
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
+
 
 # import tensorflow as tf
 
@@ -466,6 +468,24 @@ if __name__ == "__main__":
 
             print(
                 f"Discriminative score for HiTGen synthetic data: {hitgen_score_disc:.4f}"
+            )
+
+            print(
+                "\nComputing downstream task forecasting score for HiTGen synthetic data..."
+            )
+            hitgen_score_dtf = compute_downstream_forecast(
+                unique_ids=test_unique_ids,
+                original_data=test_data_long,
+                synthetic_data=synth_hitgen_test_long,
+                freq="M",
+                horizon=24,
+                dataset_name=DATASET,
+                dataset_group=DATASET_GROUP,
+                samples=5,
+            )
+
+            print(
+                f"Discriminative downstream task forecasting score for HiTGen synthetic data: {hitgen_score_dtf:.4f}"
             )
 
             # print("\nComputing discriminative score for TimeGAN synthetic data...")
