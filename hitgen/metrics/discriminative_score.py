@@ -63,12 +63,18 @@ def split_train_test(
 
 
 def filter_data_by_indices(
-    data: pd.DataFrame, indices: List[str], label_value: int
+    data: pd.DataFrame,
+    indices: List[str],
+    label_value: int,
+    downstream_forecast: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Filters data by indices and assigns labels."""
-    filtered_data = data[data["unique_id"].isin(indices)]
+    filtered_data = data[data["unique_id"].isin(indices)].copy()
     unique_ids_n = filtered_data["unique_id"].nunique()
     labels = pd.DataFrame([label_value] * unique_ids_n)
+    if downstream_forecast:
+        filtered_data["unique_id"] = filtered_data["unique_id"] + "_synth"
+
     return filtered_data, labels
 
 
@@ -121,6 +127,7 @@ def compute_discriminative_score(
     unique_ids,
     original_data,
     synthetic_data,
+    method,
     freq,
     dataset_name,
     dataset_group,
@@ -128,6 +135,15 @@ def compute_discriminative_score(
     generate_feature_plot=True,
     samples=1,
 ):
+    score_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_discriminative_score.json"
+
+    if os.path.exists(score_file):
+        print(f"Score file '{score_file}' exists. Loading score...")
+        with open(score_file, "r") as f:
+            final_score = json.load(f).get("final_score", None)
+        print(f"Loaded final score: {final_score:.4f}")
+        return final_score
+
     scores = []
     FREQS = {"H": 24, "D": 1, "M": 12, "Q": 4, "W": 1, "Y": 1}
     freq = FREQS[freq]
@@ -218,19 +234,150 @@ def compute_discriminative_score(
         print("No valid iterations completed. Final score is undefined.")
         final_score = None
 
+    with open(score_file, "w") as f:
+        json.dump({"final_score": final_score}, f)
+        print(f"Final score saved to '{score_file}'")
+
     return final_score
+
+
+def tstr(
+    unique_ids,
+    original_data,
+    synthetic_data,
+    method,
+    freq,
+    dataset_name,
+    dataset_group,
+    horizon,
+    samples=3,
+):
+    """
+    Train two models:
+        1) TRTR (Train on Real, Test on Real)
+        2) TSTR (Train on Synthetic, Test on Real)
+
+    Compare their performance on a hold-out test set across multiple splits.
+    The final metric reported is the Mean Absolute Error (MAE).
+    """
+    results_file = (
+        f"assets/results/{dataset_name}_{dataset_group}_{method}_TSTR_results.json"
+    )
+
+    if os.path.exists(results_file):
+        print(f"Results file '{results_file}' exists. Loading results...")
+        with open(results_file, "r") as f:
+            final_results = json.load(f)
+        return final_results
+
+    results_trtr = []
+    results_tstr = []
+
+    synthetic_data = synthetic_data.drop(columns=["method"], errors="ignore")
+
+    for sample_idx in range(samples):
+        print(f"\n--- Sample {sample_idx+1} of {samples} ---")
+
+        train_idx, test_idx = split_train_test(
+            unique_ids,
+            sample_idx,
+            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_data_split_forecast",
+        )
+
+        df_test_real, _ = filter_data_by_indices(original_data, test_idx, label_value=0)
+        df_test_synth, _ = filter_data_by_indices(
+            synthetic_data, test_idx, label_value=1, downstream_forecast=True
+        )
+
+        input_size = 50
+
+        model_trtr = NHITS(
+            h=horizon,
+            max_steps=500,
+            input_size=input_size,
+            start_padding_enabled=True,
+        )
+        model_tstr = NHITS(
+            h=horizon,
+            max_steps=500,
+            input_size=input_size,
+            start_padding_enabled=True,
+        )
+
+        print("    [TRTR] Training on Real, Testing on Real ...")
+        nf_trtr = NeuralForecast(models=[model_trtr], freq=freq)
+        cv_model_trtr = nf_trtr.cross_validation(
+            df=df_test_real, test_size=horizon, n_windows=None
+        )
+        fcst_trtr = cv_model_trtr.reset_index()
+
+        cutoff_value = fcst_trtr["cutoff"].iloc[0]
+
+        df_test_synth_concat = df_test_synth.loc[
+            df_test_synth["ds"] <= cutoff_value
+        ].copy()
+
+        df_test_synth_concat["unique_id"] = df_test_synth_concat[
+            "unique_id"
+        ].str.replace("_synth$", "", regex=True)
+
+        df_test_real_concat = df_test_real.loc[df_test_real["ds"] > cutoff_value].copy()
+
+        df_tstr = pd.concat(
+            [df_test_synth_concat, df_test_real_concat], axis=0, ignore_index=True
+        ).sort_values(by=["unique_id", "ds"])
+
+        print("    [TSTR] Training on Synthetic, Testing on Real ...")
+        nf_tstr = NeuralForecast(models=[model_tstr], freq=freq)
+        cv_model_tstr = nf_tstr.cross_validation(
+            df=df_tstr, test_size=horizon, n_windows=None
+        )
+        fcst_tstr = cv_model_tstr.reset_index()
+
+        mae_trtr = np.mean(np.abs(fcst_trtr["y"] - fcst_trtr["NHITS"]))
+        mae_tstr = np.mean(np.abs(fcst_tstr["y"] - fcst_tstr["NHITS"]))
+
+        print(f"    MAE (TRTR - Real->Real):  {mae_trtr:.4f}")
+        print(f"    MAE (TSTR - Synth->Real): {mae_tstr:.4f}")
+
+        results_trtr.append(mae_trtr)
+        results_tstr.append(mae_tstr)
+
+    if results_trtr and results_tstr:
+        avg_mae_trtr = np.mean(results_trtr)
+        avg_mae_tstr = np.mean(results_tstr)
+        print("\n\n### Final Results across samples ###")
+        print(f"Avg MAE (TRTR):  {avg_mae_trtr:.4f}  (Train on Real, Test on Real)")
+        print(f"Avg MAE (TSTR):  {avg_mae_tstr:.4f}  (Train on Synth, Test on Real)")
+    else:
+        avg_mae_trtr = None
+        avg_mae_tstr = None
+        print("No valid iterations completed. Final results are undefined.")
+
+    final_results = {
+        "avg_mae_trtr": avg_mae_trtr,
+        "avg_mae_tstr": avg_mae_tstr,
+        "results_trtr_samples": results_trtr,
+        "results_tstr_samples": results_tstr,
+    }
+
+    with open(results_file, "w") as f:
+        json.dump(final_results, f)
+        print(f"Results saved to '{results_file}'")
+
+    return final_results
 
 
 def compute_downstream_forecast(
     unique_ids,
     original_data,
     synthetic_data,
+    method,
     freq,
     dataset_name,
     dataset_group,
     horizon,
-    samples=1,
-    generate_plot=False,
+    samples=3,
 ):
     """
     Train two NHITS models:
@@ -238,9 +385,18 @@ def compute_downstream_forecast(
         2) On original_data + synthetic_data (concatenated).
     Compare their performance on a hold-out test set.
     """
+    results_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_downstream_task_results.json"
+
+    if os.path.exists(results_file):
+        print(f"Results file '{results_file}' exists. Loading results...")
+        with open(results_file, "r") as f:
+            final_results = json.load(f)
+        return final_results
 
     results_original = []
     results_concatenated = []
+
+    synthetic_data = synthetic_data.drop(columns=["method"], errors="ignore")
 
     for sample_idx in range(samples):
         print(f"\n--- Sample {sample_idx+1} of {samples} ---")
@@ -259,10 +415,10 @@ def compute_downstream_forecast(
         )
 
         df_train_synthetic, _ = filter_data_by_indices(
-            synthetic_data, train_idx, label_value=0
+            synthetic_data, train_idx, label_value=1, downstream_forecast=True
         )
         df_test_synthetic, _ = filter_data_by_indices(
-            synthetic_data, test_idx, label_value=0
+            synthetic_data, test_idx, label_value=1, downstream_forecast=True
         )
 
         df_train_concat = pd.concat(
@@ -277,7 +433,7 @@ def compute_downstream_forecast(
         print("    Training NHITS on original data...")
         model_original = NHITS(
             h=horizon,
-            max_steps=10,
+            max_steps=500,
             input_size=input_size,
             start_padding_enabled=True,
         )
@@ -286,12 +442,12 @@ def compute_downstream_forecast(
         cv_model_orig = nf_orig.cross_validation(
             df=df_test_original, test_size=horizon, n_windows=None
         )
-        cv_model_orig = cv_model_orig.reset_index()
+        fcst_orig = cv_model_orig.reset_index()
 
         print("    Training NHITS on original + synthetic data...")
         model_concat = NHITS(
             h=horizon,
-            max_steps=10,
+            max_steps=500,
             input_size=input_size,
             start_padding_enabled=True,
         )
@@ -300,82 +456,41 @@ def compute_downstream_forecast(
         cv_model_concat = nf_concat.cross_validation(
             df=df_test_concat, test_size=horizon, n_windows=None
         )
-        cv_model_concat = cv_model_concat.reset_index()
+        fcst_concat = cv_model_concat.reset_index()
 
-        pass
-    #     nf_concat.fit(df_train_concat)
-    #
-    #     print("    Forecasting on test set...")
-    #
-    #     fcst_original = nf_original.predict(df_test_original)
-    #     fcst_concat = nf_concat.predict(df_test_original)
-    #
-    #     df_test_original = df_test_original.reset_index(drop=True)
-    #     df_test_merged_original = pd.merge(
-    #         df_test_original, fcst_original, on=["unique_id", "ds"], how="inner"
-    #     ).dropna(subset=["y", "y_hat"])
-    #
-    #     df_test_merged_concat = pd.merge(
-    #         df_test_original, fcst_concat, on=["unique_id", "ds"], how="inner"
-    #     ).dropna(subset=["y", "y_hat"])
-    #
-    #     mae_original = np.mean(
-    #         np.abs(df_test_merged_original["y"] - df_test_merged_original["y_hat"])
-    #     )
-    #     mae_concat = np.mean(
-    #         np.abs(df_test_merged_concat["y"] - df_test_merged_concat["y_hat"])
-    #     )
-    #
-    #     print(f"    MAE (original-only): {mae_original:.4f}")
-    #     print(f"    MAE (concat):        {mae_concat:.4f}")
-    #
-    #     results_original.append(mae_original)
-    #     results_concatenated.append(mae_concat)
-    #
-    #     if generate_plot:
-    #
-    #         import matplotlib.pyplot as plt
-    #
-    #         some_id = df_test_merged_original["unique_id"].unique()[0]
-    #         subset_orig = df_test_merged_original[
-    #             df_test_merged_original["unique_id"] == some_id
-    #         ]
-    #         subset_concat = df_test_merged_concat[
-    #             df_test_merged_concat["unique_id"] == some_id
-    #         ]
-    #
-    #         plt.figure(figsize=(10, 5))
-    #         plt.plot(subset_orig["ds"], subset_orig["y"], label="Actual", color="black")
-    #         plt.plot(
-    #             subset_orig["ds"],
-    #             subset_orig["y_hat"],
-    #             label="Original Model",
-    #             color="blue",
-    #         )
-    #         plt.plot(
-    #             subset_concat["ds"],
-    #             subset_concat["y_hat"],
-    #             label="Concatenated Model",
-    #             color="red",
-    #         )
-    #         plt.title(f"Forecast Comparison for unique_id={some_id}")
-    #         plt.legend()
-    #         plt.show()
-    #
-    # if results_original and results_concatenated:
-    #     avg_mae_original = np.mean(results_original)
-    #     avg_mae_concat = np.mean(results_concatenated)
-    #     print("\n\n### Final Results across samples ###")
-    #     print(f"Avg MAE (original-only): {avg_mae_original:.4f}")
-    #     print(f"Avg MAE (concat):        {avg_mae_concat:.4f}")
-    # else:
-    #     avg_mae_original = None
-    #     avg_mae_concat = None
-    #     print("No valid iterations completed. Final results are undefined.")
-    #
-    # final_results = {
-    #     "avg_mae_original": avg_mae_original,
-    #     "avg_mae_concat": avg_mae_concat,
-    # }
-    #
-    # return final_results
+        fcst_concat = fcst_concat[
+            ~fcst_concat["unique_id"].str.contains("_synth", na=False)
+        ]
+
+        mae_original = np.mean(np.abs(fcst_orig["y"] - fcst_orig["NHITS"]))
+        mae_concat = np.mean(np.abs(fcst_concat["y"] - fcst_concat["NHITS"]))
+
+        print(f"    MAE (original-only): {mae_original:.4f}")
+        print(f"    MAE (concat):        {mae_concat:.4f}")
+
+        results_original.append(mae_original)
+        results_concatenated.append(mae_concat)
+
+    if results_original and results_concatenated:
+        avg_mae_original = np.mean(results_original)
+        avg_mae_concat = np.mean(results_concatenated)
+        print("\n\n### Final Results across samples ###")
+        print(f"Avg MAE (original-only): {avg_mae_original:.4f}")
+        print(f"Avg MAE (concat):        {avg_mae_concat:.4f}")
+    else:
+        avg_mae_original = None
+        avg_mae_concat = None
+        print("No valid iterations completed. Final results are undefined.")
+
+    final_results = {
+        "avg_mae_original": avg_mae_original,
+        "avg_mae_concat": avg_mae_concat,
+        "results_original_samples": results_original,
+        "results_concatenated_samples": results_concatenated,
+    }
+
+    with open(results_file, "w") as f:
+        json.dump(final_results, f)
+        print(f"Results saved to '{results_file}'")
+
+    return final_results
