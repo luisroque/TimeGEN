@@ -1,4 +1,5 @@
 import multiprocessing
+import pandas as pd
 from hitgen.model.models import (
     TemporalizeGenerator,
 )
@@ -9,6 +10,7 @@ from hitgen.visualization.model_visualization import (
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
     compute_downstream_forecast,
+    tstr,
 )
 from hitgen.benchmarks.timegan import workflow_timegan, hyper_tune_timegan
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
@@ -205,8 +207,6 @@ METAFORECAST_METHODS = [
     "TimeWarp",
     "MBB",
     "TSMixup",
-    "GaussDiff",
-    "Diffusion",
 ]
 
 
@@ -229,6 +229,7 @@ def has_final_score_in_tuple(tpl):
 
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
+    results = []
 
     for DATASET, SUBGROUPS in DATASET_GROUP_FREQ.items():
         for subgroup in SUBGROUPS.items():
@@ -448,10 +449,10 @@ if __name__ == "__main__":
             # )
 
             # metaforecast methods
-            # synthetic_metaforecast_long = workflow_metaforecast_methods(
-            #     df=original_data_long,
-            #     freq=FREQ,
-            # )
+            synthetic_metaforecast_long = workflow_metaforecast_methods(
+                df=original_data_long,
+                freq=FREQ,
+            )
 
             if not hitgen_score_disc:
                 print("\nComputing discriminative score for HiTGen synthetic data...")
@@ -459,6 +460,7 @@ if __name__ == "__main__":
                     unique_ids=test_unique_ids,
                     original_data=test_data_long,
                     synthetic_data=synth_hitgen_test_long,
+                    method="hitgen",
                     freq="M",
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
@@ -466,8 +468,17 @@ if __name__ == "__main__":
                     samples=5,
                 )
 
-            print(
-                f"Discriminative score for HiTGen synthetic data: {hitgen_score_disc:.4f}"
+            print("\nComputing TSTR score for HiTGen synthetic data...")
+            hitgen_score_tstr = tstr(
+                unique_ids=test_unique_ids,
+                original_data=test_data_long,
+                synthetic_data=synth_hitgen_test_long,
+                method="hitgen",
+                freq="M",
+                horizon=24,
+                dataset_name=DATASET,
+                dataset_group=DATASET_GROUP,
+                samples=5,
             )
 
             print(
@@ -477,6 +488,7 @@ if __name__ == "__main__":
                 unique_ids=test_unique_ids,
                 original_data=test_data_long,
                 synthetic_data=synth_hitgen_test_long,
+                method="hitgen",
                 freq="M",
                 horizon=24,
                 dataset_name=DATASET,
@@ -484,8 +496,36 @@ if __name__ == "__main__":
                 samples=5,
             )
 
+            print(f"\n\n{DATASET}")
+            print(f"{DATASET_GROUP}")
+
             print(
-                f"Discriminative downstream task forecasting score for HiTGen synthetic data: {hitgen_score_dtf:.4f}"
+                f"Discriminative score for HiTGen synthetic data: {hitgen_score_disc:.4f}"
+            )
+
+            print(
+                f"Discriminative TSTR score for HiTGen synthetic data: "
+                f"TSTR {hitgen_score_tstr['avg_mae_tstr']:.4f} vs TRTR "
+                f"score {hitgen_score_tstr['avg_mae_trtr']:.4f}"
+            )
+
+            print(
+                f"Discriminative downstream task forecasting score for HiTGen synthetic data: "
+                f"concat score {hitgen_score_dtf['avg_mae_concat']:.4f} vs original "
+                f"score {hitgen_score_dtf['avg_mae_original']:.4f}\n\n"
+            )
+
+            results.append(
+                {
+                    "Dataset": DATASET,
+                    "Group": DATASET_GROUP,
+                    "Method": "HiTGen",
+                    "Discriminative Score": hitgen_score_disc,
+                    "TSTR (avg_mae_tstr)": hitgen_score_tstr["avg_mae_tstr"],
+                    "TRTR (avg_mae_trtr)": hitgen_score_tstr["avg_mae_trtr"],
+                    "DTF Concat Score": hitgen_score_dtf["avg_mae_concat"],
+                    "DTF Original Score": hitgen_score_dtf["avg_mae_original"],
+                }
             )
 
             # print("\nComputing discriminative score for TimeGAN synthetic data...")
@@ -502,21 +542,90 @@ if __name__ == "__main__":
 
             # print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
 
-            # print("\nComputing discriminative score for Metaforecast synthetic data...")
-            # for method in METAFORECAST_METHODS:
-            #     score_metaforecast = compute_discriminative_score(
-            #         unique_ids=test_unique_ids,
-            #         original_data=test_data_long,
-            #         synthetic_data=synthetic_metaforecast_long.loc[
-            #             synthetic_metaforecast_long["method"] == method
-            #         ],
-            #         freq="M",
-            #         dataset_name=DATASET,
-            #         dataset_group=DATASET_GROUP,
-            #         loss=0.0,
-            #         samples=5,
-            #     )
-            #
-            #     print(
-            #         f"Discriminative score for {method} synthetic data: {score_metaforecast:.4f}"
-            #     )
+            for method in METAFORECAST_METHODS:
+                print(
+                    f"\nComputing discriminative score for {method} synthetic data generation..."
+                )
+
+                score_disc = compute_discriminative_score(
+                    unique_ids=test_unique_ids,
+                    original_data=test_data_long,
+                    synthetic_data=synthetic_metaforecast_long.loc[
+                        synthetic_metaforecast_long["method"] == method
+                    ],
+                    method=method,
+                    freq="M",
+                    dataset_name=DATASET,
+                    dataset_group=DATASET_GROUP,
+                    loss=0.0,
+                    samples=5,
+                )
+
+                print(f"\nComputing TSTR score for {method} synthetic data...")
+                score_tstr = tstr(
+                    unique_ids=test_unique_ids,
+                    original_data=test_data_long,
+                    synthetic_data=synthetic_metaforecast_long.loc[
+                        synthetic_metaforecast_long["method"] == method
+                    ],
+                    method=method,
+                    freq="M",
+                    horizon=24,
+                    dataset_name=DATASET,
+                    dataset_group=DATASET_GROUP,
+                    samples=5,
+                )
+
+                print(
+                    f"\nComputing downstream task forecasting score for {method} synthetic data..."
+                )
+                score_dtf = compute_downstream_forecast(
+                    unique_ids=test_unique_ids,
+                    original_data=test_data_long,
+                    synthetic_data=synthetic_metaforecast_long.loc[
+                        synthetic_metaforecast_long["method"] == method
+                    ],
+                    method=method,
+                    freq="M",
+                    horizon=24,
+                    dataset_name=DATASET,
+                    dataset_group=DATASET_GROUP,
+                    samples=5,
+                )
+
+                print(f"\n\n{DATASET}")
+                print(f"{DATASET_GROUP}")
+
+                print(
+                    f"Discriminative score for {method} synthetic data: {score_disc:.4f}"
+                )
+
+                print(
+                    f"Discriminative TSTR score for {method} synthetic data: "
+                    f"TSTR {score_tstr['avg_mae_tstr']:.4f} vs TRTR "
+                    f"score {score_tstr['avg_mae_trtr']:.4f}"
+                )
+
+                print(
+                    f"Discriminative downstream task forecasting score for {method} synthetic data: "
+                    f"concat score {score_dtf['avg_mae_concat']:.4f} vs original "
+                    f"score {score_dtf['avg_mae_original']:.4f}\n\n"
+                )
+
+                results.append(
+                    {
+                        "Dataset": DATASET,
+                        "Group": DATASET_GROUP,
+                        "Method": method,
+                        "Discriminative Score": score_disc,
+                        "TSTR (avg_mae_tstr)": score_tstr["avg_mae_tstr"],
+                        "TRTR (avg_mae_trtr)": score_tstr["avg_mae_trtr"],
+                        "DTF Concat Score": score_dtf["avg_mae_concat"],
+                        "DTF Original Score": score_dtf["avg_mae_original"],
+                    }
+                )
+
+    results_df = pd.DataFrame(results)
+    print(results_df)
+
+    results_df.to_csv("assets/results/synthetic_data_results.csv", index=False)

@@ -7,7 +7,6 @@ from metaforecast.synth import (
     TimeWarping,
     SeasonalMBB,
     TSMixup,
-    GaussianDiffusion,
 )
 
 
@@ -24,40 +23,43 @@ def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
 
     print("Starting to generate synthetic series using multiple methods...")
     print(
-        "Methods used for this generation: DBA, Jitter, Scaling, MagWarp, TimeWarp, MBB, TSMixup, GaussDiff"
+        "Methods used for this generation: DBA, Jitter, Scaling, MagWarp, TimeWarp, MBB, TSMixup"
     )
 
     dba_synth = DBA(max_n_uids=10)
     df_dba = dba_synth.transform(df)
     df_dba["method"] = "DBA"
+    df_dba["unique_id"] = df["unique_id"]
 
     jitter_synth = Jittering()
     df_jitter = jitter_synth.transform(df)
     df_jitter["method"] = "Jitter"
+    df_jitter["unique_id"] = df["unique_id"]
 
     scaling_synth = Scaling()
     df_scaling = scaling_synth.transform(df)
     df_scaling["method"] = "Scaling"
+    df_scaling["unique_id"] = df["unique_id"]
 
     magwarp_synth = MagnitudeWarping()
     df_magwarp = magwarp_synth.transform(df)
     df_magwarp["method"] = "MagWarp"
+    df_magwarp["unique_id"] = df["unique_id"]
 
     timewarp_synth = TimeWarping()
     df_timewarp = timewarp_synth.transform(df)
     df_timewarp["method"] = "TimeWarp"
+    df_timewarp["unique_id"] = df["unique_id"]
 
     mbb_synth = SeasonalMBB(seas_period=per)
     df_mbb = mbb_synth.transform(df)
     df_mbb["method"] = "MBB"
+    df_mbb["unique_id"] = df["unique_id"]
 
     ts_mixup = TSMixup(max_n_uids=7, min_len=50, max_len=96)
     df_mixup = ts_mixup.transform(df)
     df_mixup["method"] = "TSMixup"
-
-    gauss_diff = GaussianDiffusion()
-    df_gaussdiff = gauss_diff.transform(df)
-    df_gaussdiff["method"] = "GaussDiff"
+    df_mixup["unique_id"] = df["unique_id"]
 
     df_synthetic = pd.concat(
         [
@@ -69,7 +71,6 @@ def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
             df_timewarp,
             df_mbb,
             df_mixup,
-            df_gaussdiff,
         ],
         ignore_index=True,
     )
