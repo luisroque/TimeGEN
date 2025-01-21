@@ -206,7 +206,7 @@ METAFORECAST_METHODS = [
     "MagWarp",
     "TimeWarp",
     "MBB",
-    "TSMixup",
+    # "TSMixup",
 ]
 
 
@@ -228,7 +228,7 @@ def has_final_score_in_tuple(tpl):
 
 
 if __name__ == "__main__":
-    # multiprocessing.set_start_method("spawn")
+    multiprocessing.set_start_method("spawn")
     results = []
 
     for DATASET, SUBGROUPS in DATASET_GROUP_FREQ.items():

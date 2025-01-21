@@ -56,10 +56,11 @@ def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     df_mbb["method"] = "MBB"
     df_mbb["unique_id"] = df["unique_id"]
 
-    ts_mixup = TSMixup(max_n_uids=7, min_len=50, max_len=96)
-    df_mixup = ts_mixup.transform(df)
-    df_mixup["method"] = "TSMixup"
-    df_mixup["unique_id"] = df["unique_id"]
+    # TODO: TS_MIXUP NEEDS TO BE UPDATED TO CREATE SERIES WITH SIMILAR LENGTH AS THE ORIGINAL ONES
+    # ts_mixup = TSMixup(max_n_uids=7, min_len=50, max_len=96)
+    # df_mixup = ts_mixup.transform(df)
+    # df_mixup["method"] = "TSMixup"
+    # df_mixup["unique_id"] = df["unique_id"]
 
     df_synthetic = pd.concat(
         [
@@ -70,7 +71,7 @@ def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
             df_magwarp,
             df_timewarp,
             df_mbb,
-            df_mixup,
+            # df_mixup,
         ],
         ignore_index=True,
     )
