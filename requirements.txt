@@ -9,3 +9,5 @@ huggingface-hub==0.26.1
 optuna==4.0.0
 datasetsforecast==0.0.8
 metaforecast==0.2.0
+neuralforecast==2.0.0
+
