@@ -5,7 +5,7 @@ import json
 import os
 import warnings
 from tsfeatures import tsfeatures
-from sklearn.tree import DecisionTreeClassifier
+from xgboost import XGBClassifier
 from sklearn.metrics import classification_report
 from sklearn.metrics import f1_score
 from sklearn.utils import shuffle
@@ -86,6 +86,7 @@ def safe_generate_features(data, freq):
         warnings.simplefilter("always")
         try:
             features = tsfeatures(data, freq=freq)
+            print("             Features created successfully.")
             for warning in w:
                 if "divide by zero" in str(warning.message):
                     print("Detected problematic data. Skipping.")
@@ -205,7 +206,7 @@ def compute_discriminative_score(
         X_train, y_train = shuffle(X_train, y_train, random_state=42)
         X_test, y_test = shuffle(X_test, y_test, random_state=42)
 
-        classifier = DecisionTreeClassifier()
+        classifier = XGBClassifier()
         classifier.fit(X_train, y_train)
 
         y_pred = classifier.predict(X_test)
@@ -241,6 +242,18 @@ def compute_discriminative_score(
     return final_score
 
 
+def smape(y_true, y_pred):
+    """
+    Calculate Symmetric Mean Absolute Percentage Error (SMAPE).
+    """
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    denominator = (np.abs(y_true) + np.abs(y_pred)) / 2.0
+    smape_value = 100 * np.mean(
+        np.where(denominator == 0, 0, 2 * np.abs(y_true - y_pred) / denominator)
+    )
+    return smape_value
+
+
 def tstr(
     unique_ids,
     original_data,
@@ -258,7 +271,7 @@ def tstr(
         2) TSTR (Train on Synthetic, Test on Real)
 
     Compare their performance on a hold-out test set across multiple splits.
-    The final metric reported is the Mean Absolute Error (MAE).
+    The final metric reported is the SMAPE.
     """
     results_file = (
         f"assets/results/{dataset_name}_{dataset_group}_{method}_TSTR_results.json"
@@ -334,29 +347,31 @@ def tstr(
         )
         fcst_tstr = cv_model_tstr.reset_index()
 
-        mae_trtr = np.mean(np.abs(fcst_trtr["y"] - fcst_trtr["NHITS"]))
-        mae_tstr = np.mean(np.abs(fcst_tstr["y"] - fcst_tstr["NHITS"]))
+        smape_trtr = smape(fcst_trtr["y"], fcst_trtr["NHITS"])
+        smape_tstr = smape(fcst_tstr["y"], fcst_tstr["NHITS"])
 
-        print(f"    MAE (TRTR - Real->Real):  {mae_trtr:.4f}")
-        print(f"    MAE (TSTR - Synth->Real): {mae_tstr:.4f}")
+        print(f"    SMAPE (TRTR - Real->Real):  {smape_trtr:.4f}")
+        print(f"    SMAPE (TSTR - Synth->Real): {smape_tstr:.4f}")
 
-        results_trtr.append(mae_trtr)
-        results_tstr.append(mae_tstr)
+        results_trtr.append(smape_trtr)
+        results_tstr.append(smape_tstr)
 
     if results_trtr and results_tstr:
-        avg_mae_trtr = np.mean(results_trtr)
-        avg_mae_tstr = np.mean(results_tstr)
+        avg_smape_trtr = np.mean(results_trtr)
+        avg_smape_tstr = np.mean(results_tstr)
         print("\n\n### Final Results across samples ###")
-        print(f"Avg MAE (TRTR):  {avg_mae_trtr:.4f}  (Train on Real, Test on Real)")
-        print(f"Avg MAE (TSTR):  {avg_mae_tstr:.4f}  (Train on Synth, Test on Real)")
+        print(f"Avg SMAPE (TRTR):  {avg_smape_trtr:.4f}  (Train on Real, Test on Real)")
+        print(
+            f"Avg SMAPE (TSTR):  {avg_smape_tstr:.4f}  (Train on Synth, Test on Real)"
+        )
     else:
-        avg_mae_trtr = None
-        avg_mae_tstr = None
+        avg_smape_trtr = None
+        avg_smape_tstr = None
         print("No valid iterations completed. Final results are undefined.")
 
     final_results = {
-        "avg_mae_trtr": avg_mae_trtr,
-        "avg_mae_tstr": avg_mae_tstr,
+        "avg_smape_trtr": avg_smape_trtr,
+        "avg_smape_tstr": avg_smape_tstr,
         "results_trtr_samples": results_trtr,
         "results_tstr_samples": results_tstr,
     }
@@ -462,29 +477,29 @@ def compute_downstream_forecast(
             ~fcst_concat["unique_id"].str.contains("_synth", na=False)
         ]
 
-        mae_original = np.mean(np.abs(fcst_orig["y"] - fcst_orig["NHITS"]))
-        mae_concat = np.mean(np.abs(fcst_concat["y"] - fcst_concat["NHITS"]))
+        smape_original = smape(fcst_orig["y"], fcst_orig["NHITS"])
+        smape_concat = smape(fcst_concat["y"], fcst_concat["NHITS"])
 
-        print(f"    MAE (original-only): {mae_original:.4f}")
-        print(f"    MAE (concat):        {mae_concat:.4f}")
+        print(f"    SMAPE (original-only): {smape_original:.4f}")
+        print(f"    SMAPE (concat):        {smape_concat:.4f}")
 
-        results_original.append(mae_original)
-        results_concatenated.append(mae_concat)
+        results_original.append(smape_original)
+        results_concatenated.append(smape_concat)
 
     if results_original and results_concatenated:
-        avg_mae_original = np.mean(results_original)
-        avg_mae_concat = np.mean(results_concatenated)
+        avg_smape_original = np.mean(results_original)
+        avg_smape_concat = np.mean(results_concatenated)
         print("\n\n### Final Results across samples ###")
-        print(f"Avg MAE (original-only): {avg_mae_original:.4f}")
-        print(f"Avg MAE (concat):        {avg_mae_concat:.4f}")
+        print(f"Avg SMAPE (original-only): {avg_smape_original:.4f}")
+        print(f"Avg SMAPE (concat):        {avg_smape_concat:.4f}")
     else:
-        avg_mae_original = None
-        avg_mae_concat = None
+        avg_smape_original = None
+        avg_smape_concat = None
         print("No valid iterations completed. Final results are undefined.")
 
     final_results = {
-        "avg_mae_original": avg_mae_original,
-        "avg_mae_concat": avg_mae_concat,
+        "avg_smape_original": avg_smape_original,
+        "avg_smape_concat": avg_smape_concat,
         "results_original_samples": results_original,
         "results_concatenated_samples": results_concatenated,
     }
