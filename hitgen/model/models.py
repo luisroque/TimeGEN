@@ -309,7 +309,6 @@ def get_CVAE(
     n_hidden: int = 64,
     n_layers: int = 2,
     kernel_size: int = 2,
-    strides: int = 1,
     pooling_mode: str = "max",
 ) -> tuple[tf.keras.Model, tf.keras.Model]:
     """
