@@ -188,13 +188,13 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "final_score": 0.9751},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "final_score": 0.9751},
+    },
     "M3": {
-        # "Monthly": {"FREQ": "M", "final_score": 0.9289},
+        "Monthly": {"FREQ": "M", "final_score": 0.9289},
         "Quarterly": {"FREQ": "Q", "final_score": 0.8963},
-        # "Yearly": {"FREQ": "Y", "final_score": 0.7320},
+        "Yearly": {"FREQ": "Y", "final_score": 0.7320},
     },
 }
 
