@@ -328,6 +328,8 @@ if __name__ == "__main__":
                 _,
                 _,
                 original_mask,
+                original_data_no_transf_long,
+                test_data_no_transf_long,
             ) = create_dataset_vae._feature_engineering()
 
             data_mask_temporalized = TemporalizeGenerator(
@@ -424,7 +426,7 @@ if __name__ == "__main__":
             #     test_data_long, best_params, DATASET, DATASET_GROUP, window_size=24
             # )
 
-            test_unique_ids = test_data_long["unique_id"].unique()
+            test_unique_ids = test_data_no_transf_long["unique_id"].unique()
 
             # hypertuning timegan
             # hyper_tune_timegan(
@@ -450,7 +452,7 @@ if __name__ == "__main__":
 
             # metaforecast methods
             synthetic_metaforecast_long = workflow_metaforecast_methods(
-                df=original_data_long,
+                df=original_data_no_transf_long,
                 freq=FREQ,
             )
 
@@ -458,7 +460,7 @@ if __name__ == "__main__":
                 print("\nComputing discriminative score for HiTGen synthetic data...")
                 hitgen_score_disc = compute_discriminative_score(
                     unique_ids=test_unique_ids,
-                    original_data=test_data_long,
+                    original_data=test_data_no_transf_long,
                     synthetic_data=synth_hitgen_test_long,
                     method="hitgen",
                     freq="M",
@@ -471,7 +473,7 @@ if __name__ == "__main__":
             print("\nComputing TSTR score for HiTGen synthetic data...")
             hitgen_score_tstr = tstr(
                 unique_ids=test_unique_ids,
-                original_data=test_data_long,
+                original_data=test_data_no_transf_long,
                 synthetic_data=synth_hitgen_test_long,
                 method="hitgen",
                 freq="M",
@@ -486,7 +488,7 @@ if __name__ == "__main__":
             )
             hitgen_score_dtf = compute_downstream_forecast(
                 unique_ids=test_unique_ids,
-                original_data=test_data_long,
+                original_data=test_data_no_transf_long,
                 synthetic_data=synth_hitgen_test_long,
                 method="hitgen",
                 freq="M",

@@ -260,7 +260,9 @@ class CreateTransformedVersionsCVAE:
         x_original = np.exp(x_log) - 1
         return x_original
 
-    def _preprocess_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _preprocess_data(
+        self, df: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Sort and preprocess the data for feature engineering."""
         df = df.sort_values(by=["unique_id", "ds"])
         x_wide = df.pivot(index="ds", columns="unique_id", values="y")
@@ -277,7 +279,7 @@ class CreateTransformedVersionsCVAE:
         # padding
         x_wide_log_returns = x_wide_log_returns.fillna(0.0)
 
-        return x_wide_log_returns, mask
+        return x_wide_log_returns, mask, x_wide
 
     def _feature_engineering(
         self, train_test_split=0.7, train_size_absolute=None
@@ -291,9 +293,12 @@ class CreateTransformedVersionsCVAE:
         pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
     ]:
         """Apply preprocessing to raw time series and split into training and testing."""
-        x_wide_log_returns, mask_wide = self._preprocess_data(self.df)
+        x_wide_log_returns, mask_wide, x_wide = self._preprocess_data(self.df)
+        x_long = self.create_dataset_long_form(x_wide)
         x_long_log_returns = self.create_dataset_long_form(x_wide_log_returns)
         mask_long = self.create_dataset_long_form(mask_wide)
 
@@ -307,14 +312,22 @@ class CreateTransformedVersionsCVAE:
         self.first_value_train = self.first_value[train_ids]
         mask_train = mask_long[mask_long["unique_id"].isin(train_ids)]
         test_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(test_ids)]
+        test_data_no_transf = x_long[x_long["unique_id"].isin(test_ids)]
         self.first_value_test = self.first_value[test_ids]
         mask_test = mask_long[mask_long["unique_id"].isin(test_ids)]
         original_data = x_long_log_returns
+        original_data_no_transf = x_long
         original_mask = mask_long
 
         x_train_wide = train_data.pivot(index="ds", columns="unique_id", values="y")
         x_test_wide = test_data.pivot(index="ds", columns="unique_id", values="y")
+        x_test_no_transf_wide = test_data_no_transf.pivot(
+            index="ds", columns="unique_id", values="y"
+        )
         x_original_wide = original_data.pivot(
+            index="ds", columns="unique_id", values="y"
+        )
+        x_original_no_transf_wide = original_data_no_transf.pivot(
             index="ds", columns="unique_id", values="y"
         )
         mask_train_wide = mask_train.pivot(index="ds", columns="unique_id", values="y")
@@ -338,7 +351,13 @@ class CreateTransformedVersionsCVAE:
         original_data_test_long = x_test_wide.reset_index().melt(
             id_vars=["ds"], var_name="unique_id", value_name="y"
         )
+        original_data_test_no_transf_long = x_test_no_transf_wide.reset_index().melt(
+            id_vars=["ds"], var_name="unique_id", value_name="y"
+        )
         original_data_long = x_original_wide.reset_index().melt(
+            id_vars=["ds"], var_name="unique_id", value_name="y"
+        )
+        original_data_no_transf_long = x_original_no_transf_wide.reset_index().melt(
             id_vars=["ds"], var_name="unique_id", value_name="y"
         )
 
@@ -356,6 +375,8 @@ class CreateTransformedVersionsCVAE:
             mask_train_wide,
             mask_test_wide,
             mask_original_wide,
+            original_data_no_transf_long,
+            original_data_test_no_transf_long,
         )
 
     @staticmethod
@@ -384,7 +405,9 @@ class CreateTransformedVersionsCVAE:
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
         """Training our CVAE"""
-        _, _, original_data, _, _, _, _, _, original_mask = self._feature_engineering()
+        _, _, original_data, _, _, _, _, _, original_mask, _, _ = (
+            self._feature_engineering()
+        )
 
         data_mask_temporalized = TemporalizeGenerator(
             original_data,
@@ -616,9 +639,19 @@ class CreateTransformedVersionsCVAE:
         bi_rnn = False
         shuffle = True
 
-        train_data, _, _, original_data_train_long, _, _, train_mask, _, _ = (
-            self._feature_engineering()
-        )
+        (
+            train_data,
+            _,
+            _,
+            original_data_train_long,
+            _,
+            _,
+            train_mask,
+            _,
+            _,
+            original_data_train_no_transf_long,
+            _,
+        ) = self._feature_engineering()
 
         data_mask_temporalized = TemporalizeGenerator(
             train_data,
@@ -674,8 +707,8 @@ class CreateTransformedVersionsCVAE:
 
         # compute the discriminative score x times to account for variability
         score = self.compute_mean_discriminative_score(
-            unique_ids=original_data_train_long["unique_id"].unique(),
-            original_data=original_data_train_long,
+            unique_ids=original_data_train_no_transf_long["unique_id"].unique(),
+            original_data=original_data_train_no_transf_long,
             synthetic_data=synthetic_data_long,
             method="hitgen",
             freq="M",
@@ -721,7 +754,7 @@ class CreateTransformedVersionsCVAE:
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
-        data_train, _, _, _, _, _, mask_train, _, _ = self._feature_engineering()
+        data_train, _, _, _, _, _, mask_train, _, _, _, _ = self._feature_engineering()
 
         study = optuna.create_study(
             study_name="opt_vae", direction="minimize", load_if_exists=True
