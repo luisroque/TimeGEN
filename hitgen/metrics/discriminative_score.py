@@ -12,7 +12,11 @@ from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+import torch
+
+# torch.set_default_dtype(torch.float32)
+
+# os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 from neuralforecast import NeuralForecast
 from neuralforecast.models import NHITS
@@ -137,6 +141,7 @@ def compute_discriminative_score(
     samples=1,
 ):
     score_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_discriminative_score.json"
+    os.makedirs("assets/results", exist_ok=True)
 
     if os.path.exists(score_file):
         print(f"Score file '{score_file}' exists. Loading score...")
@@ -276,6 +281,7 @@ def tstr(
     results_file = (
         f"assets/results/{dataset_name}_{dataset_group}_{method}_TSTR_results.json"
     )
+    os.makedirs("assets/results", exist_ok=True)
 
     if os.path.exists(results_file):
         print(f"Results file '{results_file}' exists. Loading results...")
@@ -306,15 +312,17 @@ def tstr(
 
         model_trtr = NHITS(
             h=horizon,
-            max_steps=500,
+            max_steps=5,
             input_size=input_size,
             start_padding_enabled=True,
+            scaler_type="standard",
         )
         model_tstr = NHITS(
             h=horizon,
-            max_steps=500,
+            max_steps=5,
             input_size=input_size,
             start_padding_enabled=True,
+            scaler_type="standard",
         )
 
         print("    [TRTR] Training on Real, Testing on Real ...")
@@ -401,6 +409,7 @@ def compute_downstream_forecast(
     Compare their performance on a hold-out test set.
     """
     results_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_downstream_task_results.json"
+    os.makedirs("assets/results", exist_ok=True)
 
     if os.path.exists(results_file):
         print(f"Results file '{results_file}' exists. Loading results...")
@@ -451,6 +460,7 @@ def compute_downstream_forecast(
             max_steps=500,
             input_size=input_size,
             start_padding_enabled=True,
+            scaler_type="standard",
         )
 
         nf_orig = NeuralForecast(models=[model_original], freq=freq)
@@ -465,6 +475,7 @@ def compute_downstream_forecast(
             max_steps=500,
             input_size=input_size,
             start_padding_enabled=True,
+            scaler_type="standard",
         )
 
         nf_concat = NeuralForecast(models=[model_concat], freq=freq)

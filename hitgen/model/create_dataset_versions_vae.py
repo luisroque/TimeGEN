@@ -750,7 +750,7 @@ class CreateTransformedVersionsCVAE:
         #     print(f"Error in trial: {e}")
         #     raise optuna.exceptions.TrialPruned()
 
-    def hyper_tune_and_train(self, n_trials=200):
+    def hyper_tune_and_train(self, n_trials=25):
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
