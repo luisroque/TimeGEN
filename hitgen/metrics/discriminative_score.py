@@ -12,11 +12,7 @@ from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-import torch
-
-# torch.set_default_dtype(torch.float32)
-
-# os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 from neuralforecast import NeuralForecast
 from neuralforecast.models import NHITS
