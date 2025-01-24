@@ -4,15 +4,11 @@ from hitgen.model.models import (
     TemporalizeGenerator,
 )
 from hitgen.model.create_dataset_versions_vae import CreateTransformedVersionsCVAE
-from hitgen.visualization.model_visualization import (
-    plot_loss,
-)
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
     compute_downstream_forecast,
     tstr,
 )
-from hitgen.benchmarks.timegan import workflow_timegan, hyper_tune_timegan
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
 
@@ -189,12 +185,12 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 
 DATASET_GROUP_FREQ = {
     "Tourism": {
-        "Monthly": {"FREQ": "M", "final_score": 0.9751},
+        "Monthly": {"FREQ": "M"},
     },
     "M3": {
-        "Monthly": {"FREQ": "M", "final_score": 0.9289},
-        "Quarterly": {"FREQ": "Q", "final_score": 0.8963},
-        "Yearly": {"FREQ": "Y", "final_score": 0.7320},
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+        "Yearly": {"FREQ": "Y"},
     },
 }
 
@@ -307,7 +303,7 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            create_dataset_vae.hyper_tune_and_train()
+            # create_dataset_vae.hyper_tune_and_train()
 
             # fit
             model, history, _ = create_dataset_vae.fit(
@@ -452,7 +448,7 @@ if __name__ == "__main__":
 
             # metaforecast methods
             synthetic_metaforecast_long = workflow_metaforecast_methods(
-                df=original_data_no_transf_long,
+                df=original_data_no_transf_long.fillna(value=0),
                 freq=FREQ,
             )
 
@@ -473,8 +469,8 @@ if __name__ == "__main__":
             print("\nComputing TSTR score for HiTGen synthetic data...")
             hitgen_score_tstr = tstr(
                 unique_ids=test_unique_ids,
-                original_data=test_data_no_transf_long,
-                synthetic_data=synth_hitgen_test_long,
+                original_data=test_data_no_transf_long.dropna(),
+                synthetic_data=synth_hitgen_test_long.dropna(),
                 method="hitgen",
                 freq="M",
                 horizon=24,
@@ -630,4 +626,5 @@ if __name__ == "__main__":
     results_df = pd.DataFrame(results)
     print(results_df)
 
-    results_df.to_csv("assets/results/synthetic_data_results.csv", index=False)
+    results_path = "assets/results/synthetic_data_results.csv"
+    results_df.to_csv(results_path, index=False)
