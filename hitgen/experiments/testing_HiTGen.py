@@ -192,8 +192,8 @@ DATASET_GROUP_FREQ = {
     #     "Monthly": {"FREQ": "M", "final_score": 0.9751},
     # },
     "M3": {
-        "Monthly": {"FREQ": "M", "final_score": 0.9289},
-        # "Quarterly": {"FREQ": "Q", "final_score": 0.8963},
+        # "Monthly": {"FREQ": "M", "final_score": 0.9289},
+        "Quarterly": {"FREQ": "Q", "final_score": 0.8963},
         # "Yearly": {"FREQ": "Y", "final_score": 0.7320},
     },
 }
