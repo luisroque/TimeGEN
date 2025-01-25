@@ -447,10 +447,10 @@ if __name__ == "__main__":
             # )
 
             # metaforecast methods
-            # synthetic_metaforecast_long = workflow_metaforecast_methods(
-            #     df=original_data_no_transf_long.fillna(value=0),
-            #     freq=FREQ,
-            # )
+            synthetic_metaforecast_long = workflow_metaforecast_methods(
+                df=original_data_no_transf_long.fillna(value=0),
+                freq=FREQ,
+            )
 
             if not hitgen_score_disc:
                 print("\nComputing discriminative score for HiTGen synthetic data...")
@@ -503,14 +503,14 @@ if __name__ == "__main__":
 
             print(
                 f"Discriminative TSTR score for HiTGen synthetic data: "
-                f"TSTR {hitgen_score_tstr['avg_mae_tstr']:.4f} vs TRTR "
-                f"score {hitgen_score_tstr['avg_mae_trtr']:.4f}"
+                f"TSTR {hitgen_score_tstr['avg_smape_tstr']:.4f} vs TRTR "
+                f"score {hitgen_score_tstr['avg_smape_trtr']:.4f}"
             )
 
             print(
                 f"Discriminative downstream task forecasting score for HiTGen synthetic data: "
-                f"concat score {hitgen_score_dtf['avg_mae_concat']:.4f} vs original "
-                f"score {hitgen_score_dtf['avg_mae_original']:.4f}\n\n"
+                f"concat score {hitgen_score_dtf['avg_smape_concat']:.4f} vs original "
+                f"score {hitgen_score_dtf['avg_smape_original']:.4f}\n\n"
             )
 
             results.append(
@@ -519,10 +519,10 @@ if __name__ == "__main__":
                     "Group": DATASET_GROUP,
                     "Method": "HiTGen",
                     "Discriminative Score": hitgen_score_disc,
-                    "TSTR (avg_mae_tstr)": hitgen_score_tstr["avg_mae_tstr"],
-                    "TRTR (avg_mae_trtr)": hitgen_score_tstr["avg_mae_trtr"],
-                    "DTF Concat Score": hitgen_score_dtf["avg_mae_concat"],
-                    "DTF Original Score": hitgen_score_dtf["avg_mae_original"],
+                    "TSTR (avg_smape_tstr)": hitgen_score_tstr["avg_smape_tstr"],
+                    "TRTR (avg_smape_trtr)": hitgen_score_tstr["avg_smape_trtr"],
+                    "DTF Concat Score": hitgen_score_dtf["avg_smape_concat"],
+                    "DTF Original Score": hitgen_score_dtf["avg_smape_original"],
                 }
             )
 
@@ -600,14 +600,14 @@ if __name__ == "__main__":
 
                 print(
                     f"Discriminative TSTR score for {method} synthetic data: "
-                    f"TSTR {score_tstr['avg_mae_tstr']:.4f} vs TRTR "
-                    f"score {score_tstr['avg_mae_trtr']:.4f}"
+                    f"TSTR {score_tstr['avg_smape_tstr']:.4f} vs TRTR "
+                    f"score {score_tstr['avg_smape_trtr']:.4f}"
                 )
 
                 print(
                     f"Discriminative downstream task forecasting score for {method} synthetic data: "
-                    f"concat score {score_dtf['avg_mae_concat']:.4f} vs original "
-                    f"score {score_dtf['avg_mae_original']:.4f}\n\n"
+                    f"concat score {score_dtf['avg_smape_concat']:.4f} vs original "
+                    f"score {score_dtf['avg_smape_original']:.4f}\n\n"
                 )
 
                 results.append(
@@ -616,10 +616,10 @@ if __name__ == "__main__":
                         "Group": DATASET_GROUP,
                         "Method": method,
                         "Discriminative Score": score_disc,
-                        "TSTR (avg_mae_tstr)": score_tstr["avg_mae_tstr"],
-                        "TRTR (avg_mae_trtr)": score_tstr["avg_mae_trtr"],
-                        "DTF Concat Score": score_dtf["avg_mae_concat"],
-                        "DTF Original Score": score_dtf["avg_mae_original"],
+                        "TSTR (avg_smape_tstr)": score_tstr["avg_smape_tstr"],
+                        "TRTR (avg_smape_trtr)": score_tstr["avg_smape_trtr"],
+                        "DTF Concat Score": score_dtf["avg_smape_concat"],
+                        "DTF Original Score": score_dtf["avg_smape_original"],
                     }
                 )
 
