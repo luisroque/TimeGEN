@@ -251,20 +251,40 @@ class CreateTransformedVersionsCVAE:
         return x_diff
 
     @staticmethod
-    def _backtransform_log_returns(x_diff: np.ndarray, initial_value: np.ndarray):
+    def _backtransform_log_returns(x_diff: pd.DataFrame, initial_value: pd.DataFrame):
         """
         Back-transform log returns.
         """
-        x_log = np.cumsum(x_diff, axis=0) + np.log(initial_value + 1)
+        x_diff["ds"] = pd.to_datetime(x_diff["ds"])
+        initial_value["ds"] = pd.to_datetime(initial_value["ds"])
 
-        x_original = np.exp(x_log) - 1
-        return x_original
+        # filter x_diff to exclude any value before the first value that we gathered before
+        x_diff = x_diff.merge(
+            initial_value[["unique_id", "ds"]],
+            on="unique_id",
+            suffixes=("", "_initial"),
+        )
+        x_diff = x_diff[x_diff["ds"] >= x_diff["ds_initial"]]
+        x_diff = x_diff.drop(columns=["ds_initial"])
+
+        # compute log-transformed initial values
+        initial_value = initial_value.set_index("unique_id")
+        initial_log_values = np.log(initial_value.drop(columns=["ds"]) + 1)
+
+        # set the index for x_diff for alignment and compute the cumulative sum
+        x_diff = x_diff.set_index(["unique_id", "ds"]).cumsum()
+
+        x_log = x_diff.add(initial_log_values, level="unique_id", fill_value=0)
+        result = np.exp(x_log) - 1
+
+        return result.reset_index()
 
     def _preprocess_data(
         self, df: pd.DataFrame
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Sort and preprocess the data for feature engineering."""
         df = df.sort_values(by=["unique_id", "ds"])
+        self.first_value = df.loc[df.groupby("unique_id")["ds"].idxmin()]
         x_wide = df.pivot(index="ds", columns="unique_id", values="y")
 
         self.long_properties["ds"] = x_wide.reset_index()["ds"].values
@@ -273,7 +293,6 @@ class CreateTransformedVersionsCVAE:
         # create mask before padding
         mask = (~x_wide.isna()).astype(int)
 
-        self.first_value = x_wide.iloc[0]
         x_wide_log_returns = self._transform_log_returns(x_wide)
 
         # padding
@@ -309,11 +328,15 @@ class CreateTransformedVersionsCVAE:
         self.s_train = len(train_ids)
 
         train_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(train_ids)]
-        self.first_value_train = self.first_value[train_ids]
+        self.first_value_train = self.first_value[
+            self.first_value.unique_id.isin(train_ids)
+        ]
         mask_train = mask_long[mask_long["unique_id"].isin(train_ids)]
         test_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(test_ids)]
         test_data_no_transf = x_long[x_long["unique_id"].isin(test_ids)]
-        self.first_value_test = self.first_value[test_ids]
+        self.first_value_test = self.first_value[
+            self.first_value.unique_id.isin(test_ids)
+        ]
         mask_test = mask_long[mask_long["unique_id"].isin(test_ids)]
         original_data = x_long_log_returns
         original_data_no_transf = x_long
@@ -843,13 +866,13 @@ class CreateTransformedVersionsCVAE:
         generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
 
         X_hat = detemporalize(generated_data)
-        X_hat = self._backtransform_log_returns(X_hat, np.array(self.first_value))
 
         train_ids, test_ids = self._load_or_create_split(
             train_test_split, train_size_absolute
         )
 
         x_hat_long = self.create_dataset_long_form(X_hat)
+        x_hat_long = self._backtransform_log_returns(x_hat_long, self.first_value)
 
         X_hat_train_long = x_hat_long[x_hat_long["unique_id"].isin(train_ids)]
         X_hat_test_long = x_hat_long[x_hat_long["unique_id"].isin(test_ids)]
