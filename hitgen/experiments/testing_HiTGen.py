@@ -447,10 +447,10 @@ if __name__ == "__main__":
             # )
 
             # metaforecast methods
-            synthetic_metaforecast_long = workflow_metaforecast_methods(
-                df=original_data_no_transf_long.fillna(value=0),
-                freq=FREQ,
-            )
+            # synthetic_metaforecast_long = workflow_metaforecast_methods(
+            #     df=original_data_no_transf_long.fillna(value=0),
+            #     freq=FREQ,
+            # )
 
             if not hitgen_score_disc:
                 print("\nComputing discriminative score for HiTGen synthetic data...")
@@ -470,7 +470,7 @@ if __name__ == "__main__":
             hitgen_score_tstr = tstr(
                 unique_ids=test_unique_ids,
                 original_data=test_data_no_transf_long.dropna(),
-                synthetic_data=synth_hitgen_test_long.dropna(),
+                synthetic_data=synth_hitgen_test_long,
                 method="hitgen",
                 freq="M",
                 horizon=24,
@@ -484,7 +484,7 @@ if __name__ == "__main__":
             )
             hitgen_score_dtf = compute_downstream_forecast(
                 unique_ids=test_unique_ids,
-                original_data=test_data_no_transf_long,
+                original_data=test_data_no_transf_long.dropna(),
                 synthetic_data=synth_hitgen_test_long,
                 method="hitgen",
                 freq="M",
