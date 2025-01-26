@@ -22,26 +22,30 @@ def custom_relu_linear_saturation(x):
 
 
 class TemporalizeGenerator(Sequence):
-    def __init__(self, data, mask, window_size, stride=1, batch_size=8, shuffle=True):
+    def __init__(
+        self,
+        data,
+        mask,
+        dyn_features,
+        window_size,
+        stride=1,
+        batch_size=8,
+        shuffle=True,
+    ):
         """
         A generator that reshuffles and re-temporalizes the dataset before each epoch.
-
-        Args:
-            data (pd.Dataframe): The original time-series data (2D: timesteps x features).
-            mask (np.array or Tensor): Mask data (2D: timesteps x features) with 1 for valid and 0 for padded timesteps.
-            window_size (int): The size of each temporal window.
-            stride (int): The step size for creating temporal windows.
-            batch_size (int): The batch size for training.
-            shuffle (bool): Whether to shuffle the data and mask at the start of each epoch.
         """
         self.data = tf.convert_to_tensor(data, dtype=tf.float32)
         self.mask = tf.convert_to_tensor(mask, dtype=tf.float32)
+        self.dyn_features = tf.convert_to_tensor(dyn_features, dtype=tf.float32)
+
         self.window_size = window_size
         self.stride = stride
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.temporalized_data = self.temporalize(self.data)
         self.temporalized_mask = self.temporalize(self.mask)
+        self.temporalized_dyn_features = self.temporalize(self.dyn_features)
         self.indices = tf.range(len(self.temporalized_data))
         self.epoch = 0
 
@@ -58,9 +62,9 @@ class TemporalizeGenerator(Sequence):
         ]
         batch_data = tf.gather(self.temporalized_data, batch_indices)
         batch_mask = tf.gather(self.temporalized_mask, batch_indices)
-        stacked_tensor = tf.stack([batch_data, batch_mask], axis=-1)
+        batch_dyn_features = tf.gather(self.temporalized_dyn_features, batch_indices)
 
-        return stacked_tensor
+        return (batch_data, batch_mask, batch_dyn_features), batch_data
 
     def on_epoch_end(self):
         """Shuffle data and re-temporalize."""
@@ -70,6 +74,9 @@ class TemporalizeGenerator(Sequence):
             )
             self.temporalized_data = tf.gather(self.temporalized_data, shuffled_indices)
             self.temporalized_mask = tf.gather(self.temporalized_mask, shuffled_indices)
+            self.temporalized_dyn_features = tf.gather(
+                self.temporalized_dyn_features, shuffled_indices
+            )
 
             tf.print(f"SHUFFLING AND RE-TEMPORALIZING: Epoch {self.epoch}")
         self.epoch += 1
@@ -183,6 +190,38 @@ class KLAnnealingAndNoiseScalingCallback(tf.keras.callbacks.Callback):
         )
 
 
+def masked_mse(y_true, y_pred, mask):
+    """
+    Compute Mean Squared Error only on the unmasked (non-padded) entries.
+    """
+    y_true_masked = y_true * mask
+    y_pred_masked = y_pred * mask
+
+    mse = tf.reduce_mean(tf.square(y_true_masked - y_pred_masked))
+    return mse
+
+
+def cosine_similarity_loss(y_true, y_pred, mask):
+    """
+    Computes cosine similarity loss for the unmasked parts of the sequences.
+    """
+    y_true_masked = y_true * mask
+    y_pred_masked = y_pred * mask
+
+    dot_product = tf.reduce_sum(
+        y_true_masked * y_pred_masked, axis=-1
+    )  # (batch_size, timesteps)
+    norm_true = tf.sqrt(tf.reduce_sum(tf.square(y_true_masked), axis=-1) + 1e-8)
+    norm_pred = tf.sqrt(tf.reduce_sum(tf.square(y_pred_masked), axis=-1) + 1e-8)
+
+    cosine_similarity = dot_product / (norm_true * norm_pred + 1e-8)
+
+    # turn cosine similarity into a loss (1 - similarity)
+    cosine_loss = 1 - tf.reduce_mean(cosine_similarity)
+
+    return cosine_loss
+
+
 class CVAE(keras.Model):
     def __init__(
         self,
@@ -206,45 +245,44 @@ class CVAE(keras.Model):
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
 
     def call(self, inputs, training=None, mask=None):
-        batch_data = inputs[..., 0]
-        batch_mask = inputs[..., 1]
+        batch_data, batch_mask, batch_dyn_features = inputs
 
-        z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
+        z_mean, z_log_var, z = self.encoder(
+            [batch_data, batch_mask, batch_dyn_features]
+        )
 
-        pred = self.decoder([z, batch_mask])
+        pred = self.decoder([z, batch_mask, batch_dyn_features])
 
         return pred, z_mean, z_log_var
 
-    def compute_loss(self, inp_data, pred, z_mean, z_log_var):
+    def compute_loss(self, inp_data, pred, z_mean, z_log_var, mask):
         """
-        Computes the total loss, including reconstruction, KL divergence, TCN, and SEM loss.
-
-        Args:
-            inp_data (tensor): Original input data.
-            pred (tensor): Reconstructed data.
-            z_mean (tensor): Mean of the latent variable.
-            z_log_var (tensor): Log variance of the latent variable.
-
-        Returns:
-            tuple: total_loss, reconstruction_loss, kl_loss, tcn_loss, sem_loss.
+        Computes total loss with reconstruction loss, cosine similarity and KL divergence.
         """
-        reconstruction_loss = tf.keras.losses.MeanSquaredError()(inp_data, pred)
+        reconstruction_loss = masked_mse(inp_data, pred, mask)
+
+        # cosine_loss = cosine_similarity_loss(inp_data, pred, mask)
 
         kl_loss = -0.5 * K.mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+
+        # total_loss = reconstruction_loss + 0.1 * cosine_loss + self.kl_weight * kl_loss
+
         total_loss = reconstruction_loss + self.kl_weight * kl_loss
 
         return total_loss, reconstruction_loss, kl_loss
 
     def train_step(self, data):
-        batch_data = data[..., 0]
-        batch_mask = data[..., 1]
+        inputs, targets = data
+        batch_data, batch_mask, batch_dyn_features = inputs
 
         with tf.GradientTape() as tape:
-            z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
-            pred = self.decoder([z, batch_mask])
+            z_mean, z_log_var, z = self.encoder(
+                [batch_data, batch_mask, batch_dyn_features]
+            )
+            pred = self.decoder([z, batch_mask, batch_dyn_features])
 
             total_loss, reconstruction_loss, kl_loss = self.compute_loss(
-                batch_data, pred, z_mean, z_log_var
+                batch_data, pred, z_mean, z_log_var, batch_mask
             )
 
         grads = tape.gradient(total_loss, self.trainable_weights)
@@ -261,14 +299,16 @@ class CVAE(keras.Model):
         }
 
     def test_step(self, data):
-        batch_data = data[..., 0]
-        batch_mask = data[..., 1]
+        inputs, targets = data
+        batch_data, batch_mask, batch_dyn_features = inputs
 
-        z_mean, z_log_var, z = self.encoder([batch_data, batch_mask])
-        pred = self.decoder([z, batch_mask])
+        z_mean, z_log_var, z = self.encoder(
+            [batch_data, batch_mask, batch_dyn_features]
+        )
+        pred = self.decoder([z, batch_mask, batch_dyn_features])
 
         total_loss, reconstruction_loss, kl_loss = self.compute_loss(
-            batch_data, pred, z_mean, z_log_var
+            batch_data, pred, z_mean, z_log_var, batch_mask
         )
 
         return {
@@ -331,9 +371,11 @@ def get_CVAE(
         tuple[tf.keras.Model, tf.keras.Model]: The encoder and decoder models.
     """
     input_shape = (window_size, n_series)
+    input_shape_dyn_features = (window_size, 6)
 
     enc = encoder(
         input_shape=input_shape,
+        input_shape_dyn_features=input_shape_dyn_features,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
         noise_scale_init=noise_scale_init,
@@ -346,6 +388,7 @@ def get_CVAE(
 
     dec = decoder(
         output_shape=input_shape,
+        output_shape_dyn_features=input_shape_dyn_features,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
         n_blocks=n_blocks,
@@ -409,6 +452,7 @@ class NHITSBlock(tf.keras.layers.Layer):
 
 def encoder(
     input_shape,
+    input_shape_dyn_features,
     latent_dim,
     n_blocks=3,
     n_hidden=64,
@@ -420,9 +464,17 @@ def encoder(
 ):
     main_input = layers.Input(shape=input_shape, name="main_input")
     mask_input = layers.Input(shape=input_shape, name="mask_input")
+    dyn_features_input = layers.Input(
+        shape=input_shape_dyn_features, name="dyn_features_input"
+    )
 
     # apply mask to ignore padded values
     masked_input = layers.Multiply(name="masked_input")([main_input, mask_input])
+    masked_input = layers.Concatenate()([dyn_features_input, masked_input])
+
+    masked_input = layers.TimeDistributed(
+        layers.Dense(input_shape[1], activation="relu")
+    )(masked_input)
 
     backcast_total = masked_input
     final_output = 0
@@ -444,7 +496,12 @@ def encoder(
 
     if bi_rnn:
         backcast = layers.Bidirectional(
-            layers.LSTM(input_shape[1], return_sequences=True)
+            layers.GRU(
+                input_shape[1],
+                return_sequences=True,
+                dropout=0.3,
+                kernel_regularizer=l2(0.001),
+            )
         )(backcast_total)
 
         backcast = layers.TimeDistributed(layers.Dense(input_shape[1]))(backcast)
@@ -461,12 +518,15 @@ def encoder(
     )
 
     return tf.keras.Model(
-        inputs=[main_input, mask_input], outputs=[z_mean, z_log_var, z], name="encoder"
+        inputs=[main_input, mask_input, dyn_features_input],
+        outputs=[z_mean, z_log_var, z],
+        name="encoder",
     )
 
 
 def decoder(
     output_shape,
+    output_shape_dyn_features,
     latent_dim,
     n_blocks=3,
     n_hidden=64,
@@ -480,10 +540,16 @@ def decoder(
         shape=(output_shape[0], latent_dim),
         name="latent_input",
     )
-
+    dyn_features_input = layers.Input(
+        shape=output_shape_dyn_features, name="dyn_features_input"
+    )
     mask_input = layers.Input(shape=output_shape, name="mask_input")
 
     x = layers.TimeDistributed(layers.Dense(output_shape[1]))(latent_input)
+
+    x = layers.Concatenate()([dyn_features_input, x])
+
+    x = layers.TimeDistributed(layers.Dense(output_shape[1], activation="relu"))(x)
 
     backcast_total = x
     final_output = 0
@@ -505,16 +571,21 @@ def decoder(
 
     if bi_rnn:
         backcast = layers.Bidirectional(
-            layers.LSTM(output_shape[1], return_sequences=True)
+            layers.GRU(
+                output_shape[1],
+                return_sequences=True,
+                dropout=0.3,
+                kernel_regularizer=l2(0.001),
+            )
         )(backcast_total)
 
         backcast = layers.TimeDistributed(layers.Dense(output_shape[1]))(backcast)
 
         final_output += backcast
 
-    # final_output = layers.TimeDistributed(
-    #     layers.Dense(output_shape[1], activation="linear")
-    # )(final_output)
+    # out = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(
+    #     final_output
+    # )
 
     out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_output)
     out = layers.Dense(
@@ -527,8 +598,10 @@ def decoder(
     )(out)
 
     # apply mask to the output
-    final_output = layers.Multiply(name="masked_output")([final_output, mask_input])
+    final_output = layers.Multiply(name="masked_output")([out, mask_input])
 
     return tf.keras.Model(
-        inputs=[latent_input, mask_input], outputs=[final_output], name="decoder"
+        inputs=[latent_input, mask_input, dyn_features_input],
+        outputs=[final_output],
+        name="decoder",
     )

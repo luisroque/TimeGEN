@@ -35,13 +35,14 @@ def plot_loss(history_dict):
 
 
 def plot_generated_vs_original(
-    dec_pred_hat: pd.DataFrame,
-    X_train_raw: pd.DataFrame,
+    synth_data: pd.DataFrame,
+    original_test_data: pd.DataFrame,
     score: float,
     loss: float,
     dataset_name: str,
     dataset_group: str,
     n_series: int = 8,
+    suffix_name: str = "hitgen",
 ) -> None:
     """
     Plot generated series and the original series and store as pdf
@@ -52,16 +53,20 @@ def plot_generated_vs_original(
         n_series -= 1
     _, ax = plt.subplots(int(n_series // 2), 2, figsize=(18, 10))
     ax = ax.ravel()
-    unique_ids = dec_pred_hat["unique_id"].unique()[:n_series]
+    unique_ids = synth_data["unique_id"].unique()[:n_series]
     for i in range(n_series):
         ax[i].plot(
-            dec_pred_hat.loc[dec_pred_hat["unique_id"] == unique_ids[i]]["ds"],
-            dec_pred_hat.loc[dec_pred_hat["unique_id"] == unique_ids[i]]["y"],
+            synth_data.loc[synth_data["unique_id"] == unique_ids[i]]["ds"],
+            synth_data.loc[synth_data["unique_id"] == unique_ids[i]]["y"],
             label="new sample",
         )
         ax[i].plot(
-            X_train_raw.loc[X_train_raw["unique_id"] == unique_ids[i]]["ds"],
-            X_train_raw.loc[X_train_raw["unique_id"] == unique_ids[i]]["y"],
+            original_test_data.loc[original_test_data["unique_id"] == unique_ids[i]][
+                "ds"
+            ],
+            original_test_data.loc[original_test_data["unique_id"] == unique_ids[i]][
+                "y"
+            ],
             label="orig",
         )
     plt.legend()
@@ -71,7 +76,8 @@ def plot_generated_vs_original(
     )
     os.makedirs("assets/plots", exist_ok=True)
     plt.savefig(
-        f"assets/plots/{current_datetime}_vae_generated_vs_original_{dataset_name}_{dataset_group}_{round(score,2)}_{round(loss,2)}.pdf",
+        f"assets/plots/{current_datetime}_vae_generated_vs_original_{suffix_name}_"
+        f"{dataset_name}_{dataset_group}_{round(score,2)}_{round(loss,2)}.pdf",
         format="pdf",
         bbox_inches="tight",
     )
