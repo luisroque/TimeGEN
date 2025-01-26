@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Tuple
 import json
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import optuna
 from tensorflow import keras
 import tensorflow as tf
@@ -251,6 +251,20 @@ class CreateTransformedVersionsCVAE:
         return x_diff
 
     @staticmethod
+    def _transform_diff(x):
+        if isinstance(x, np.ndarray):
+            x = pd.Series(x)
+        x_diff = x.diff()
+        return x_diff
+
+    @staticmethod
+    def _transform_diff_minmax(x):
+        if isinstance(x, np.ndarray):
+            x = pd.Series(x)
+        x_diff = x.diff()
+        return x_diff
+
+    @staticmethod
     def _backtransform_log_returns(x_diff: pd.DataFrame, initial_value: pd.DataFrame):
         """
         Back-transform log returns.
@@ -258,26 +272,58 @@ class CreateTransformedVersionsCVAE:
         x_diff["ds"] = pd.to_datetime(x_diff["ds"])
         initial_value["ds"] = pd.to_datetime(initial_value["ds"])
 
-        # filter x_diff to exclude any value before the first value that we gathered before
+        # filter x_diff to exclude any value before the first true value
         x_diff = x_diff.merge(
             initial_value[["unique_id", "ds"]],
             on="unique_id",
             suffixes=("", "_initial"),
         )
-        x_diff = x_diff[x_diff["ds"] >= x_diff["ds_initial"]]
+        x_diff = x_diff[x_diff["ds"] > x_diff["ds_initial"]]
         x_diff = x_diff.drop(columns=["ds_initial"])
 
         # compute log-transformed initial values
         initial_value = initial_value.set_index("unique_id")
-        initial_log_values = np.log(initial_value.drop(columns=["ds"]) + 1)
+        initial_value["y"] = np.log(initial_value["y"] + 1)
+
+        x_diff = pd.concat(
+            [x_diff.reset_index(drop=True), initial_value.reset_index()]
+        ).sort_values(by=["unique_id", "ds"])
 
         # set the index for x_diff for alignment and compute the cumulative sum
-        x_diff = x_diff.set_index(["unique_id", "ds"]).cumsum()
+        x_diff["y"] = x_diff.groupby("unique_id")["y"].cumsum()
 
-        x_log = x_diff.add(initial_log_values, level="unique_id", fill_value=0)
-        result = np.exp(x_log) - 1
+        x_diff["y"] = np.exp(x_diff["y"]) - 1
 
-        return result.reset_index()
+        return x_diff
+
+    @staticmethod
+    def _backtransform_diff(x_diff: pd.DataFrame, initial_value: pd.DataFrame):
+        """
+        Back-transform log returns.
+        """
+        x_diff["ds"] = pd.to_datetime(x_diff["ds"])
+        initial_value["ds"] = pd.to_datetime(initial_value["ds"])
+
+        # filter x_diff to exclude any value before the first true value
+        x_diff = x_diff.merge(
+            initial_value[["unique_id", "ds"]],
+            on="unique_id",
+            suffixes=("", "_initial"),
+        )
+        x_diff = x_diff[x_diff["ds"] > x_diff["ds_initial"]]
+        x_diff = x_diff.drop(columns=["ds_initial"])
+
+        # compute log-transformed initial values
+        initial_value = initial_value.set_index("unique_id")
+
+        x_diff = pd.concat(
+            [x_diff.reset_index(drop=True), initial_value.reset_index()]
+        ).sort_values(by=["unique_id", "ds"])
+
+        # set the index for x_diff for alignment and compute the cumulative sum
+        x_diff["y"] = x_diff.groupby("unique_id")["y"].cumsum()
+
+        return x_diff
 
     def _preprocess_data(
         self, df: pd.DataFrame
@@ -293,12 +339,15 @@ class CreateTransformedVersionsCVAE:
         # create mask before padding
         mask = (~x_wide.isna()).astype(int)
 
-        x_wide_log_returns = self._transform_log_returns(x_wide)
+        # x_wide_log_returns = self._transform_log_returns(x_wide)
+        # x_wide_diff = self._transform_diff(x_wide)
 
         # padding
-        x_wide_log_returns = x_wide_log_returns.fillna(0.0)
+        x_wide_filled = x_wide.fillna(0.0)
+        self.scaler = MinMaxScaler()
+        scaled_data = self.scaler.fit_transform(x_wide_filled)
 
-        return x_wide_log_returns, mask, x_wide
+        return scaled_data, mask, x_wide
 
     def _feature_engineering(
         self, train_test_split=0.7, train_size_absolute=None
@@ -314,11 +363,14 @@ class CreateTransformedVersionsCVAE:
         pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
     ]:
         """Apply preprocessing to raw time series and split into training and testing."""
-        x_wide_log_returns, mask_wide, x_wide = self._preprocess_data(self.df)
+        x_wide_transf, mask_wide, x_wide = self._preprocess_data(self.df)
         x_long = self.create_dataset_long_form(x_wide)
-        x_long_log_returns = self.create_dataset_long_form(x_wide_log_returns)
+        x_long_log_returns = self.create_dataset_long_form(x_wide_transf)
         mask_long = self.create_dataset_long_form(mask_wide)
 
         train_ids, test_ids = self._load_or_create_split(
@@ -386,7 +438,31 @@ class CreateTransformedVersionsCVAE:
 
         self.X_train_raw = x_train_wide.reset_index(drop=True)
         self.X_test_raw = x_test_wide.reset_index(drop=True)
-        self.X_orig_raw = x_test_wide.reset_index(drop=True)
+        self.X_orig_raw = x_original_wide.reset_index(drop=True)
+
+        def compute_fourier_features(dates, n):
+            """Compute Fourier terms for a given frequency."""
+            t = dates.astype(np.int64) / 10**9  # convert datetime to seconds
+            freq_to_period = {
+                "D": 365.25,
+                "W": 52.18,
+                "MS": 12,
+                "M": 12,
+                "QS": 4,
+                "Q": 4,
+                "Y": 1,
+                "YS": 1,
+            }
+            period = freq_to_period.get(self.freq, 1)
+            features = {}
+            for k in range(1, n + 1):
+                features[f"sin_{self.freq}_{k}"] = np.sin(2 * np.pi * k * t / period)
+                features[f"cos_{self.freq}_{k}"] = np.cos(2 * np.pi * k * t / period)
+            return pd.DataFrame(features)
+
+        fourier_features_train = compute_fourier_features(x_train_wide.index, 3)
+        fourier_features_test = compute_fourier_features(x_test_wide.index, 3)
+        fourier_features_original = compute_fourier_features(x_original_wide.index, 3)
 
         return (
             x_train_wide,
@@ -400,6 +476,9 @@ class CreateTransformedVersionsCVAE:
             mask_original_wide,
             original_data_no_transf_long,
             original_data_test_no_transf_long,
+            fourier_features_train,
+            fourier_features_test,
+            fourier_features_original,
         )
 
     @staticmethod
@@ -428,13 +507,27 @@ class CreateTransformedVersionsCVAE:
         load_weights: bool = True,
     ) -> tuple[CVAE, dict, EarlyStopping]:
         """Training our CVAE"""
-        _, _, original_data, _, _, _, _, _, original_mask, _, _ = (
-            self._feature_engineering()
-        )
+        (
+            _,
+            _,
+            original_data,
+            _,
+            _,
+            _,
+            _,
+            _,
+            original_mask,
+            _,
+            _,
+            _,
+            _,
+            original_features,
+        ) = self._feature_engineering()
 
         data_mask_temporalized = TemporalizeGenerator(
             original_data,
             original_mask,
+            original_features,
             window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=self.batch_size,
@@ -468,7 +561,7 @@ class CreateTransformedVersionsCVAE:
             restore_best_weights=True,
         )
         reduce_lr = ReduceLROnPlateau(
-            monitor="loss", factor=0.5, patience=5, min_lr=1e-6, verbose=1
+            monitor="loss", factor=0.2, patience=10, min_lr=1e-6, cooldown=3, verbose=1
         )
 
         weights_folder = "assets/model_weights"
@@ -674,11 +767,15 @@ class CreateTransformedVersionsCVAE:
             _,
             original_data_train_no_transf_long,
             _,
+            train_dyn_features,
+            _,
+            _,
         ) = self._feature_engineering()
 
         data_mask_temporalized = TemporalizeGenerator(
             train_data,
             train_mask,
+            train_dyn_features,
             window_size=self.window_size,
             stride=self.stride_temporalize,
             batch_size=batch_size,
@@ -777,7 +874,9 @@ class CreateTransformedVersionsCVAE:
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
-        data_train, _, _, _, _, _, mask_train, _, _, _, _ = self._feature_engineering()
+        data_train, _, _, _, _, _, mask_train, _, _, _, _, dyn_features_train, _, _ = (
+            self._feature_engineering()
+        )
 
         study = optuna.create_study(
             study_name="opt_vae", direction="minimize", load_if_exists=True
@@ -802,6 +901,7 @@ class CreateTransformedVersionsCVAE:
         data_mask_temporalized = TemporalizeGenerator(
             data_train,
             mask_train,
+            dyn_features_train,
             window_size=self.best_params["latent_dim"],
             stride=self.stride_temporalize,
             batch_size=self.best_params["batch_size"],
@@ -854,31 +954,74 @@ class CreateTransformedVersionsCVAE:
     def predict(
         self,
         cvae: CVAE,
+        data_mask_temporalized,
         samples,
         window_size,
         latent_dim,
         train_test_split=0.7,
         train_size_absolute=None,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+    ]:
         """Predict original time series using VAE"""
+        _, _, _, _, _, _, _, _, _, _, _, _, dyn_features_test, _ = (
+            self._feature_engineering()
+        )
+
         new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
         mask_temporalized = self.temporalize(self.mask_original_tf, window_size)
-        generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
+        dyn_features_test_tensor = tf.convert_to_tensor(
+            dyn_features_test, dtype=tf.float32
+        )
+        dyn_features_temporalized = self.temporalize(
+            dyn_features_test_tensor, window_size
+        )
+
+        z = cvae.encoder.predict(
+            [data_mask_temporalized, mask_temporalized, dyn_features_temporalized]
+        )
+        generated_data = cvae.decoder.predict(
+            [z, mask_temporalized, dyn_features_temporalized]
+        )
 
         X_hat = detemporalize(generated_data)
+        X_hat_no_transf = self.scaler.inverse_transform(X_hat)
 
         train_ids, test_ids = self._load_or_create_split(
             train_test_split, train_size_absolute
         )
 
         x_hat_long = self.create_dataset_long_form(X_hat)
-        x_hat_long = self._backtransform_log_returns(x_hat_long, self.first_value)
+        x_hat_long_no_transf = self.create_dataset_long_form(X_hat_no_transf)
+        # x_hat_long_no_transf = self._backtransform_log_returns(
+        #     x_hat_long, self.first_value
+        # )
 
         X_hat_train_long = x_hat_long[x_hat_long["unique_id"].isin(train_ids)]
         X_hat_test_long = x_hat_long[x_hat_long["unique_id"].isin(test_ids)]
         X_hat_all_long = x_hat_long
 
-        return X_hat_train_long, X_hat_test_long, X_hat_all_long
+        X_hat_train_long_no_transf = x_hat_long_no_transf[
+            x_hat_long_no_transf["unique_id"].isin(train_ids)
+        ]
+        X_hat_test_long_no_transf = x_hat_long_no_transf[
+            x_hat_long_no_transf["unique_id"].isin(test_ids)
+        ]
+        X_hat_all_long_no_transf = x_hat_long_no_transf
+
+        return (
+            X_hat_train_long,
+            X_hat_test_long,
+            X_hat_all_long,
+            X_hat_train_long_no_transf,
+            X_hat_test_long_no_transf,
+            X_hat_all_long_no_transf,
+        )
 
     def predict_train(
         self,
@@ -895,13 +1038,14 @@ class CreateTransformedVersionsCVAE:
         generated_data = cvae.decoder.predict([new_latent_samples, mask_temporalized])
 
         X_hat = detemporalize(generated_data)
-        X_hat = self._backtransform_log_returns(X_hat, np.array(self.first_value_train))
 
         train_ids, test_ids = self._load_or_create_split(
             train_test_split, train_size_absolute
         )
-
         X_hat_train_long = self.create_dataset_long_form(X_hat, train_ids)
+        x_hat_long_no_transf = self._backtransform_log_returns(
+            X_hat_train_long, self.first_value
+        )
 
         return X_hat_train_long
 

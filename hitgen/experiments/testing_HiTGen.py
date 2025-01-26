@@ -9,6 +9,7 @@ from hitgen.metrics.discriminative_score import (
     compute_downstream_forecast,
     tstr,
 )
+from hitgen.visualization import plot_generated_vs_original
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
 
@@ -31,21 +32,21 @@ DATASETS_HYPERPARAMS_CONFIGS = {
     "Tourism": {
         "Monthly": {
             "hitgen": {
-                "latent_dim": 104,
-                "window_size": 21,
-                "patience": 100,
-                "kl_weight": 0.29417700480800174,
-                "n_blocks": 5,
-                "n_hidden": 16,
-                "n_layers": 5,
+                "latent_dim": 100,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.35,
+                "n_blocks": 3,
+                "n_hidden": 64,
+                "n_layers": 2,
                 "kernel_size": 2,
-                "pooling_mode": "average",
-                "batch_size": 16,
-                "epochs": 1901,
-                "learning_rate": 8.279377207057816e-05,
-                "bi_rnn": False,
-                "shuffle": True,
-                "noise_scale_init": 0.24589688071118784,
+                "pooling_mode": "max",
+                "batch_size": 8,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
+                "shuffle": False,
+                "noise_scale_init": 1,
                 "loss": 0.10709349066019058,
                 "score": 0.9487179487179487,
                 "machine": "mach1ne",
@@ -253,11 +254,11 @@ if __name__ == "__main__":
             dataset_config = DATASETS_HYPERPARAMS_CONFIGS[DATASET][DATASET_GROUP]
 
             TOP = None
-            WINDOW_SIZE = 24
             VAL_STEPS = 0
 
             # HITGEN Configurations
             hitgen_config = dataset_config["hitgen"]
+            WINDOW_SIZE = hitgen_config["window_size"]
             LATENT_DIM_HITGEN = hitgen_config["latent_dim"]
             EPOCHS_HITGEN = hitgen_config["epochs"]
             BATCH_SIZE_HITGEN = hitgen_config["batch_size"]
@@ -271,8 +272,8 @@ if __name__ == "__main__":
             LEARNING_RATE_HITGEN = hitgen_config["learning_rate"]
             PATIENCE_HITGEN = hitgen_config["patience"]
             STRIDE_TEMPORALIZE_HITGEN = 1
-            SHUFFLE_HITGEN = True
-            BI_RNN_HITGEN = False
+            SHUFFLE_HITGEN = hitgen_config["shuffle"]
+            BI_RNN_HITGEN = hitgen_config["bi_rnn"]
             ANNEALING_HITGEN = False
 
             # TIMEGAN Configurations
@@ -326,22 +327,29 @@ if __name__ == "__main__":
                 original_mask,
                 original_data_no_transf_long,
                 test_data_no_transf_long,
+                _,
+                test_dyn_features,
+                original_dyn_features,
             ) = create_dataset_vae._feature_engineering()
 
             data_mask_temporalized = TemporalizeGenerator(
                 original_data,
                 original_mask,
+                original_dyn_features,
                 window_size=WINDOW_SIZE,
                 stride=create_dataset_vae.stride_temporalize,
                 batch_size=BATCH_SIZE_HITGEN,
                 shuffle=SHUFFLE_HITGEN,
             )
 
-            _, synth_hitgen_test_long, _ = create_dataset_vae.predict(
-                model,
-                samples=data_mask_temporalized.indices.shape[0],
-                window_size=WINDOW_SIZE,
-                latent_dim=LATENT_DIM_HITGEN,
+            _, synth_hitgen_test_long, _, _, synth_hitgen_test_long_no_transf, _ = (
+                create_dataset_vae.predict(
+                    model,
+                    data_mask_temporalized=data_mask_temporalized,
+                    samples=data_mask_temporalized.indices.shape[0],
+                    window_size=WINDOW_SIZE,
+                    latent_dim=LATENT_DIM_HITGEN,
+                )
             )
 
             # generate more samples into the future to check on overfitting
@@ -361,13 +369,26 @@ if __name__ == "__main__":
             #
             # synth_hitgen = detemporalize(generated_data)
 
-            # plot_generated_vs_original(
-            #     dec_pred_hat=generated_data,
-            #     X_train_raw=X_orig,
-            #     dataset_name=DATASET,
-            #     dataset_group=DATASET_GROUP,
-            #     n_series=8,
-            # )
+            plot_generated_vs_original(
+                synth_data=synth_hitgen_test_long_no_transf,
+                original_test_data=test_data_no_transf_long,
+                score=0.0,
+                loss=0.0,
+                dataset_name=DATASET,
+                dataset_group=DATASET_GROUP,
+                n_series=8,
+                suffix_name="hitgen_no_transf",
+            )
+            plot_generated_vs_original(
+                synth_data=synth_hitgen_test_long,
+                original_test_data=test_data_long,
+                score=0.0,
+                loss=0.0,
+                dataset_name=DATASET,
+                dataset_group=DATASET_GROUP,
+                n_series=8,
+                suffix_name="hitgen",
+            )
 
             # import matplotlib.pyplot as plt
             #
@@ -457,7 +478,7 @@ if __name__ == "__main__":
                 hitgen_score_disc = compute_discriminative_score(
                     unique_ids=test_unique_ids,
                     original_data=test_data_no_transf_long,
-                    synthetic_data=synth_hitgen_test_long,
+                    synthetic_data=synth_hitgen_test_long_no_transf,
                     method="hitgen",
                     freq="M",
                     dataset_name=DATASET,
@@ -470,7 +491,7 @@ if __name__ == "__main__":
             hitgen_score_tstr = tstr(
                 unique_ids=test_unique_ids,
                 original_data=test_data_no_transf_long.dropna(),
-                synthetic_data=synth_hitgen_test_long,
+                synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
                 freq="M",
                 horizon=24,
@@ -485,7 +506,7 @@ if __name__ == "__main__":
             hitgen_score_dtf = compute_downstream_forecast(
                 unique_ids=test_unique_ids,
                 original_data=test_data_no_transf_long.dropna(),
-                synthetic_data=synth_hitgen_test_long,
+                synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
                 freq="M",
                 horizon=24,
