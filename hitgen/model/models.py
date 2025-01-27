@@ -554,7 +554,7 @@ def decoder(
     backcast_total = x
     final_output = 0
 
-    for i in range(n_blocks):
+    for i in range(10):
         nhits_block = NHITSBlock(
             backcast_size=output_shape,
             n_hidden=n_hidden,
@@ -583,9 +583,9 @@ def decoder(
 
         final_output += backcast
 
-    # out = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(
-    #     final_output
-    # )
+    out = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(
+        final_output
+    )
 
     out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_output)
     out = layers.Dense(

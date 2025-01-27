@@ -969,24 +969,25 @@ class CreateTransformedVersionsCVAE:
         pd.DataFrame,
     ]:
         """Predict original time series using VAE"""
-        _, _, _, _, _, _, _, _, _, _, _, _, dyn_features_test, _ = (
-            self._feature_engineering()
-        )
-
         new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
         mask_temporalized = self.temporalize(self.mask_original_tf, window_size)
-        dyn_features_test_tensor = tf.convert_to_tensor(
-            dyn_features_test, dtype=tf.float32
-        )
-        dyn_features_temporalized = self.temporalize(
-            dyn_features_test_tensor, window_size
-        )
 
-        z = cvae.encoder.predict(
-            [data_mask_temporalized, mask_temporalized, dyn_features_temporalized]
+        z_mean, z_log_var, z = cvae.encoder.predict(
+            [
+                data_mask_temporalized.temporalized_data,
+                data_mask_temporalized.temporalized_mask,
+                data_mask_temporalized.temporalized_dyn_features,
+            ]
         )
+        alpha = 3  # x times bigger variance
+        epsilon = np.random.normal(size=z_mean.shape) * 0.1
+        z_augmented = z_mean + np.exp(0.5 * z_log_var) * alpha * epsilon
         generated_data = cvae.decoder.predict(
-            [z, mask_temporalized, dyn_features_temporalized]
+            [
+                z_augmented,
+                data_mask_temporalized.temporalized_mask,
+                data_mask_temporalized.temporalized_dyn_features,
+            ]
         )
 
         X_hat = detemporalize(generated_data)
