@@ -99,15 +99,8 @@ class TemporalizeGenerator(Sequence):
 
 class Sampling(tf.keras.layers.Layer):
     def __init__(self, noise_scale_init=0.01, **kwargs):
-        """
-        Initializes the Sampling layer.
-
-        Args:
-            noise_scale (float): Initial scaling factor for noise in the sampling process.
-            **kwargs: Additional keyword arguments (e.g., `name`).
-        """
         super(Sampling, self).__init__(**kwargs)
-        # Define noise_scale as a mutable variable
+        # define noise_scale as a mutable variable
         self.noise_scale = tf.Variable(
             noise_scale_init, trainable=False, dtype=tf.float32, name="noise_scale"
         )
@@ -115,22 +108,15 @@ class Sampling(tf.keras.layers.Layer):
     def call(self, inputs):
         """
         Performs the reparameterization trick.
-
-        Args:
-            inputs (tuple): A tuple containing (z_mean, z_log_var).
-
-        Returns:
-            Tensor: The sampled latent variable.
         """
         z_mean, z_log_var = inputs
         batch = tf.shape(z_mean)[0]
         seq_len = tf.shape(z_mean)[1]
         latent_dim = tf.shape(z_mean)[2]
 
-        # Generate epsilon with shape (batch, seq_len, latent_dim)
         epsilon = tf.keras.backend.random_normal(shape=(batch, seq_len, latent_dim))
 
-        # Reparameterization trick with dynamic noise scaling
+        # eeparameterization trick with dynamic noise scaling
         return z_mean + tf.exp(0.5 * z_log_var) * self.noise_scale * epsilon
 
 
@@ -263,6 +249,18 @@ class CVAE(keras.Model):
 
         # cosine_loss = cosine_similarity_loss(inp_data, pred, mask)
 
+        # checking numeric instability
+        # tf.print("\nz_mean min:", tf.reduce_min(z_mean), "max:", tf.reduce_max(z_mean))
+        # tf.print(
+        #     "z_log_var min:", tf.reduce_min(z_log_var), "max:", tf.reduce_max(z_log_var)
+        # )
+        # tf.print(
+        #     "exp(z_log_var) min:",
+        #     tf.reduce_min(tf.exp(z_log_var)),
+        #     "max:",
+        #     tf.reduce_max(tf.exp(z_log_var)),
+        # )
+
         kl_loss = -0.5 * K.mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
 
         # total_loss = reconstruction_loss + 0.1 * cosine_loss + self.kl_weight * kl_loss
@@ -345,7 +343,8 @@ def get_CVAE(
     latent_dim: int,
     bi_rnn: bool = True,
     noise_scale_init: float = 0.01,
-    n_blocks: int = 3,
+    n_blocks_encoder: int = 3,
+    n_blocks_decoder: int = 3,
     n_hidden: int = 64,
     n_layers: int = 2,
     kernel_size: int = 2,
@@ -353,22 +352,6 @@ def get_CVAE(
 ) -> tuple[tf.keras.Model, tf.keras.Model]:
     """
     Constructs and returns the encoder and decoder models for the CVAE.
-
-    Args:
-        window_size (int): The size of the input time series window.
-        n_series (int): Number of series in the input.
-        latent_dim (int): Dimensionality of the latent space.
-        bi_rnn (bool): Whether to use bidirectional RNNs.
-        noise_scale_init (float): Initial noise scale for the encoder.
-        n_blocks (int): Number of blocks in the encoder and decoder.
-        n_hidden (int): Number of hidden units in the blocks.
-        n_layers (int): Number of layers in each block.
-        kernel_size (int): Kernel size for convolutional layers.
-        strides (int): Stride for convolutional layers.
-        pooling_mode (str): Pooling mode ("max" or "average").
-
-    Returns:
-        tuple[tf.keras.Model, tf.keras.Model]: The encoder and decoder models.
     """
     input_shape = (window_size, n_series)
     input_shape_dyn_features = (window_size, 6)
@@ -379,7 +362,7 @@ def get_CVAE(
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
         noise_scale_init=noise_scale_init,
-        n_blocks=n_blocks,
+        n_blocks=n_blocks_encoder,
         n_hidden=n_hidden,
         n_layers=n_layers,
         kernel_size=kernel_size,
@@ -391,7 +374,7 @@ def get_CVAE(
         output_shape_dyn_features=input_shape_dyn_features,
         latent_dim=latent_dim,
         bi_rnn=bi_rnn,
-        n_blocks=n_blocks,
+        n_blocks=n_blocks_decoder,
         n_hidden=n_hidden,
         n_layers=n_layers,
         kernel_size=kernel_size,
@@ -401,7 +384,7 @@ def get_CVAE(
     return enc, dec
 
 
-class NHITSBlock(tf.keras.layers.Layer):
+class MRHIBlock(tf.keras.layers.Layer):
     def __init__(
         self,
         backcast_size,
@@ -412,17 +395,9 @@ class NHITSBlock(tf.keras.layers.Layer):
         **kwargs,
     ):
         """
-        N-HiTS Block for time-series decomposition.
-
-        Args:
-            backcast_size (tuple): Size of the backcast.
-            forecast_size (int): Size of the forecast.
-            n_hidden (int): Number of hidden units in the MLP layers.
-            n_layers (int): Number of MLP layers.
-            pooling_mode (str): Pooling mode, either 'max' or 'average'.
-            kernel_size (int): Pooling kernel size.
+        Multi-Rate Hierarchical Interpolation Block for time-series decomposition.
         """
-        super(NHITSBlock, self).__init__(**kwargs)
+        super(MRHIBlock, self).__init__(**kwargs)
         self.backcast_size = backcast_size
 
         if pooling_mode == "max":
@@ -468,19 +443,19 @@ def encoder(
         shape=input_shape_dyn_features, name="dyn_features_input"
     )
 
-    # apply mask to ignore padded values
     masked_input = layers.Multiply(name="masked_input")([main_input, mask_input])
     masked_input = layers.Concatenate()([dyn_features_input, masked_input])
 
+    # Using LeakyReLU instead of ReLU
     masked_input = layers.TimeDistributed(
-        layers.Dense(input_shape[1], activation="relu")
+        layers.Dense(input_shape[1], activation=tf.keras.layers.LeakyReLU(alpha=0.01))
     )(masked_input)
 
     backcast_total = masked_input
     final_output = 0
 
     for i in range(n_blocks):
-        nhits_block = NHITSBlock(
+        mrhi_block = MRHIBlock(
             backcast_size=input_shape,
             n_hidden=n_hidden,
             n_layers=n_layers,
@@ -488,10 +463,8 @@ def encoder(
             kernel_size=kernel_size,
         )
 
-        backcast = nhits_block(backcast_total)
-
+        backcast = mrhi_block(backcast_total)
         backcast_total = backcast_total - backcast
-
         final_output += backcast
 
     if bi_rnn:
@@ -504,14 +477,21 @@ def encoder(
             )
         )(backcast_total)
 
-        backcast = layers.TimeDistributed(layers.Dense(input_shape[1]))(backcast)
+        backcast = layers.TimeDistributed(
+            layers.Dense(
+                input_shape[1], activation=tf.keras.layers.LeakyReLU(alpha=0.01)
+            )
+        )(backcast)
 
         final_output += backcast
 
-    final_output = layers.TimeDistributed(layers.Dense(latent_dim * 2))(final_output)
+    final_output = layers.TimeDistributed(
+        layers.Dense(latent_dim * 2, activation=tf.keras.layers.LeakyReLU(alpha=0.01))
+    )(final_output)
 
-    z_mean = final_output[:, :, latent_dim:]
-    z_log_var = final_output[:, :, :latent_dim]
+    # clip z_log_var and z_mean to prevent KL loss explosion
+    z_mean = tf.clip_by_value(final_output[:, :, latent_dim:], -5, 5)
+    z_log_var = tf.clip_by_value(final_output[:, :, :latent_dim], -5, 5)
 
     z = Sampling(name="sampling", noise_scale_init=noise_scale_init)(
         [z_mean, z_log_var]
@@ -545,17 +525,21 @@ def decoder(
     )
     mask_input = layers.Input(shape=output_shape, name="mask_input")
 
-    x = layers.TimeDistributed(layers.Dense(output_shape[1]))(latent_input)
+    x = layers.TimeDistributed(
+        layers.Dense(output_shape[1], activation=tf.keras.layers.LeakyReLU(alpha=0.01))
+    )(latent_input)
 
     x = layers.Concatenate()([dyn_features_input, x])
 
-    x = layers.TimeDistributed(layers.Dense(output_shape[1], activation="relu"))(x)
+    x = layers.TimeDistributed(
+        layers.Dense(output_shape[1], activation=tf.keras.layers.LeakyReLU(alpha=0.01))
+    )(x)
 
     backcast_total = x
     final_output = 0
 
-    for i in range(10):
-        nhits_block = NHITSBlock(
+    for i in range(n_blocks):
+        mrhi_block = MRHIBlock(
             backcast_size=output_shape,
             n_hidden=n_hidden,
             n_layers=n_layers,
@@ -563,10 +547,8 @@ def decoder(
             kernel_size=kernel_size,
         )
 
-        backcast = nhits_block(backcast_total)
-
+        backcast = mrhi_block(backcast_total)
         backcast_total = backcast_total - backcast
-
         final_output += backcast
 
     if bi_rnn:
@@ -579,26 +561,29 @@ def decoder(
             )
         )(backcast_total)
 
-        backcast = layers.TimeDistributed(layers.Dense(output_shape[1]))(backcast)
+        backcast = layers.TimeDistributed(
+            layers.Dense(
+                output_shape[1], activation=tf.keras.layers.LeakyReLU(alpha=0.01)
+            )
+        )(backcast)
 
         final_output += backcast
-
-    out = layers.TimeDistributed(layers.Dense(output_shape[1], activation="linear"))(
-        final_output
-    )
 
     out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_output)
     out = layers.Dense(
         output_shape[0] * output_shape[1],
         kernel_regularizer=l2(0.001),
+        activation=tf.keras.layers.LeakyReLU(alpha=0.01),
         name="dense_output_CVAE",
     )(out)
+
     out = layers.Reshape(
         (output_shape[0], output_shape[1]), name="reshape_final_output_CVAE"
     )(out)
 
-    # apply mask to the output
     final_output = layers.Multiply(name="masked_output")([out, mask_input])
+
+    final_output = custom_relu_linear_saturation(final_output)
 
     return tf.keras.Model(
         inputs=[latent_input, mask_input, dyn_features_input],
