@@ -98,11 +98,13 @@ class CreateTransformedVersionsCVAE:
         annealing: bool = True,
         kl_weight_init: float = None,
         noise_scale_init: float = None,
-        n_blocks: int = 3,
+        n_blocks_encoder: int = 3,
+        n_blocks_decoder: int = 3,
         n_hidden: int = 16,
         n_layers: int = 3,
         kernel_size: int = 2,
         pooling_mode: str = "average",
+        patience: int = 30,
     ):
         self.dataset_name = dataset_name
         self.dataset_group = dataset_group
@@ -124,9 +126,11 @@ class CreateTransformedVersionsCVAE:
         self.annealing = annealing
         self.kl_weight_init = kl_weight_init
         self.noise_scale_init = noise_scale_init
-        self.n_blocks = n_blocks
+        self.n_blocks_encoder = n_blocks_encoder
+        self.n_blocks_decoder = n_blocks_decoder
         self.n_hidden = n_hidden
         self.n_layers = n_layers
+        self.patience = patience
         self.kernel_size = kernel_size
         self.pooling_mode = pooling_mode
         (self.data, self.s, self.freq) = self.load_data(
@@ -500,7 +504,7 @@ class CreateTransformedVersionsCVAE:
     def fit(
         self,
         epochs: int = 750,
-        patience: int = 100,
+        patience: int = 30,
         latent_dim: int = 32,
         learning_rate: float = 0.001,
         hyper_tuning: bool = False,
@@ -540,7 +544,8 @@ class CreateTransformedVersionsCVAE:
             latent_dim=latent_dim,
             bi_rnn=self.bi_rnn,
             noise_scale_init=self.noise_scale_init,
-            n_blocks=self.n_blocks,
+            n_blocks_encoder=self.n_blocks_encoder,
+            n_blocks_decoder=self.n_blocks_decoder,
             n_hidden=self.n_hidden,
             n_layers=self.n_layers,
             kernel_size=self.kernel_size,
@@ -549,7 +554,9 @@ class CreateTransformedVersionsCVAE:
 
         cvae = CVAE(encoder, decoder, kl_weight_initial=self.kl_weight_init)
         cvae.compile(
-            optimizer=keras.optimizers.legacy.Adam(learning_rate=learning_rate),
+            optimizer=keras.optimizers.legacy.Adam(
+                learning_rate=learning_rate, clipnorm=1.0, clipvalue=1.0
+            ),
             metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
         )
 
@@ -738,7 +745,7 @@ class CreateTransformedVersionsCVAE:
         # try:
         latent_dim = trial.suggest_int("latent_dim", 8, 256, step=8)
         # window_size = trial.suggest_int("window_size", 6, 24)
-        patience = trial.suggest_int("patience", 90, 100, step=5)
+        patience = trial.suggest_int("patience", 20, 40, step=5)
         kl_weight = trial.suggest_float("kl_weight", 0.05, 1)
         n_blocks = trial.suggest_int("n_blocks", 1, 5)
         n_hidden = trial.suggest_int("n_hidden", 16, 128, step=16)
@@ -788,7 +795,8 @@ class CreateTransformedVersionsCVAE:
             latent_dim=latent_dim,
             bi_rnn=bi_rnn,
             noise_scale_init=noise_scale_init,
-            n_blocks=n_blocks,
+            n_blocks_encoder=self.n_blocks_encoder,
+            n_blocks_decoder=self.n_blocks_decoder,
             n_hidden=n_hidden,
             n_layers=n_layers,
             kernel_size=kernel_size,
@@ -802,7 +810,7 @@ class CreateTransformedVersionsCVAE:
         )
 
         es = EarlyStopping(
-            patience=patience,
+            patience=self.patience,
             verbose=1,
             monitor="loss",
             mode="auto",
@@ -914,7 +922,8 @@ class CreateTransformedVersionsCVAE:
             latent_dim=self.best_params["latent_dim"],
             bi_rnn=self.best_params["bi_rnn"],
             noise_scale_init=self.best_params["noise_scale_init"],
-            n_blocks=self.best_params["n_blocks"],
+            n_blocks_encoder=self.best_params["n_blocks_encoder"],
+            n_blocks_decoder=self.best_params["n_blocks_decoder"],
             n_hidden=self.best_params["n_hidden"],
             n_layers=self.best_params["n_layers"],
             kernel_size=self.best_params["kernel_size"],
@@ -969,8 +978,8 @@ class CreateTransformedVersionsCVAE:
         pd.DataFrame,
     ]:
         """Predict original time series using VAE"""
-        new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
-        mask_temporalized = self.temporalize(self.mask_original_tf, window_size)
+        # new_latent_samples = np.random.normal(size=(samples, window_size, latent_dim))
+        # mask_temporalized = self.temporalize(self.mask_original_tf, window_size)
 
         z_mean, z_log_var, z = cvae.encoder.predict(
             [

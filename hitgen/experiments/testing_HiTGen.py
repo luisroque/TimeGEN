@@ -13,43 +13,26 @@ from hitgen.visualization import plot_generated_vs_original
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
 
-
-# import tensorflow as tf
-
-# print("Available GPUs: ", tf.config.list_physical_devices("GPU"))
-#
-# import tensorflow as tf
-#
-# if not tf.config.list_physical_devices("GPU"):
-#     print("Warning: No GPU detected. Running on CPU.")
-#
-# try:
-#     import tensorrt
-# except ImportError:
-#     print("TensorRT not installed. Skipping optimization.")
-
 DATASETS_HYPERPARAMS_CONFIGS = {
     "Tourism": {
         "Monthly": {
             "hitgen": {
-                "latent_dim": 100,
-                "window_size": 24,
+                "latent_dim": 150,
+                "window_size": 12,
                 "patience": 30,
                 "kl_weight": 0.25,
-                "n_blocks": 3,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
                 "n_hidden": 64,
                 "n_layers": 2,
                 "kernel_size": 2,
                 "pooling_mode": "average",
-                "batch_size": 16,
+                "batch_size": 8,
                 "epochs": 1000,
                 "learning_rate": 0.001,
                 "bi_rnn": True,
-                "shuffle": False,
+                "shuffle": True,
                 "noise_scale_init": 0.1,
-                "loss": 0.10709349066019058,
-                "score": 0.9487179487179487,
-                "machine": "mach1ne",
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -71,24 +54,22 @@ DATASETS_HYPERPARAMS_CONFIGS = {
     "M3": {
         "Monthly": {
             "hitgen": {
-                "latent_dim": 80,
-                "window_size": 24,
-                "patience": 95,
-                "kl_weight": 0.5101274817561365,
-                "n_blocks": 3,
-                "n_hidden": 64,
-                "n_layers": 5,
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
                 "kernel_size": 2,
-                "pooling_mode": "max",
-                "batch_size": 32,
-                "epochs": 301,
-                "learning_rate": 0.00010287116241799767,
+                "pooling_mode": "average",
+                "batch_size": 16,
+                "epochs": 1000,
+                "learning_rate": 0.001,
                 "bi_rnn": True,
-                "shuffle": False,
-                "noise_scale_init": 0.026109333341163346,
-                "loss": 0.00042737385956570506,
-                "score": 0.7161531279178338,
-                "machin2": "mach3ne",
+                "shuffle": True,
+                "noise_scale_init": 0.1,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -108,24 +89,22 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         },
         "Quarterly": {
             "hitgen": {
-                "latent_dim": 8,
-                "window_size": 24,
-                "patience": 100,
-                "kl_weight": 0.30655313010600393,
-                "n_blocks": 2,
-                "n_hidden": 112,
-                "n_layers": 1,
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
                 "kernel_size": 2,
                 "pooling_mode": "average",
-                "batch_size": 32,
-                "epochs": 601,
-                "learning_rate": 1.8311391233542035e-05,
-                "bi_rnn": False,
+                "batch_size": 8,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
                 "shuffle": True,
-                "noise_scale_init": 0.1421170809357126,
-                "loss": 0.006062597036361694,
-                "score": 0.6838088088088088,
-                "machin3": "liacc-11gb",
+                "noise_scale_init": 0.1,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -145,24 +124,22 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         },
         "Yearly": {
             "hitgen": {
-                "latent_dim": 56,
-                "window_size": 24,
-                "patience": 95,
-                "kl_weight": 0.4462905576242459,
-                "n_blocks": 4,
-                "n_hidden": 64,
-                "n_layers": 4,
-                "kernel_size": 3,
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
+                "kernel_size": 2,
                 "pooling_mode": "average",
-                "batch_size": 32,
-                "epochs": 1301,
-                "learning_rate": 6.54654753613787e-05,
-                "bi_rnn": False,
+                "batch_size": 8,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
                 "shuffle": True,
-                "noise_scale_init": 0.2307558137374589,
-                "loss": 0.0021541868336498737,
-                "score": 0.529284750337382,
-                "machine": "liacc-48gb",
+                "noise_scale_init": 0.1,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -181,7 +158,6 @@ DATASETS_HYPERPARAMS_CONFIGS = {
             },
         },
     },
-    # Add other datasets as needed
 }
 
 DATASET_GROUP_FREQ = {
@@ -264,9 +240,10 @@ if __name__ == "__main__":
             BATCH_SIZE_HITGEN = hitgen_config["batch_size"]
             KL_WEIGHT_INIT = hitgen_config["kl_weight"]
             NOISE_SAMPLE_INIT = hitgen_config["noise_scale_init"]
-            N_BLOCKS = hitgen_config["n_blocks"]
-            N_HIDDEN = hitgen_config["n_hidden"]
-            N_LAYERS = hitgen_config["n_layers"]
+            N_BLOCKS_ENCODER_HITGEN = hitgen_config["n_blocks_encoder"]
+            N_BLOCKS_DECODER_HITGEN = hitgen_config["n_blocks_decoder"]
+            N_HIDDEN_HITGEN = hitgen_config["n_hidden"]
+            N_LAYERS_HITGENS = hitgen_config["n_layers"]
             KERNEL_SIZE_HITGEN = hitgen_config["kernel_size"]
             POOLING_MODE_HITGEN = hitgen_config["pooling_mode"]
             LEARNING_RATE_HITGEN = hitgen_config["learning_rate"]
@@ -301,6 +278,11 @@ if __name__ == "__main__":
                 annealing=ANNEALING_HITGEN,
                 noise_scale_init=NOISE_SAMPLE_INIT,
                 kl_weight_init=KL_WEIGHT_INIT,
+                n_blocks_encoder=N_BLOCKS_ENCODER_HITGEN,
+                n_blocks_decoder=N_BLOCKS_DECODER_HITGEN,
+                n_hidden=N_HIDDEN_HITGEN,
+                n_layers=N_LAYERS_HITGENS,
+                patience=PATIENCE_HITGEN,
             )
 
             # hypertuning
