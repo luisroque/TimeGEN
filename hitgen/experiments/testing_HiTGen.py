@@ -33,6 +33,7 @@ DATASETS_HYPERPARAMS_CONFIGS = {
                 "bi_rnn": True,
                 "shuffle": True,
                 "noise_scale_init": 0.1,
+                "machine": "liacc-11gb",
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -70,6 +71,7 @@ DATASETS_HYPERPARAMS_CONFIGS = {
                 "bi_rnn": True,
                 "shuffle": True,
                 "noise_scale_init": 0.1,
+                "machine": "liacc-48gb",
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -105,6 +107,7 @@ DATASETS_HYPERPARAMS_CONFIGS = {
                 "bi_rnn": True,
                 "shuffle": True,
                 "noise_scale_init": 0.1,
+                "machine": "liacc-48gb",
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -438,7 +441,7 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            create_dataset_vae.hyper_tune_and_train()
+            # create_dataset_vae.hyper_tune_and_train()
 
             # fit
             model, history, _ = create_dataset_vae.fit(
@@ -602,7 +605,7 @@ if __name__ == "__main__":
             # )
 
             # metaforecast methods
-            synthetic_metaforecast_long = workflow_metaforecast_methods(
+            synthetic_metaforecast_long_no_transf = workflow_metaforecast_methods(
                 df=original_data_no_transf_long.fillna(value=0),
                 freq=FREQ,
             )
@@ -611,7 +614,7 @@ if __name__ == "__main__":
                 print("\nComputing discriminative score for HiTGen synthetic data...")
                 hitgen_score_disc = compute_discriminative_score(
                     unique_ids=test_unique_ids,
-                    original_data=test_data_no_transf_long,
+                    original_data=test_data_no_transf_long.fillna(value=0),
                     synthetic_data=synth_hitgen_test_long_no_transf,
                     method="hitgen",
                     freq="M",
@@ -624,7 +627,7 @@ if __name__ == "__main__":
             print("\nComputing TSTR score for HiTGen synthetic data...")
             hitgen_score_tstr = tstr(
                 unique_ids=test_unique_ids,
-                original_data=test_data_no_transf_long.dropna(),
+                original_data=test_data_no_transf_long.fillna(value=0),
                 synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
                 freq="M",
@@ -639,7 +642,7 @@ if __name__ == "__main__":
             )
             hitgen_score_dtf = compute_downstream_forecast(
                 unique_ids=test_unique_ids,
-                original_data=test_data_no_transf_long.dropna(),
+                original_data=test_data_no_transf_long.fillna(value=0),
                 synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
                 freq="M",
@@ -702,9 +705,9 @@ if __name__ == "__main__":
 
                 score_disc = compute_discriminative_score(
                     unique_ids=test_unique_ids,
-                    original_data=test_data_long,
-                    synthetic_data=synthetic_metaforecast_long.loc[
-                        synthetic_metaforecast_long["method"] == method
+                    original_data=test_data_no_transf_long.fillna(value=0),
+                    synthetic_data=synthetic_metaforecast_long_no_transf.loc[
+                        synthetic_metaforecast_long_no_transf["method"] == method
                     ],
                     method=method,
                     freq="M",
@@ -717,9 +720,9 @@ if __name__ == "__main__":
                 print(f"\nComputing TSTR score for {method} synthetic data...")
                 score_tstr = tstr(
                     unique_ids=test_unique_ids,
-                    original_data=test_data_long,
-                    synthetic_data=synthetic_metaforecast_long.loc[
-                        synthetic_metaforecast_long["method"] == method
+                    original_data=test_data_no_transf_long.fillna(value=0),
+                    synthetic_data=synthetic_metaforecast_long_no_transf.loc[
+                        synthetic_metaforecast_long_no_transf["method"] == method
                     ],
                     method=method,
                     freq="M",
@@ -734,9 +737,9 @@ if __name__ == "__main__":
                 )
                 score_dtf = compute_downstream_forecast(
                     unique_ids=test_unique_ids,
-                    original_data=test_data_long,
-                    synthetic_data=synthetic_metaforecast_long.loc[
-                        synthetic_metaforecast_long["method"] == method
+                    original_data=test_data_no_transf_long.fillna(value=0),
+                    synthetic_data=synthetic_metaforecast_long_no_transf.loc[
+                        synthetic_metaforecast_long_no_transf["method"] == method
                     ],
                     method=method,
                     freq="M",
