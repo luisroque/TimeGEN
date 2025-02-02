@@ -308,13 +308,13 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M"},
-    # },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M"},
-    #     "Quarterly": {"FREQ": "Q"},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M"},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+    },
     "M3": {
         "Monthly": {"FREQ": "M"},
         "Quarterly": {"FREQ": "Q"},
