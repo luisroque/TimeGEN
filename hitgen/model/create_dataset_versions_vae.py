@@ -381,7 +381,7 @@ class CreateTransformedVersionsCVAE:
         """Apply preprocessing to raw time series and split into training and testing."""
         x_wide_transf, mask_wide, x_wide = self._preprocess_data(self.df)
         x_long = self.create_dataset_long_form(x_wide)
-        x_long_log_returns = self.create_dataset_long_form(x_wide_transf)
+        x_long_transf = self.create_dataset_long_form(x_wide_transf)
         mask_long = self.create_dataset_long_form(mask_wide)
 
         train_ids, test_ids = self._load_or_create_split(
@@ -390,23 +390,50 @@ class CreateTransformedVersionsCVAE:
 
         self.s_train = len(train_ids)
 
-        train_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(train_ids)]
+        train_data = x_long_transf[x_long_transf["unique_id"].isin(train_ids)]
         self.first_value_train = self.first_value[
             self.first_value.unique_id.isin(train_ids)
         ]
         mask_train = mask_long[mask_long["unique_id"].isin(train_ids)]
-        test_data = x_long_log_returns[x_long_log_returns["unique_id"].isin(test_ids)]
+        test_data = x_long_transf[x_long_transf["unique_id"].isin(test_ids)]
         test_data_no_transf = x_long[x_long["unique_id"].isin(test_ids)]
         self.first_value_test = self.first_value[
             self.first_value.unique_id.isin(test_ids)
         ]
         mask_test = mask_long[mask_long["unique_id"].isin(test_ids)]
-        original_data = x_long_log_returns
+        original_data = x_long_transf
         original_data_no_transf = x_long
         original_mask = mask_long
 
         x_train_wide = train_data.pivot(index="ds", columns="unique_id", values="y")
         x_test_wide = test_data.pivot(index="ds", columns="unique_id", values="y")
+
+        # extract only training min/max params from the full scaler
+        train_columns = x_train_wide.columns
+        scaler_train = MinMaxScaler()
+
+        # filter the fitted params from self.scaler for only training series
+        scaler_train.min_ = self.scaler.min_[
+            np.isin(self.long_properties["unique_id"], train_columns)
+        ]
+        scaler_train.scale_ = self.scaler.scale_[
+            np.isin(self.long_properties["unique_id"], train_columns)
+        ]
+        scaler_train.data_min_ = self.scaler.data_min_[
+            np.isin(self.long_properties["unique_id"], train_columns)
+        ]
+        scaler_train.data_max_ = self.scaler.data_max_[
+            np.isin(self.long_properties["unique_id"], train_columns)
+        ]
+        scaler_train.data_range_ = self.scaler.data_range_[
+            np.isin(self.long_properties["unique_id"], train_columns)
+        ]
+        scaler_train.feature_names_in = self.scaler.feature_names_in_[
+            np.isin(self.long_properties["unique_id"], train_columns)
+        ]
+
+        self.scaler_train = scaler_train
+
         x_test_no_transf_wide = test_data_no_transf.pivot(
             index="ds", columns="unique_id", values="y"
         )
@@ -1075,10 +1102,10 @@ class CreateTransformedVersionsCVAE:
         )
 
         X_hat = detemporalize(generated_data)
-        X_hat_no_transf = self.scaler.inverse_transform(X_hat)
+        X_hat_no_transf = self.scaler_train.inverse_transform(X_hat)
 
-        x_hat_long = self.create_dataset_long_form(X_hat)
-        x_hat_long_no_transf = self.create_dataset_long_form(X_hat_no_transf)
+        x_hat_long = self.create_dataset_long_form(X_hat, train_ids)
+        x_hat_long_no_transf = self.create_dataset_long_form(X_hat_no_transf, train_ids)
 
         X_hat_train_long = x_hat_long[x_hat_long["unique_id"].isin(train_ids)]
         X_hat_train_long_no_transf = x_hat_long_no_transf[
