@@ -308,6 +308,13 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
+    "Tourism": {
+        "Monthly": {"FREQ": "M"},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+    },
     "M3": {
         "Monthly": {"FREQ": "M"},
         "Quarterly": {"FREQ": "Q"},
@@ -434,7 +441,7 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            create_dataset_vae.hyper_tune_and_train()
+            # create_dataset_vae.hyper_tune_and_train()
 
             # fit
             model, history, _ = create_dataset_vae.fit(
