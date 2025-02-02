@@ -746,7 +746,7 @@ class CreateTransformedVersionsCVAE:
         latent_dim = trial.suggest_int("latent_dim", 8, 256, step=8)
         # window_size = trial.suggest_int("window_size", 6, 24)
         patience = trial.suggest_int("patience", 20, 40, step=5)
-        kl_weight = trial.suggest_float("kl_weight", 0.05, 1)
+        kl_weight = trial.suggest_float("kl_weight", 0.05, 0.5)
         n_blocks = trial.suggest_int("n_blocks", 1, 5)
         n_hidden = trial.suggest_int("n_hidden", 16, 128, step=16)
         n_layers = trial.suggest_int("n_layers", 1, 5)
@@ -759,7 +759,7 @@ class CreateTransformedVersionsCVAE:
         # shuffle = trial.suggest_categorical("shuffle", [True, False])
         noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
-        bi_rnn = False
+        bi_rnn = True
         shuffle = True
 
         (
