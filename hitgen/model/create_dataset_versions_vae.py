@@ -144,6 +144,13 @@ class CreateTransformedVersionsCVAE:
         self.df = pd.DataFrame(self.data)
         self.df.asfreq(self.freq)
 
+        num_series = self.df["unique_id"].nunique()
+        avg_time_points = self.df.groupby("unique_id").size().mean()
+
+        print(f"Dataset Summary for {dataset_name} ({dataset_group}):")
+        print(f"   - Total number of time series: {num_series}")
+        print(f"   - Average number of time points per series: {avg_time_points:.2f}")
+
         self.features_input = (None, None, None)
         self._create_directories()
         self.long_properties = {}

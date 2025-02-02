@@ -51,6 +51,78 @@ DATASETS_HYPERPARAMS_CONFIGS = {
             },
         }
     },
+    "M1": {
+        "Monthly": {
+            "hitgen": {
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
+                "kernel_size": 2,
+                "pooling_mode": "average",
+                "batch_size": 16,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
+                "shuffle": True,
+                "noise_scale_init": 0.1,
+            },
+            "timegan": {
+                "gan_args": ModelParameters(
+                    batch_size=16,
+                    lr=2e-4,
+                    noise_dim=16,
+                    layers_dim=32,
+                    latent_dim=32,
+                    gamma=1.0,
+                ),
+                "train_args": TrainParameters(
+                    epochs=1000,
+                    sequence_length=24,
+                    number_sequences=4,
+                ),
+            },
+        },
+        "Quarterly": {
+            "hitgen": {
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
+                "kernel_size": 2,
+                "pooling_mode": "average",
+                "batch_size": 8,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
+                "shuffle": True,
+                "noise_scale_init": 0.1,
+            },
+            "timegan": {
+                "gan_args": ModelParameters(
+                    batch_size=16,
+                    lr=2e-4,
+                    noise_dim=16,
+                    layers_dim=32,
+                    latent_dim=32,
+                    gamma=1.0,
+                ),
+                "train_args": TrainParameters(
+                    epochs=1000,
+                    sequence_length=24,
+                    number_sequences=4,
+                ),
+            },
+        },
+    },
     "M3": {
         "Monthly": {
             "hitgen": {
@@ -158,16 +230,96 @@ DATASETS_HYPERPARAMS_CONFIGS = {
             },
         },
     },
+    "M4": {
+        "Monthly": {
+            "hitgen": {
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
+                "kernel_size": 2,
+                "pooling_mode": "average",
+                "batch_size": 16,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
+                "shuffle": True,
+                "noise_scale_init": 0.1,
+            },
+            "timegan": {
+                "gan_args": ModelParameters(
+                    batch_size=16,
+                    lr=2e-4,
+                    noise_dim=16,
+                    layers_dim=32,
+                    latent_dim=32,
+                    gamma=1.0,
+                ),
+                "train_args": TrainParameters(
+                    epochs=1000,
+                    sequence_length=24,
+                    number_sequences=4,
+                ),
+            },
+        },
+        "Quarterly": {
+            "hitgen": {
+                "latent_dim": 150,
+                "window_size": 12,
+                "patience": 30,
+                "kl_weight": 0.25,
+                "n_blocks_encoder": 3,
+                "n_blocks_decoder": 3,
+                "n_hidden": 16,
+                "n_layers": 2,
+                "kernel_size": 2,
+                "pooling_mode": "average",
+                "batch_size": 8,
+                "epochs": 1000,
+                "learning_rate": 0.001,
+                "bi_rnn": True,
+                "shuffle": True,
+                "noise_scale_init": 0.1,
+            },
+            "timegan": {
+                "gan_args": ModelParameters(
+                    batch_size=16,
+                    lr=2e-4,
+                    noise_dim=16,
+                    layers_dim=32,
+                    latent_dim=32,
+                    gamma=1.0,
+                ),
+                "train_args": TrainParameters(
+                    epochs=1000,
+                    sequence_length=24,
+                    number_sequences=4,
+                ),
+            },
+        },
+    },
 }
 
 DATASET_GROUP_FREQ = {
     "Tourism": {
         "Monthly": {"FREQ": "M"},
     },
+    "M1": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+    },
     "M3": {
         "Monthly": {"FREQ": "M"},
         "Quarterly": {"FREQ": "Q"},
         "Yearly": {"FREQ": "Y"},
+    },
+    "M4": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
     },
 }
 

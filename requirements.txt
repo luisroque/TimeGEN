@@ -10,4 +10,5 @@ optuna==4.0.0
 datasetsforecast==0.0.8
 neuralforecast==2.0.0
 xgboost==2.1.2
+gluonts==0.15.1
 # metaforecast==0.2.0

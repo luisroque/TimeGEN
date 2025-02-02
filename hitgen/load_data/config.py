@@ -1,3 +1,4 @@
+from hitgen.load_data.m1 import M1Dataset
 from hitgen.load_data.m4 import M4Dataset
 from hitgen.load_data.m3 import M3Dataset
 from hitgen.load_data.tourism import TourismDataset
@@ -16,6 +17,7 @@ from hitgen.load_data.weather import WeatherDataset
 
 DATASETS = {
     "Tourism": TourismDataset,
+    "M1": M1Dataset,
     "M3": M3Dataset,
     "M4": M4Dataset,
     "M5": M5Dataset,
@@ -33,6 +35,7 @@ DATASETS = {
 
 DATASETS_FREQ = {
     "Tourism": ["Monthly", "Quarterly"],
+    "M1": ["Monthly", "Quarterly"],
     "M3": ["Monthly", "Quarterly", "Yearly"],
     "M4": ["Monthly", "Quarterly", "Yearly"],
     "M5": ["Daily"],
