@@ -505,13 +505,13 @@ if __name__ == "__main__":
             )
 
             print(
-                f"Discriminative TSTR score for HiTGen synthetic data: "
+                f"TSTR score for HiTGen synthetic data: "
                 f"TSTR {hitgen_score_tstr['avg_smape_tstr']:.4f} vs TRTR "
                 f"score {hitgen_score_tstr['avg_smape_trtr']:.4f}"
             )
 
             print(
-                f"Discriminative downstream task forecasting score for HiTGen synthetic data: "
+                f"Downstream task forecasting score for HiTGen synthetic data: "
                 f"concat score {hitgen_score_dtf['avg_smape_concat']:.4f} vs original "
                 f"score {hitgen_score_dtf['avg_smape_original']:.4f}\n\n"
             )
@@ -602,13 +602,13 @@ if __name__ == "__main__":
                 )
 
                 print(
-                    f"Discriminative TSTR score for {method} synthetic data: "
+                    f"TSTR score for {method} synthetic data: "
                     f"TSTR {score_tstr['avg_smape_tstr']:.4f} vs TRTR "
                     f"score {score_tstr['avg_smape_trtr']:.4f}"
                 )
 
                 print(
-                    f"Discriminative downstream task forecasting score for {method} synthetic data: "
+                    f"Downstream task forecasting score for {method} synthetic data: "
                     f"concat score {score_dtf['avg_smape_concat']:.4f} vs original "
                     f"score {score_dtf['avg_smape_original']:.4f}\n\n"
                 )

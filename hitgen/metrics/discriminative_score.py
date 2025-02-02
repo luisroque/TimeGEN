@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import pickle
+import hashlib
 import warnings
 from tsfeatures import tsfeatures
 from xgboost import XGBClassifier
@@ -78,22 +80,65 @@ def filter_data_by_indices(
     return filtered_data, labels
 
 
-def safe_generate_features(data, freq):
+def safe_generate_features(
+    data,
+    freq,
+    dataset_name,
+    dataset_group,
+    data_cat,
+    split,
+    method,
+    train_idx,
+    test_idx,
+):
     """
-    Safely generates time series features using tsfeatures, with warning filtering.
+    Safely generates time series features using tsfeatures
     """
+    features_dir = "assets/features/"
+    os.makedirs(features_dir, exist_ok=True)
+
+    if not isinstance(data_cat, str) or data_cat not in {"real", "synthetic"}:
+        raise ValueError(
+            f"Invalid data_cat value: {data_cat}. Expected 'real' or 'synthetic'."
+        )
+
+    if not isinstance(split, str) or split not in {"train", "test"}:
+        raise ValueError(f"Invalid split value: {split}. Expected 'train' or 'test'.")
+
+    if not isinstance(train_idx, list) or not isinstance(test_idx, list):
+        raise ValueError("train_idx and test_idx must be lists.")
+
+    # create a unique hash key for this dataset/method/data_cat/split/split_idx combination
+    key = (
+        f"{dataset_name}_{dataset_group}_{method}_{data_cat}_{split}_"
+        f"{hashlib.md5(str(train_idx).encode()).hexdigest()}_"
+        f"{hashlib.md5(str(test_idx).encode()).hexdigest()}"
+    )
+    feature_file = os.path.join(features_dir, f"{key}.pkl")
+
+    if os.path.exists(feature_file):
+        print(f"             Loading cached features from {feature_file}")
+        with open(feature_file, "rb") as f:
+            return pickle.load(f)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         try:
+
             features = tsfeatures(data, freq=freq)
             print("             Features created successfully.")
+
+            with open(feature_file, "wb") as f:
+                pickle.dump(features, f)
+            print(f"            Features saved to {feature_file}")
+
             for warning in w:
                 if "divide by zero" in str(warning.message):
-                    print("Detected problematic data. Skipping.")
+                    print("             Detected problematic data. Skipping.")
                     return None
+
             return features
         except Exception as e:
-            print(f"Error generating features: {e}")
+            print(f"                Error generating features: {e}")
             return None
 
 
@@ -165,8 +210,28 @@ def compute_discriminative_score(
             original_data, test_idx, label_value=0
         )
 
-        original_features_train = safe_generate_features(original_data_train, freq=freq)
-        original_features_test = safe_generate_features(original_data_test, freq=freq)
+        original_features_train = safe_generate_features(
+            original_data_train,
+            freq=freq,
+            dataset_name=dataset_name,
+            dataset_group=dataset_group,
+            data_cat="real",
+            split="train",
+            method=method,
+            train_idx=train_idx,
+            test_idx=test_idx,
+        )
+        original_features_test = safe_generate_features(
+            original_data_test,
+            freq=freq,
+            dataset_name=dataset_name,
+            dataset_group=dataset_group,
+            data_cat="real",
+            split="test",
+            method=method,
+            train_idx=train_idx,
+            test_idx=test_idx,
+        )
 
         if original_features_train is None or original_features_test is None:
             print("Feature generation failed for original data. Skipping iteration.")
@@ -181,9 +246,27 @@ def compute_discriminative_score(
         )
 
         synthetic_features_train = safe_generate_features(
-            synthetic_data_train, freq=freq
+            synthetic_data_train,
+            freq=freq,
+            dataset_name=dataset_name,
+            dataset_group=dataset_group,
+            data_cat="synthetic",
+            split="train",
+            method=method,
+            train_idx=train_idx,
+            test_idx=test_idx,
         )
-        synthetic_features_test = safe_generate_features(synthetic_data_test, freq=freq)
+        synthetic_features_test = safe_generate_features(
+            synthetic_data_test,
+            freq=freq,
+            dataset_name=dataset_name,
+            dataset_group=dataset_group,
+            data_cat="synthetic",
+            split="test",
+            method=method,
+            train_idx=train_idx,
+            test_idx=test_idx,
+        )
 
         if synthetic_features_train is None or synthetic_features_test is None:
             print("Feature generation failed for synthetic data. Skipping iteration.")
@@ -308,14 +391,14 @@ def tstr(
 
         model_trtr = NHITS(
             h=horizon,
-            max_steps=5,
+            max_steps=500,
             input_size=input_size,
             start_padding_enabled=True,
             scaler_type="standard",
         )
         model_tstr = NHITS(
             h=horizon,
-            max_steps=5,
+            max_steps=500,
             input_size=input_size,
             start_padding_enabled=True,
             scaler_type="standard",
