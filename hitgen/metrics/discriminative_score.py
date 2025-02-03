@@ -178,7 +178,7 @@ def compute_discriminative_score(
     dataset_name,
     dataset_group,
     loss,
-    generate_feature_plot=True,
+    generate_feature_plot=False,
     samples=1,
 ):
     score_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_discriminative_score.json"
