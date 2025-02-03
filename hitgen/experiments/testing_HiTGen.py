@@ -56,16 +56,16 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         "Monthly": {
             "hitgen": {
                 "latent_dim": 150,
-                "window_size": 12,
+                "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.25,
+                "kl_weight": 0.1,
                 "n_blocks_encoder": 3,
                 "n_blocks_decoder": 3,
                 "n_hidden": 16,
                 "n_layers": 2,
                 "kernel_size": 2,
                 "pooling_mode": "average",
-                "batch_size": 16,
+                "batch_size": 8,
                 "epochs": 1000,
                 "learning_rate": 0.001,
                 "bi_rnn": True,
@@ -130,16 +130,16 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         "Monthly": {
             "hitgen": {
                 "latent_dim": 150,
-                "window_size": 12,
+                "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.25,
+                "kl_weight": 0.1,
                 "n_blocks_encoder": 3,
                 "n_blocks_decoder": 3,
                 "n_hidden": 16,
                 "n_layers": 2,
                 "kernel_size": 2,
                 "pooling_mode": "average",
-                "batch_size": 16,
+                "batch_size": 8,
                 "epochs": 1000,
                 "learning_rate": 0.001,
                 "bi_rnn": True,
@@ -165,9 +165,9 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         "Quarterly": {
             "hitgen": {
                 "latent_dim": 150,
-                "window_size": 12,
+                "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.25,
+                "kl_weight": 0.1,
                 "n_blocks_encoder": 3,
                 "n_blocks_decoder": 3,
                 "n_hidden": 16,
@@ -200,9 +200,9 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         "Yearly": {
             "hitgen": {
                 "latent_dim": 150,
-                "window_size": 12,
+                "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.25,
+                "kl_weight": 0.1,
                 "n_blocks_encoder": 3,
                 "n_blocks_decoder": 3,
                 "n_hidden": 16,
@@ -237,16 +237,16 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         "Monthly": {
             "hitgen": {
                 "latent_dim": 150,
-                "window_size": 12,
+                "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.25,
+                "kl_weight": 0.1,
                 "n_blocks_encoder": 3,
                 "n_blocks_decoder": 3,
                 "n_hidden": 16,
                 "n_layers": 2,
                 "kernel_size": 2,
                 "pooling_mode": "average",
-                "batch_size": 16,
+                "batch_size": 8,
                 "epochs": 1000,
                 "learning_rate": 0.001,
                 "bi_rnn": True,
@@ -272,9 +272,9 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         "Quarterly": {
             "hitgen": {
                 "latent_dim": 150,
-                "window_size": 12,
+                "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.25,
+                "kl_weight": 0.1,
                 "n_blocks_encoder": 3,
                 "n_blocks_decoder": 3,
                 "n_hidden": 16,
@@ -320,10 +320,10 @@ DATASET_GROUP_FREQ = {
         "Quarterly": {"FREQ": "Q"},
         "Yearly": {"FREQ": "Y"},
     },
-    "M4": {
-        # "Monthly": {"FREQ": "M"},
-        "Quarterly": {"FREQ": "Q"},
-    },
+    # "M4": {
+    #     # "Monthly": {"FREQ": "M"},
+    #     "Quarterly": {"FREQ": "Q"},
+    # },
 }
 
 
@@ -441,7 +441,7 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            create_dataset_vae.hyper_tune_and_train()
+            # create_dataset_vae.hyper_tune_and_train()
 
             # fit
             model, history, _ = create_dataset_vae.fit(
@@ -610,11 +610,15 @@ if __name__ == "__main__":
                 freq=FREQ,
             )
 
+            synth_hitgen_test_long_no_transf = synth_hitgen_test_long_no_transf[
+                ~test_data_no_transf_long["y"].isna().values
+            ]
+
             if not hitgen_score_disc:
                 print("\nComputing discriminative score for HiTGen synthetic data...")
                 hitgen_score_disc = compute_discriminative_score(
                     unique_ids=test_unique_ids,
-                    original_data=test_data_no_transf_long.fillna(value=0),
+                    original_data=test_data_no_transf_long.dropna(),
                     synthetic_data=synth_hitgen_test_long_no_transf,
                     method="hitgen",
                     freq="M",
@@ -627,7 +631,7 @@ if __name__ == "__main__":
             print("\nComputing TSTR score for HiTGen synthetic data...")
             hitgen_score_tstr = tstr(
                 unique_ids=test_unique_ids,
-                original_data=test_data_no_transf_long.fillna(value=0),
+                original_data=test_data_no_transf_long.dropna(),
                 synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
                 freq="M",
@@ -642,7 +646,7 @@ if __name__ == "__main__":
             )
             hitgen_score_dtf = compute_downstream_forecast(
                 unique_ids=test_unique_ids,
-                original_data=test_data_no_transf_long.fillna(value=0),
+                original_data=test_data_no_transf_long.dropna(),
                 synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
                 freq="M",

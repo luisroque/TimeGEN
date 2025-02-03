@@ -357,6 +357,36 @@ class CreateTransformedVersionsCVAE:
 
         return scaled_data, mask, x_wide
 
+    def plot_sample_time_series_long_format(self, df, data_cat, state):
+        import matplotlib.pyplot as plt
+
+        selected_ids = df["unique_id"].unique()[:8]
+        df_selected = df[df["unique_id"].isin(selected_ids)]
+
+        fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(12, 10), sharex=True)
+
+        axes = axes.flatten()
+
+        for i, uid in enumerate(selected_ids):
+            subset = df_selected[df_selected["unique_id"] == uid]
+            ax = axes[i]
+            ax.plot(subset["ds"], subset["y"], marker="o", linestyle="-")
+            ax.set_title(f"Series: {uid}")
+            ax.grid(True)
+
+        plt.xlabel("Date")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+
+        output_dir = "assets/plots/"
+        os.makedirs(output_dir, exist_ok=True)
+
+        output_path = os.path.join(
+            output_dir,
+            f"{self.dataset_name}_{self.dataset_group}_{data_cat}_{state}_time_series.png",
+        )
+        plt.savefig(output_path, dpi=300)
+
     def _feature_engineering(
         self, train_test_split=0.7, train_size_absolute=None
     ) -> Tuple[
@@ -379,6 +409,10 @@ class CreateTransformedVersionsCVAE:
         x_wide_transf, mask_wide, x_wide = self._preprocess_data(self.df)
         x_long = self.create_dataset_long_form(x_wide)
         x_long_transf = self.create_dataset_long_form(x_wide_transf)
+        # self.plot_sample_time_series_long_format(
+        #     x_long_transf, "original", "preprocess"
+        # )
+
         mask_long = self.create_dataset_long_form(mask_wide)
 
         train_ids, test_ids = self._load_or_create_split(
@@ -869,6 +903,7 @@ class CreateTransformedVersionsCVAE:
             )
 
             # compute the discriminative score x times to account for variability
+
             score = self.compute_mean_discriminative_score(
                 unique_ids=original_data_train_no_transf_long["unique_id"].unique(),
                 original_data=original_data_train_no_transf_long,
