@@ -663,7 +663,8 @@ class CreateTransformedVersionsCVAE:
         window_size,
         patience,
         kl_weight,
-        n_blocks,
+        n_blocks_encoder,
+        n_blocks_decoder,
         n_hidden,
         n_layers,
         kernel_size,
@@ -689,7 +690,8 @@ class CreateTransformedVersionsCVAE:
             "window_size": window_size,
             "patience": patience,
             "kl_weight": kl_weight,
-            "n_blocks": n_blocks,
+            "n_blocks_encoder": n_blocks_encoder,
+            "n_blocks_decoder": n_blocks_decoder,
             "n_hidden": n_hidden,
             "n_layers": n_layers,
             "kernel_size": kernel_size,
@@ -778,7 +780,8 @@ class CreateTransformedVersionsCVAE:
             # window_size = trial.suggest_int("window_size", 6, 24)
             patience = trial.suggest_int("patience", 20, 40, step=5)
             kl_weight = trial.suggest_float("kl_weight", 0.05, 0.5)
-            n_blocks = trial.suggest_int("n_blocks", 1, 5)
+            n_blocks_encoder = trial.suggest_int("n_blocks_encoder", 1, 5)
+            n_blocks_decoder = trial.suggest_int("n_blocks_decoder", 1, 5)
             n_hidden = trial.suggest_int("n_hidden", 16, 128, step=16)
             n_layers = trial.suggest_int("n_layers", 1, 5)
             kernel_size = trial.suggest_int("kernel_size", 2, 5)
@@ -826,8 +829,8 @@ class CreateTransformedVersionsCVAE:
                 latent_dim=latent_dim,
                 bi_rnn=bi_rnn,
                 noise_scale_init=noise_scale_init,
-                n_blocks_encoder=self.n_blocks_encoder,
-                n_blocks_decoder=self.n_blocks_decoder,
+                n_blocks_encoder=n_blocks_encoder,
+                n_blocks_decoder=n_blocks_decoder,
                 n_hidden=n_hidden,
                 n_layers=n_layers,
                 kernel_size=kernel_size,
@@ -890,7 +893,8 @@ class CreateTransformedVersionsCVAE:
                 self.window_size,
                 patience,
                 kl_weight,
-                n_blocks,
+                n_blocks_encoder,
+                n_blocks_decoder,
                 n_hidden,
                 n_layers,
                 kernel_size,
@@ -910,7 +914,7 @@ class CreateTransformedVersionsCVAE:
             print(f"Error in trial: {e}")
             raise optuna.exceptions.TrialPruned()
 
-    def hyper_tune_and_train(self, n_trials=25):
+    def hyper_tune_and_train(self, n_trials=50):
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
@@ -962,7 +966,7 @@ class CreateTransformedVersionsCVAE:
             pooling_mode=self.best_params["pooling_mode"],
         )
 
-        cvae = CVAE(encoder, decoder, kl_weight=self.best_params["kl_weight"])
+        cvae = CVAE(encoder, decoder, kl_weight_initial=self.best_params["kl_weight"])
         cvae.compile(
             optimizer=keras.optimizers.legacy.Adam(
                 learning_rate=self.best_params["learning_rate"]

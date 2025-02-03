@@ -308,18 +308,18 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M"},
-    # },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M"},
-    #     "Quarterly": {"FREQ": "Q"},
-    # },
-    # "M3": {
-    #     "Monthly": {"FREQ": "M"},
-    #     "Quarterly": {"FREQ": "Q"},
-    #     "Yearly": {"FREQ": "Y"},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M"},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+        "Yearly": {"FREQ": "Y"},
+    },
     "M4": {
         "Monthly": {"FREQ": "M"},
         "Quarterly": {"FREQ": "Q"},
