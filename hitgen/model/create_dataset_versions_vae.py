@@ -169,10 +169,7 @@ class CreateTransformedVersionsCVAE:
 
         h = data_cls.horizons_map[group]
         n_lags = data_cls.context_length[group]
-        if dataset_name == "M4":
-            freq = data_cls.frequency_map.get(group)
-        else:
-            freq = data_cls.frequency_pd[group]
+        freq = data_cls.frequency_pd[group]
         season_len = data_cls.frequency_map[group]
         n_series = ds.nunique()["unique_id"]
         return ds, n_series, freq
