@@ -90,6 +90,7 @@ def safe_generate_features(
     method,
     train_idx,
     test_idx,
+    store_features=True,
 ):
     """
     Safely generates time series features using tsfeatures
@@ -127,9 +128,10 @@ def safe_generate_features(
             features = tsfeatures(data, freq=freq)
             print("             Features created successfully.")
 
-            with open(feature_file, "wb") as f:
-                pickle.dump(features, f)
-            print(f"            Features saved to {feature_file}")
+            if store_features:
+                with open(feature_file, "wb") as f:
+                    pickle.dump(features, f)
+                print(f"            Features saved to {feature_file}")
 
             for warning in w:
                 if "divide by zero" in str(warning.message):
@@ -180,6 +182,8 @@ def compute_discriminative_score(
     loss,
     generate_feature_plot=False,
     samples=1,
+    store_score=True,
+    store_features_synth=True,
 ):
     score_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_discriminative_score.json"
     os.makedirs("assets/results", exist_ok=True)
@@ -255,6 +259,7 @@ def compute_discriminative_score(
             method=method,
             train_idx=train_idx,
             test_idx=test_idx,
+            store_features=store_features_synth,
         )
         synthetic_features_test = safe_generate_features(
             synthetic_data_test,
@@ -266,6 +271,7 @@ def compute_discriminative_score(
             method=method,
             train_idx=train_idx,
             test_idx=test_idx,
+            store_features=store_features_synth,
         )
 
         if synthetic_features_train is None or synthetic_features_test is None:
@@ -319,9 +325,10 @@ def compute_discriminative_score(
         print("No valid iterations completed. Final score is undefined.")
         final_score = None
 
-    with open(score_file, "w") as f:
-        json.dump({"final_score": final_score}, f)
-        print(f"Final score saved to '{score_file}'")
+    if store_score:
+        with open(score_file, "w") as f:
+            json.dump({"final_score": final_score}, f)
+            print(f"Final score saved to '{score_file}'")
 
     return final_score
 

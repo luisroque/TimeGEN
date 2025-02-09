@@ -438,7 +438,7 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            # create_dataset_vae.hyper_tune_and_train()
+            create_dataset_vae.hyper_tune_and_train()
 
             # fit
             model, history, _ = create_dataset_vae.fit(
@@ -449,22 +449,17 @@ if __name__ == "__main__":
             )
             # plot_loss(history)
 
-            (
-                _,
-                _,
-                original_data,
-                train_data_long,
-                test_data_long,
-                original_data_long,
-                _,
-                _,
-                original_mask,
-                original_data_no_transf_long,
-                test_data_no_transf_long,
-                _,
-                test_dyn_features,
-                original_dyn_features,
-            ) = create_dataset_vae._feature_engineering()
+            feature_dict = create_dataset_vae._feature_engineering()
+
+            original_data = feature_dict["x_original_wide"]
+            train_data_long = feature_dict["original_data_train_long"]
+            test_data_long = feature_dict["original_data_test_long"]
+            original_data_long = feature_dict["original_data_long"]
+            original_mask = feature_dict["mask_original_wide"]
+            original_data_no_transf_long = feature_dict["original_data_no_transf_long"]
+            test_data_no_transf_long = feature_dict["original_data_test_no_transf_long"]
+            test_dyn_features = feature_dict["fourier_features_test"]
+            original_dyn_features = feature_dict["fourier_features_original"]
 
             data_mask_temporalized = TemporalizeGenerator(
                 original_data,
