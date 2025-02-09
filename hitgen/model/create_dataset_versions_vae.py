@@ -789,7 +789,7 @@ class CreateTransformedVersionsCVAE:
         Objective function for Optuna to tune the CVAE hyperparameters.
         """
         try:
-            latent_dim = trial.suggest_int("latent_dim", 8, 256, step=8)
+            latent_dim = trial.suggest_int("latent_dim", 8, 300, step=8)
             # window_size = trial.suggest_int("window_size", 6, 24)
             patience = trial.suggest_int("patience", 20, 40, step=5)
             kl_weight = trial.suggest_float("kl_weight", 0.05, 0.5)
@@ -799,15 +799,15 @@ class CreateTransformedVersionsCVAE:
             n_layers = trial.suggest_int("n_layers", 1, 5)
             kernel_size = trial.suggest_int("kernel_size", 2, 5)
             pooling_mode = trial.suggest_categorical("pooling_mode", ["max", "average"])
-            batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
+            batch_size = trial.suggest_categorical("batch_size", [4, 8, 16, 32])
             epochs = trial.suggest_int("epochs", 1, 2001, step=100)
             learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
-            # bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
-            # shuffle = trial.suggest_categorical("shuffle", [True, False])
+            bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
+            shuffle = trial.suggest_categorical("shuffle", [True, False])
             noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
-            bi_rnn = True
-            shuffle = True
+            # bi_rnn = True
+            # shuffle = True
 
             feature_dict = self._feature_engineering()
 
@@ -922,7 +922,7 @@ class CreateTransformedVersionsCVAE:
             print(f"Error in trial: {e}")
             raise optuna.exceptions.TrialPruned()
 
-    def hyper_tune_and_train(self, n_trials=25):
+    def hyper_tune_and_train(self, n_trials=30):
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
