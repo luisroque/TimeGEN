@@ -17,22 +17,24 @@ DATASETS_HYPERPARAMS_CONFIGS = {
     "Tourism": {
         "Monthly": {
             "hitgen": {
-                "latent_dim": 150,
+                "latent_dim": 168,
                 "window_size": 6,
-                "patience": 30,
-                "kl_weight": 0.1,
-                "n_blocks_encoder": 3,
-                "n_blocks_decoder": 3,
+                "patience": 35,
+                "kl_weight": 0.18665985308460084,
+                "n_blocks_encoder": 1,
+                "n_blocks_decoder": 4,
                 "n_hidden": 16,
-                "n_layers": 2,
-                "kernel_size": 2,
-                "pooling_mode": "average",
-                "batch_size": 8,
-                "epochs": 1000,
-                "learning_rate": 0.001,
+                "n_layers": 3,
+                "kernel_size": 3,
+                "pooling_mode": "max",
+                "batch_size": 4,
+                "epochs": 1201,
+                "learning_rate": 0.0004126982903382817,
                 "bi_rnn": True,
-                "shuffle": True,
-                "noise_scale_init": 0.1,
+                "shuffle": False,
+                "noise_scale_init": 0.2931368012943831,
+                "loss": 0.0016558588249608874,
+                "score": 0.834054834054834,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -54,22 +56,24 @@ DATASETS_HYPERPARAMS_CONFIGS = {
     "M1": {
         "Monthly": {
             "hitgen": {
-                "latent_dim": 200,
+                "latent_dim": 160,
                 "window_size": 6,
                 "patience": 30,
-                "kl_weight": 0.1,
-                "n_blocks_encoder": 3,
+                "kl_weight": 0.2610795530454687,
+                "n_blocks_encoder": 5,
                 "n_blocks_decoder": 3,
-                "n_hidden": 16,
-                "n_layers": 2,
-                "kernel_size": 2,
+                "n_hidden": 80,
+                "n_layers": 4,
+                "kernel_size": 3,
                 "pooling_mode": "average",
-                "batch_size": 8,
-                "epochs": 1000,
-                "learning_rate": 0.001,
-                "bi_rnn": True,
-                "shuffle": True,
-                "noise_scale_init": 0.1,
+                "batch_size": 32,
+                "epochs": 201,
+                "learning_rate": 6.793270451373548e-05,
+                "bi_rnn": False,
+                "shuffle": False,
+                "noise_scale_init": 0.10154533259405613,
+                "loss": 0.021175503730773926,
+                "score": 0.721407624633431,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -161,22 +165,24 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         },
         "Quarterly": {
             "hitgen": {
-                "latent_dim": 300,
+                "latent_dim": 64,
                 "window_size": 6,
-                "patience": 30,
-                "kl_weight": 0.1,
-                "n_blocks_encoder": 3,
+                "patience": 40,
+                "kl_weight": 0.29284993768790907,
+                "n_blocks_encoder": 1,
                 "n_blocks_decoder": 3,
-                "n_hidden": 16,
-                "n_layers": 2,
-                "kernel_size": 2,
-                "pooling_mode": "average",
-                "batch_size": 8,
-                "epochs": 1000,
-                "learning_rate": 0.001,
-                "bi_rnn": True,
-                "shuffle": True,
-                "noise_scale_init": 0.1,
+                "n_hidden": 48,
+                "n_layers": 3,
+                "kernel_size": 4,
+                "pooling_mode": "max",
+                "batch_size": 32,
+                "epochs": 401,
+                "learning_rate": 0.0002987122732991142,
+                "bi_rnn": False,
+                "shuffle": False,
+                "noise_scale_init": 0.4905517592788796,
+                "loss": 0.06204835698008537,
+                "score": 0.7087813620071683,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -196,22 +202,24 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         },
         "Yearly": {
             "hitgen": {
-                "latent_dim": 300,
+                "latent_dim": 104,
                 "window_size": 6,
-                "patience": 30,
-                "kl_weight": 0.1,
-                "n_blocks_encoder": 3,
-                "n_blocks_decoder": 3,
-                "n_hidden": 16,
-                "n_layers": 2,
-                "kernel_size": 2,
-                "pooling_mode": "average",
+                "patience": 35,
+                "kl_weight": 0.28789251618319167,
+                "n_blocks_encoder": 2,
+                "n_blocks_decoder": 4,
+                "n_hidden": 48,
+                "n_layers": 4,
+                "kernel_size": 3,
+                "pooling_mode": "max",
                 "batch_size": 8,
-                "epochs": 1000,
-                "learning_rate": 0.001,
-                "bi_rnn": True,
+                "epochs": 1501,
+                "learning_rate": 1.1220861876134254e-05,
+                "bi_rnn": False,
                 "shuffle": True,
-                "noise_scale_init": 0.1,
+                "noise_scale_init": 0.19301784561325513,
+                "loss": 0.014789092354476452,
+                "score": 0.7954816987075052,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -305,22 +313,18 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M"},
-    # },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M"},
-    # "Quarterly": {"FREQ": "Q"},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M"},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M"},
+        "Quarterly": {"FREQ": "Q"},
+    },
     "M3": {
         "Monthly": {"FREQ": "M"},
-        #     "Quarterly": {"FREQ": "Q"},
-        #     "Yearly": {"FREQ": "Y"},
+        "Quarterly": {"FREQ": "Q"},
+        "Yearly": {"FREQ": "Y"},
     },
-    # "M4": {
-    #     # "Monthly": {"FREQ": "M"},
-    #     "Quarterly": {"FREQ": "Q"},
-    # },
 }
 
 
@@ -438,7 +442,7 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            create_dataset_vae.hyper_tune_and_train()
+            # create_dataset_vae.hyper_tune_and_train()
 
             # fit
             model, history, _ = create_dataset_vae.fit(
@@ -600,6 +604,8 @@ if __name__ == "__main__":
             synthetic_metaforecast_long_no_transf = workflow_metaforecast_methods(
                 df=original_data_no_transf_long.fillna(value=0),
                 freq=FREQ,
+                dataset=DATASET,
+                dataset_group=DATASET_GROUP,
             )
 
             synth_hitgen_test_long_no_transf = synth_hitgen_test_long_no_transf[
@@ -618,6 +624,7 @@ if __name__ == "__main__":
                     dataset_group=DATASET_GROUP,
                     loss=0.0,
                     samples=5,
+                    split="test",
                 )
 
             print("\nComputing TSTR score for HiTGen synthetic data...")
@@ -631,6 +638,7 @@ if __name__ == "__main__":
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
                 samples=5,
+                split="test",
             )
 
             print(
@@ -646,6 +654,7 @@ if __name__ == "__main__":
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
                 samples=5,
+                split="test",
             )
 
             print(f"\n\n{DATASET}")
@@ -718,6 +727,7 @@ if __name__ == "__main__":
                     dataset_group=DATASET_GROUP,
                     loss=0.0,
                     samples=5,
+                    split="test",
                 )
 
                 print(f"\nComputing TSTR score for {method} synthetic data...")
@@ -733,6 +743,7 @@ if __name__ == "__main__":
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
                     samples=5,
+                    split="test",
                 )
 
                 print(
@@ -750,6 +761,7 @@ if __name__ == "__main__":
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
                     samples=5,
+                    split="test",
                 )
 
                 print(f"\n\n{DATASET}")

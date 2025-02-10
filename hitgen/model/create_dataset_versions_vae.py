@@ -760,6 +760,7 @@ class CreateTransformedVersionsCVAE:
         loss,
         store_score,
         store_features_synth,
+        split,
         num_iterations=1,
         generate_feature_plot=False,
     ):
@@ -778,6 +779,7 @@ class CreateTransformedVersionsCVAE:
                 generate_feature_plot=generate_feature_plot,
                 store_score=store_score,
                 store_features_synth=store_features_synth,
+                split=split,
             )
             scores.append(score)
 
@@ -887,6 +889,7 @@ class CreateTransformedVersionsCVAE:
                 generate_feature_plot=False,
                 store_score=False,
                 store_features_synth=False,
+                split="hypertuning",
             )
 
             if score is None:

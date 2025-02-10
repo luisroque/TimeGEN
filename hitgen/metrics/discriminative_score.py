@@ -103,7 +103,14 @@ def safe_generate_features(
             f"Invalid data_cat value: {data_cat}. Expected 'real' or 'synthetic'."
         )
 
-    if not isinstance(split, str) or split not in {"train", "test"}:
+    if not isinstance(split, str) or split not in {
+        "train",
+        "test",
+        "test_train",
+        "test_test",
+        "hypertuning_train",
+        "hypertuning_test",
+    }:
         raise ValueError(f"Invalid split value: {split}. Expected 'train' or 'test'.")
 
     if not isinstance(train_idx, list) or not isinstance(test_idx, list):
@@ -184,11 +191,12 @@ def compute_discriminative_score(
     samples=1,
     store_score=True,
     store_features_synth=True,
+    split="train",
 ):
     score_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_discriminative_score.json"
     os.makedirs("assets/results", exist_ok=True)
 
-    if os.path.exists(score_file):
+    if os.path.exists(score_file) and store_score:
         print(f"Score file '{score_file}' exists. Loading score...")
         with open(score_file, "r") as f:
             final_score = json.load(f).get("final_score", None)
@@ -203,7 +211,7 @@ def compute_discriminative_score(
         train_idx, test_idx = split_train_test(
             unique_ids,
             sample,
-            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_data_split_discriminator",
+            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_{split}_data_split_discriminator",
         )
 
         # original data
@@ -220,7 +228,7 @@ def compute_discriminative_score(
             dataset_name=dataset_name,
             dataset_group=dataset_group,
             data_cat="real",
-            split="train",
+            split=f"{split}_train",
             method=method,
             train_idx=train_idx,
             test_idx=test_idx,
@@ -231,7 +239,7 @@ def compute_discriminative_score(
             dataset_name=dataset_name,
             dataset_group=dataset_group,
             data_cat="real",
-            split="test",
+            split=f"{split}_test",
             method=method,
             train_idx=train_idx,
             test_idx=test_idx,
@@ -355,6 +363,7 @@ def tstr(
     dataset_group,
     horizon,
     samples=3,
+    split="test",
 ):
     """
     Train two models:
@@ -386,7 +395,7 @@ def tstr(
         train_idx, test_idx = split_train_test(
             unique_ids,
             sample_idx,
-            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_data_split_forecast",
+            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_{split}_data_split_forecast",
         )
 
         df_test_real, _ = filter_data_by_indices(original_data, test_idx, label_value=0)
@@ -487,6 +496,7 @@ def compute_downstream_forecast(
     dataset_group,
     horizon,
     samples=3,
+    split="test",
 ):
     """
     Train two NHITS models:
@@ -514,7 +524,7 @@ def compute_downstream_forecast(
         train_idx, test_idx = split_train_test(
             unique_ids,
             sample_idx,
-            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_data_split_forecast",
+            split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_{split}_data_split_forecast",
         )
 
         df_train_original, _ = filter_data_by_indices(

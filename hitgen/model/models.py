@@ -1,3 +1,7 @@
+import os
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
 from keras import layers
 from keras import backend as K
 from tensorflow import keras
