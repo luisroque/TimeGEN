@@ -1,4 +1,6 @@
+import os
 import pandas as pd
+import pickle
 from metaforecast.synth import (
     DBA,
     Jittering,
@@ -10,10 +12,23 @@ from metaforecast.synth import (
 )
 
 
-def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+def workflow_metaforecast_methods(
+    df: pd.DataFrame, freq: str, dataset: str, dataset_group: str
+) -> pd.DataFrame:
     """
     Applies multiple synthetic/augmentation techniques to a time-series dataset.
     """
+    cache_dir = "assets/model_weights/metaforecast/"
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(
+        cache_dir, f"{dataset}_{dataset_group}_synthetic_metaforecast.pkl"
+    )
+
+    if os.path.exists(cache_path):
+        print(f"Loading cached synthetic dataset from {cache_path}")
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
+
     FREQS = {"H": 24, "D": 1, "M": 12, "Q": 4, "W": 1, "Y": 1}
     if freq not in FREQS:
         raise ValueError(
@@ -81,5 +96,9 @@ def workflow_metaforecast_methods(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     )
 
     print("Synthetic series generation completed.")
+
+    with open(cache_path, "wb") as f:
+        pickle.dump(df_synthetic, f)
+    print(f"Synthetic dataset saved to {cache_path}")
 
     return df_synthetic
