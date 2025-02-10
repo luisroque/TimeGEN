@@ -310,12 +310,12 @@ DATASET_GROUP_FREQ = {
     # },
     # "M1": {
     #     "Monthly": {"FREQ": "M"},
-    #     "Quarterly": {"FREQ": "Q"},
+    # "Quarterly": {"FREQ": "Q"},
     # },
     "M3": {
-        #     "Monthly": {"FREQ": "M"},
-        "Quarterly": {"FREQ": "Q"},
-        "Yearly": {"FREQ": "Y"},
+        "Monthly": {"FREQ": "M"},
+        #     "Quarterly": {"FREQ": "Q"},
+        #     "Yearly": {"FREQ": "Y"},
     },
     # "M4": {
     #     # "Monthly": {"FREQ": "M"},
