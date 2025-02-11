@@ -93,22 +93,24 @@ DATASETS_HYPERPARAMS_CONFIGS = {
         },
         "Quarterly": {
             "hitgen": {
-                "latent_dim": 200,
+                "latent_dim": 272,
                 "window_size": 6,
-                "patience": 30,
-                "kl_weight": 0.1,
-                "n_blocks_encoder": 3,
-                "n_blocks_decoder": 3,
-                "n_hidden": 16,
+                "patience": 35,
+                "kl_weight": 0.17777770949878585,
+                "n_blocks_encoder": 2,
+                "n_blocks_decoder": 2,
+                "n_hidden": 64,
                 "n_layers": 2,
-                "kernel_size": 2,
+                "kernel_size": 4,
                 "pooling_mode": "average",
-                "batch_size": 8,
-                "epochs": 1000,
-                "learning_rate": 0.001,
-                "bi_rnn": True,
-                "shuffle": True,
-                "noise_scale_init": 0.1,
+                "batch_size": 4,
+                "epochs": 1001,
+                "learning_rate": 1.2680755394089549e-05,
+                "bi_rnn": False,
+                "shuffle": False,
+                "noise_scale_init": 0.21923453053431197,
+                "loss": 0.01676071435213089,
+                "score": 0.8552188552188552,
             },
             "timegan": {
                 "gan_args": ModelParameters(
@@ -314,16 +316,16 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 
 DATASET_GROUP_FREQ = {
     "Tourism": {
-        "Monthly": {"FREQ": "M"},
+        "Monthly": {"FREQ": "M", "H": 24},
     },
     "M1": {
-        "Monthly": {"FREQ": "M"},
-        "Quarterly": {"FREQ": "Q"},
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
     },
     "M3": {
-        "Monthly": {"FREQ": "M"},
-        "Quarterly": {"FREQ": "Q"},
-        "Yearly": {"FREQ": "Y"},
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
     },
 }
 
@@ -345,6 +347,12 @@ def extract_frequency(dataset_group):
     return freq
 
 
+def extract_horizon(dataset_group):
+    """Safely extracts horizon from dataset group."""
+    h = dataset_group[1]["H"]
+    return h
+
+
 def extract_score(dataset_group):
     """Safely extracts frequency from dataset group."""
     score = dataset_group[1]["final_score"]
@@ -363,6 +371,7 @@ if __name__ == "__main__":
     for DATASET, SUBGROUPS in DATASET_GROUP_FREQ.items():
         for subgroup in SUBGROUPS.items():
             FREQ = extract_frequency(subgroup)
+            H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]
             hitgen_score_disc = None
             if has_final_score_in_tuple(subgroup):
@@ -512,16 +521,6 @@ if __name__ == "__main__":
                 n_series=8,
                 suffix_name="hitgen_no_transf",
             )
-            plot_generated_vs_original(
-                synth_data=synth_hitgen_test_long,
-                original_test_data=test_data_long,
-                score=0.0,
-                loss=0.0,
-                dataset_name=DATASET,
-                dataset_group=DATASET_GROUP,
-                n_series=8,
-                suffix_name="hitgen",
-            )
 
             # import matplotlib.pyplot as plt
             #
@@ -619,7 +618,7 @@ if __name__ == "__main__":
                     original_data=test_data_no_transf_long.dropna(subset=["y"]),
                     synthetic_data=synth_hitgen_test_long_no_transf,
                     method="hitgen",
-                    freq="M",
+                    freq=FREQ,
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
                     loss=0.0,
@@ -633,8 +632,8 @@ if __name__ == "__main__":
                 original_data=test_data_no_transf_long.dropna(subset=["y"]),
                 synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
-                freq="M",
-                horizon=24,
+                freq=FREQ,
+                horizon=H,
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
                 samples=5,
@@ -649,8 +648,8 @@ if __name__ == "__main__":
                 original_data=test_data_no_transf_long.dropna(subset=["y"]),
                 synthetic_data=synth_hitgen_test_long_no_transf,
                 method="hitgen",
-                freq="M",
-                horizon=24,
+                freq=FREQ,
+                horizon=H,
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
                 samples=5,
@@ -722,7 +721,7 @@ if __name__ == "__main__":
                         synthetic_metaforecast_long_no_transf["method"] == method
                     ],
                     method=method,
-                    freq="M",
+                    freq=FREQ,
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
                     loss=0.0,
@@ -738,8 +737,8 @@ if __name__ == "__main__":
                         synthetic_metaforecast_long_no_transf["method"] == method
                     ],
                     method=method,
-                    freq="M",
-                    horizon=24,
+                    freq=FREQ,
+                    horizon=H,
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
                     samples=5,
@@ -756,8 +755,8 @@ if __name__ == "__main__":
                         synthetic_metaforecast_long_no_transf["method"] == method
                     ],
                     method=method,
-                    freq="M",
-                    horizon=24,
+                    freq=FREQ,
+                    horizon=H,
                     dataset_name=DATASET,
                     dataset_group=DATASET_GROUP,
                     samples=5,
@@ -788,15 +787,17 @@ if __name__ == "__main__":
                         "Dataset": DATASET,
                         "Group": DATASET_GROUP,
                         "Method": method,
-                        "Discriminative Score": score_disc,
-                        "TSTR (avg_smape_tstr)": score_tstr["avg_smape_tstr"],
-                        "TRTR (avg_smape_trtr)": score_tstr["avg_smape_trtr"],
-                        "DTF Concat Score": score_dtf["avg_smape_concat"],
-                        "DTF Original Score": score_dtf["avg_smape_original"],
+                        "Discriminative Score": round(score_disc, 3),
+                        "TSTR (avg_smape_tstr)": round(score_tstr["avg_smape_tstr"], 3),
+                        "TRTR (avg_smape_trtr)": round(score_tstr["avg_smape_trtr"], 3),
+                        "DTF Concat Score": round(score_dtf["avg_smape_concat"], 3),
+                        "DTF Original Score": round(score_dtf["avg_smape_original"], 3),
                     }
                 )
 
     results_df = pd.DataFrame(results)
+    results_df = results_df.round(3)
+
     print(results_df)
 
     results_path = "assets/results/synthetic_data_results.csv"
