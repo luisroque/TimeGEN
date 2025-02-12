@@ -95,6 +95,7 @@ class CreateTransformedVersionsCVAE:
         amplitude: float = 1.0,
         stride_temporalize: int = 2,
         bi_rnn: bool = True,
+        forecasting: bool = True,
         annealing: bool = True,
         kl_weight_init: float = None,
         noise_scale_init: float = None,
@@ -123,6 +124,7 @@ class CreateTransformedVersionsCVAE:
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.bi_rnn = bi_rnn
+        self.forecasting = forecasting
         self.annealing = annealing
         self.kl_weight_init = kl_weight_init
         self.noise_scale_init = noise_scale_init
@@ -590,9 +592,15 @@ class CreateTransformedVersionsCVAE:
             n_layers=self.n_layers,
             kernel_size=self.kernel_size,
             pooling_mode=self.pooling_mode,
+            forecasting=self.forecasting,
         )
 
-        cvae = CVAE(encoder, decoder, kl_weight_initial=self.kl_weight_init)
+        cvae = CVAE(
+            encoder,
+            decoder,
+            kl_weight_initial=self.kl_weight_init,
+            forecasting=self.forecasting,
+        )
         cvae.compile(
             optimizer=keras.optimizers.legacy.Adam(
                 learning_rate=learning_rate, clipnorm=1.0, clipvalue=1.0
@@ -683,6 +691,7 @@ class CreateTransformedVersionsCVAE:
         learning_rate,
         bi_rnn,
         shuffle,
+        forecasting,
         noise_scale_init,
         loss,
     ):
@@ -710,6 +719,7 @@ class CreateTransformedVersionsCVAE:
             "learning_rate": learning_rate,
             "bi_rnn": bi_rnn,
             "shuffle": shuffle,
+            "forecasting": forecasting,
             "noise_scale_init": noise_scale_init,
             "loss": loss,
             "score": score,
@@ -919,6 +929,7 @@ class CreateTransformedVersionsCVAE:
                 learning_rate,
                 bi_rnn,
                 shuffle,
+                forecasting,
                 noise_scale_init,
                 loss,
             )
@@ -981,9 +992,15 @@ class CreateTransformedVersionsCVAE:
             n_layers=self.best_params["n_layers"],
             kernel_size=self.best_params["kernel_size"],
             pooling_mode=self.best_params["pooling_mode"],
+            forecasting=self.best_params["forecasting"],
         )
 
-        cvae = CVAE(encoder, decoder, kl_weight_initial=self.best_params["kl_weight"])
+        cvae = CVAE(
+            encoder,
+            decoder,
+            kl_weight_initial=self.best_params["kl_weight"],
+            forecasting=self.best_params["forecasting"],
+        )
         cvae.compile(
             optimizer=keras.optimizers.legacy.Adam(
                 learning_rate=self.best_params["learning_rate"]
