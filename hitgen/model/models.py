@@ -508,15 +508,16 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
             layers.Dense(backcast_size[1], activation="linear")
         )
 
-    def call(self, inputs):
-        x = self.pooling_layer(inputs)
-        y = self.pooling_layer(inputs)
-
+    def call(self, backcast_input, forecast_input):
+        # process backcast
+        x = self.pooling_layer(backcast_input)
         x = self.mlp_stack(x)
-        y = self.mlp_stack(y)
-
         backcast = self.backcast_layer(x)
-        forecast = self.forecast_layer(x)
+
+        # process forecast
+        y = self.pooling_layer(forecast_input)
+        y = self.mlp_stack(y)
+        forecast = self.forecast_layer(y)
 
         return backcast, forecast
 
@@ -615,10 +616,7 @@ def decoder(
     time_steps = output_shape[0]
     num_features = output_shape[1]
 
-    latent_input = layers.Input(
-        shape=(time_steps, latent_dim),
-        name="latent_input",
-    )
+    latent_input = layers.Input(shape=(time_steps, latent_dim), name="latent_input")
     dyn_features_input = layers.Input(
         shape=output_shape_dyn_features, name="dyn_features_input"
     )
@@ -641,7 +639,7 @@ def decoder(
 
     if forecasting:
         for i in range(n_blocks):
-            mrhi_block_backcast, mrhi_block_forecast = MRHIBlock_backcast_forecast(
+            mrhi_block = MRHIBlock_backcast_forecast(
                 backcast_size=output_shape,
                 n_hidden=n_hidden,
                 n_layers=n_layers,
@@ -649,8 +647,7 @@ def decoder(
                 kernel_size=kernel_size,
             )
 
-            backcast = mrhi_block_backcast(backcast_total)
-            forecast = mrhi_block_backcast(forecast_total)
+            backcast, forecast = mrhi_block(backcast_total, forecast_total)
 
             backcast_total = backcast_total - backcast
             forecast_total = forecast_total - forecast
@@ -691,7 +688,7 @@ def decoder(
 
         final_backcast += backcast
 
-    # --- backcast output (reconstruction of past)
+    # --- Backcast output (Reconstruction of Past) ---
     backcast_out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_backcast)
     backcast_out = layers.Dense(
         time_steps * num_features,
@@ -706,7 +703,7 @@ def decoder(
     backcast_out = layers.Multiply(name="masked_output")([backcast_out, mask_input])
     backcast_out = custom_relu_linear_saturation(backcast_out)
 
-    # --- forecasting part
+    # --- Forecasting Part ---
     if forecasting:
         if bi_rnn:
             forecast = layers.Bidirectional(
@@ -726,20 +723,22 @@ def decoder(
 
             final_forecast += forecast
 
-        forecast_out = layers.Flatten(name="flatten_decoder_output_CVAE")(
+        forecast_out = layers.Flatten(name="flatten_forecast_output_CVAE")(
             final_forecast
         )
         forecast_out = layers.Dense(
             time_steps * num_features,
             kernel_regularizer=l2(0.001),
             activation=tf.keras.layers.LeakyReLU(alpha=0.01),
-            name="dense_output_CVAE",
+            name="dense_forecast_CVAE",
         )(forecast_out)
         forecast_out = layers.Reshape(
-            (time_steps, num_features), name="reshape_final_output_CVAE"
+            (time_steps, num_features), name="reshape_forecast_output_CVAE"
         )(forecast_out)
 
-        forecast_out = layers.Multiply(name="masked_output")([forecast_out, mask_input])
+        forecast_out = layers.Multiply(name="masked_forecast_output")(
+            [forecast_out, mask_input]
+        )
         forecast_out = custom_relu_linear_saturation(forecast_out)
     else:
         forecast_out = backcast_out
