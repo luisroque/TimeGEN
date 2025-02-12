@@ -473,6 +473,54 @@ class MRHIBlock(tf.keras.layers.Layer):
         return backcast
 
 
+class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
+    def __init__(
+        self,
+        backcast_size,
+        n_hidden,
+        n_layers,
+        pooling_mode="max",
+        kernel_size=3,
+        **kwargs,
+    ):
+        """
+        Multi-Rate Hierarchical Interpolation Block for time-series decomposition.
+        """
+        super(MRHIBlock_backcast_forecast, self).__init__(**kwargs)
+        self.backcast_size = backcast_size
+
+        if pooling_mode == "max":
+            self.pooling_layer = layers.MaxPooling1D(
+                pool_size=kernel_size, strides=1, padding="same"
+            )
+        else:
+            self.pooling_layer = layers.AveragePooling1D(
+                pool_size=kernel_size, strides=1, padding="same"
+            )
+
+        self.mlp_stack = tf.keras.Sequential(
+            [layers.Dense(n_hidden, activation="relu") for _ in range(n_layers)]
+        )
+        self.backcast_layer = layers.TimeDistributed(
+            layers.Dense(backcast_size[1], activation="linear")
+        )
+        self.forecast_layer = layers.TimeDistributed(
+            layers.Dense(backcast_size[1], activation="linear")
+        )
+
+    def call(self, inputs):
+        x = self.pooling_layer(inputs)
+        y = self.pooling_layer(inputs)
+
+        x = self.mlp_stack(x)
+        y = self.mlp_stack(y)
+
+        backcast = self.backcast_layer(x)
+        forecast = self.forecast_layer(x)
+
+        return backcast, forecast
+
+
 def encoder(
     input_shape,
     input_shape_dyn_features,
@@ -587,20 +635,43 @@ def decoder(
     )(x)
 
     backcast_total = x
-    final_output = 0
+    forecast_total = x
+    final_backcast = 0
+    final_forecast = 0
 
-    for i in range(n_blocks):
-        mrhi_block = MRHIBlock(
-            backcast_size=output_shape,
-            n_hidden=n_hidden,
-            n_layers=n_layers,
-            pooling_mode=pooling_mode,
-            kernel_size=kernel_size,
-        )
+    if forecasting:
+        for i in range(n_blocks):
+            mrhi_block_backcast, mrhi_block_forecast = MRHIBlock_backcast_forecast(
+                backcast_size=output_shape,
+                n_hidden=n_hidden,
+                n_layers=n_layers,
+                pooling_mode=pooling_mode,
+                kernel_size=kernel_size,
+            )
 
-        backcast = mrhi_block(backcast_total)
-        backcast_total = backcast_total - backcast
-        final_output += backcast
+            backcast = mrhi_block_backcast(backcast_total)
+            forecast = mrhi_block_backcast(forecast_total)
+
+            backcast_total = backcast_total - backcast
+            forecast_total = forecast_total - forecast
+
+            final_backcast += backcast
+            final_forecast += forecast
+    else:
+        for i in range(n_blocks):
+            mrhi_block = MRHIBlock(
+                backcast_size=output_shape,
+                n_hidden=n_hidden,
+                n_layers=n_layers,
+                pooling_mode=pooling_mode,
+                kernel_size=kernel_size,
+            )
+
+            backcast = mrhi_block(backcast_total)
+
+            backcast_total = backcast_total - backcast
+
+            final_backcast += backcast
 
     if bi_rnn:
         backcast = layers.Bidirectional(
@@ -618,10 +689,10 @@ def decoder(
             )
         )(backcast)
 
-        final_output += backcast
+        final_backcast += backcast
 
     # --- backcast output (reconstruction of past)
-    backcast_out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_output)
+    backcast_out = layers.Flatten(name="flatten_decoder_output_CVAE")(final_backcast)
     backcast_out = layers.Dense(
         time_steps * num_features,
         kernel_regularizer=l2(0.001),
@@ -637,29 +708,44 @@ def decoder(
 
     # --- forecasting part
     if forecasting:
+        if bi_rnn:
+            forecast = layers.Bidirectional(
+                layers.GRU(
+                    num_features,
+                    return_sequences=True,
+                    dropout=0.3,
+                    kernel_regularizer=l2(0.001),
+                )
+            )(forecast_total)
 
-        # extract the last processed time step from backcast_total
-        last_step = final_output[:, -1, :]
+            forecast = layers.TimeDistributed(
+                layers.Dense(
+                    output_shape[1], activation=tf.keras.layers.LeakyReLU(alpha=0.01)
+                )
+            )(forecast)
 
-        # expand last step to match `time_steps`
-        forecast = layers.RepeatVector(time_steps)(last_step)
+            final_forecast += forecast
 
-        forecast = layers.GRU(
-            units=num_features,
-            return_sequences=True,
-            dropout=0.3,
+        forecast_out = layers.Flatten(name="flatten_decoder_output_CVAE")(
+            final_forecast
+        )
+        forecast_out = layers.Dense(
+            time_steps * num_features,
             kernel_regularizer=l2(0.001),
-            name="forecast_gru",
-        )(forecast)
+            activation=tf.keras.layers.LeakyReLU(alpha=0.01),
+            name="dense_output_CVAE",
+        )(forecast_out)
+        forecast_out = layers.Reshape(
+            (time_steps, num_features), name="reshape_final_output_CVAE"
+        )(forecast_out)
 
-        forecast = layers.TimeDistributed(
-            layers.Dense(num_features, activation=tf.keras.layers.LeakyReLU(alpha=0.01))
-        )(forecast)
+        forecast_out = layers.Multiply(name="masked_output")([forecast_out, mask_input])
+        forecast_out = custom_relu_linear_saturation(forecast_out)
     else:
-        forecast = backcast_out
+        forecast_out = backcast_out
 
     return tf.keras.Model(
         inputs=[latent_input, mask_input, dyn_features_input],
-        outputs=[backcast_out, forecast],
+        outputs=[backcast_out, forecast_out],
         name="decoder",
     )
