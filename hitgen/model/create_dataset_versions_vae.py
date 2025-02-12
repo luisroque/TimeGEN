@@ -802,14 +802,15 @@ class CreateTransformedVersionsCVAE:
             kernel_size = trial.suggest_int("kernel_size", 2, 5)
             pooling_mode = trial.suggest_categorical("pooling_mode", ["max", "average"])
             batch_size = trial.suggest_categorical("batch_size", [4, 8, 16, 32])
-            epochs = trial.suggest_int("epochs", 100, 2000, step=100)
+            epochs = trial.suggest_int("epochs", 200, 2000, step=100)
             learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
             bi_rnn = trial.suggest_categorical("bi_rnn", [True, False])
-            shuffle = trial.suggest_categorical("shuffle", [True, False])
+            forecasting = trial.suggest_categorical("forecasting", [True, False])
+            # shuffle = trial.suggest_categorical("shuffle", [True, False])
             noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
             # bi_rnn = True
-            # shuffle = True
+            shuffle = False
 
             feature_dict = self._feature_engineering()
 
@@ -842,9 +843,12 @@ class CreateTransformedVersionsCVAE:
                 n_layers=n_layers,
                 kernel_size=kernel_size,
                 pooling_mode=pooling_mode,
+                forecasting=forecasting,
             )
 
-            cvae = CVAE(encoder, decoder, kl_weight_initial=kl_weight)
+            cvae = CVAE(
+                encoder, decoder, kl_weight_initial=kl_weight, forecasting=forecasting
+            )
             cvae.compile(
                 optimizer=keras.optimizers.legacy.Adam(learning_rate=learning_rate),
                 metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
@@ -1040,7 +1044,7 @@ class CreateTransformedVersionsCVAE:
         alpha = 3  # x times bigger variance
         epsilon = np.random.normal(size=z_mean.shape) * 0.1
         z_augmented = z_mean + np.exp(0.5 * z_log_var) * alpha * epsilon
-        generated_data = cvae.decoder.predict(
+        generated_data, predictions = cvae.decoder.predict(
             [
                 z_augmented,
                 data_mask_temporalized.temporalized_mask,
@@ -1100,7 +1104,7 @@ class CreateTransformedVersionsCVAE:
         alpha = 3  # x times bigger variance
         epsilon = np.random.normal(size=z_mean.shape) * 0.1
         z_augmented = z_mean + np.exp(0.5 * z_log_var) * alpha * epsilon
-        generated_data = cvae.decoder.predict(
+        generated_data, predictions = cvae.decoder.predict(
             [
                 z_augmented,
                 data_mask_temporalized.temporalized_mask,
