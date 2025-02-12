@@ -3,26 +3,27 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 from keras import layers
-from keras import backend as K
-from tensorflow import keras
 import tensorflow as tf
 from tensorflow.keras.utils import Sequence
 from keras.regularizers import l2
 
+from tensorflow import keras
 
-def custom_relu_linear_saturation(x):
+K = keras.backend
+
+
+class ReLULinearSaturationLayer(layers.Layer):
     """
     Custom activation:
     - 0 for x < 0 (ReLU behavior)
     - Linear (x) for 0 <= x <= 1
     - Saturates at 1 for x > 1
     """
-    relu_part = tf.nn.relu(x)
 
-    # linear between 0 and 1 and saturation at 1
-    linear_part = tf.minimum(relu_part, 1.0)
-
-    return linear_part
+    def call(self, x):
+        # same logic
+        relu_part = tf.nn.relu(x)
+        return tf.minimum(relu_part, 1.0)
 
 
 class TemporalizeGenerator(Sequence):
@@ -264,6 +265,16 @@ class CVAE(keras.Model):
         pred_reconst, pred = self.decoder([z, batch_mask, batch_dyn_features])
 
         return pred_reconst, z_mean, z_log_var
+
+    @property
+    def metrics(self):
+        """Ensures that Keras tracks the metrics properly during training."""
+        return [
+            self.total_loss_tracker,
+            self.reconstruction_loss_tracker,
+            self.prediction_loss_tracker,
+            self.kl_loss_tracker,
+        ]
 
     def compute_loss(
         self, inp_data, pred_reconst, pred, z_mean, z_log_var, mask, batch_target
@@ -587,8 +598,13 @@ def encoder(
     )(final_output)
 
     # clip z_log_var and z_mean to prevent KL loss explosion
-    z_mean = tf.clip_by_value(final_output[:, :, latent_dim:], -5, 5)
-    z_log_var = tf.clip_by_value(final_output[:, :, :latent_dim], -5, 5)
+    z_mean = layers.Lambda(lambda x: tf.clip_by_value(x[:, :, latent_dim:], -5, 5))(
+        final_output
+    )
+
+    z_log_var = layers.Lambda(lambda x: tf.clip_by_value(x[:, :, :latent_dim], -5, 5))(
+        final_output
+    )
 
     z = Sampling(name="sampling", noise_scale_init=noise_scale_init)(
         [z_mean, z_log_var]
@@ -613,6 +629,8 @@ def decoder(
     bi_rnn=True,
     forecasting=True,
 ):
+    relu_saturation = ReLULinearSaturationLayer()
+
     time_steps = output_shape[0]
     num_features = output_shape[1]
 
@@ -701,7 +719,7 @@ def decoder(
     )(backcast_out)
 
     backcast_out = layers.Multiply(name="masked_output")([backcast_out, mask_input])
-    backcast_out = custom_relu_linear_saturation(backcast_out)
+    backcast_out = relu_saturation(backcast_out)
 
     # --- Forecasting Part ---
     if forecasting:
@@ -739,7 +757,8 @@ def decoder(
         forecast_out = layers.Multiply(name="masked_forecast_output")(
             [forecast_out, mask_input]
         )
-        forecast_out = custom_relu_linear_saturation(forecast_out)
+        forecast_out = relu_saturation(forecast_out)
+
     else:
         forecast_out = backcast_out
 
