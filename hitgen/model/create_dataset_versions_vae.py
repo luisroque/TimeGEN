@@ -174,7 +174,16 @@ class CreateTransformedVersionsCVAE:
             df["ds"] = self.long_properties["ds"]
         else:
             df.columns = unique_ids
-            df.reset_index(inplace=True)
+            if df.index.name == "ds" or isinstance(df.index, pd.DatetimeIndex):
+                df.reset_index(inplace=True)
+            else:
+                ds_unique_sorted = np.sort(original["ds"].unique())
+                if len(df) != len(ds_unique_sorted):
+                    raise ValueError(
+                        f"Length mismatch: DataFrame has {len(df)} rows, "
+                        f"while sorted unique 'ds' has {len(ds_unique_sorted)} entries."
+                    )
+                df["ds"] = ds_unique_sorted
 
         data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
         data_long = data_long.sort_values(by=["unique_id", "ds"])
@@ -897,6 +906,7 @@ class CreateTransformedVersionsCVAE:
             scaler=self.scaler_val,
             original_data_wide=self.original_val_wide,
             original_data_long=self.original_val_long,
+            unique_ids=self.val_ids,
         )
 
         if self.opt_score == "discriminative_score":
@@ -1191,11 +1201,15 @@ class CreateTransformedVersionsCVAE:
         reconst_wide = detemporalize(predictions, all_meta, T, N)  # shape [T, N]
         return reconst_wide
 
-    def predict(self, cvae, gen_data, scaler, original_data_wide, original_data_long):
+    def predict(
+        self, cvae, gen_data, scaler, original_data_wide, original_data_long, unique_ids
+    ):
         T, N = original_data_wide.shape
 
         reconst_wide = self._predict_loop(cvae, gen_data, T, N, use_reconstruction=True)
         reconst_wide = scaler.inverse_transform(reconst_wide)
-        X_hat_long = self.create_dataset_long_form(reconst_wide, original_data_long)
+        X_hat_long = self.create_dataset_long_form(
+            reconst_wide, original_data_long, unique_ids=unique_ids
+        )
 
         return X_hat_long

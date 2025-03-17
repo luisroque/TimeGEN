@@ -317,6 +317,7 @@ if __name__ == "__main__":
                 scaler=create_dataset_vae.scaler_test,
                 original_data_wide=create_dataset_vae.original_test_wide,
                 original_data_long=create_dataset_vae.original_test_long,
+                unique_ids=create_dataset_vae.test_ids,
             )
 
             # TimeGAN synthetic data generation

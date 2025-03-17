@@ -90,4 +90,3 @@ def plot_generated_vs_original(
         format="pdf",
         bbox_inches="tight",
     )
-    plt.show()
