@@ -2,33 +2,31 @@ import numpy as np
 import pandas as pd
 
 
-def temporalize(data: np.ndarray, window_size: int, stride: int) -> np.ndarray:
+def detemporalize(
+    windows: np.ndarray,
+    metadata: list[tuple[int,int]],
+    T: int,
+    N: int,
+) -> np.ndarray:
     """
-    Transforming the data using a rolling window
+    Reconstruct a [T, N] array from:
+      windows: shape [B, window_size, 1]
+      metadata: list of (series_idx, start_idx), length B
+    If multiple windows overlap a position => average them.
+    Returns shape [T, N].
     """
-    X = []
-    step = stride
-    for i in range(0, len(data) - window_size + 1, step):
-        row = data[i : i + window_size]
-        X.append(row)
-    return np.array(X)
+    out = np.zeros((T, N), dtype=np.float32)
+    count = np.zeros((T, N), dtype=np.float32)
 
+    B, window_size, _ = windows.shape
+    for b in range(B):
+        s_idx, st = metadata[b]
+        end = min(st + window_size, T)
+        w_slice = windows[b, :end - st, 0]  # shape [slice_len]
+        out[st:end, s_idx] += w_slice
+        count[st:end, s_idx] += 1
 
-def detemporalize(input_data, stride=1):
-    """
-    Convert a 3D time series array into a 2D array
-    """
-    inp = np.array(input_data)
-    final_list = []
+    valid = (count > 0)
+    out[valid] /= count[valid]
+    return out
 
-    for i in range(len(inp) - 1):
-        # take the first stride timesteps from each window
-        sel = inp[i, :stride, :]
-        final_list.append(sel)
-
-    # include all timesteps of the last window
-    final_list.append(inp[-1])
-
-    # concatenate into a single 2D array
-    final = np.concatenate(final_list, axis=0)
-    return final

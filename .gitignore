@@ -193,3 +193,8 @@ lightning_logs
 datasets
 
 optuna_study.db
+
+**/assets*/
+*.h5
+*.json
+*.jsonl

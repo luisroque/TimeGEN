@@ -164,18 +164,18 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
     # "M1": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     #     "Quarterly": {"FREQ": "Q", "H": 8},
     # },
-    "M3": {
-    # "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-        "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    #     "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 
@@ -235,10 +235,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--opt-score",
-        choices=["discriminative_score", "downstream_score"],
-        default="discriminative_score",
+        choices=["discriminative_score", "downstream_score", "val_loss"],
+        default="val_loss",
         help="Select the score for the hyperparameter tuning optimization. Choices: "
-        "'discriminative_score' or 'downstream_score' (default: 'discriminative_score').",
+        "'discriminative_score', 'downstream_score' or 'val_loss' (default: 'val_loss').",
     )
     args = parser.parse_args()
 
@@ -270,6 +270,9 @@ if __name__ == "__main__":
                     f"Configuration for {DATASET} - {DATASET_GROUP} not found."
                 )
 
+            print(
+                f"\n\nOptimization score to use for hyptertuning: {args.opt_score}\n\n"
+            )
             # dataset_config = DATASETS_HYPERPARAMS_CONFIGS[DATASET][DATASET_GROUP]
 
             # TIMEGAN Configurations
@@ -301,7 +304,10 @@ if __name__ == "__main__":
                 create_dataset_vae.original_dyn_features,
                 window_size=create_dataset_vae.best_params["window_size"],
                 batch_size=create_dataset_vae.best_params["batch_size"],
-                shuffle=create_dataset_vae.best_params["shuffle"],
+                windows_batch_size=create_dataset_vae.best_params["windows_batch_size"],
+                coverage_mode="systematic",
+                prediction_mode=create_dataset_vae.best_params["prediction_mode"],
+                future_steps=create_dataset_vae.best_params["future_steps"],
             )
 
             (
@@ -310,9 +316,7 @@ if __name__ == "__main__":
                 synth_hitgen_test_long,
             ) = create_dataset_vae.predict(
                 model,
-                latent_dim=create_dataset_vae.best_params["latent_dim"],
-                window_size=create_dataset_vae.best_params["window_size"],
-                data_mask_temporalized=data_mask_temporalized,
+                gen_data=data_mask_temporalized,
             )
 
             # TimeGAN synthetic data generation

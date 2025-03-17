@@ -9,7 +9,12 @@ import optuna
 from tensorflow import keras
 import tensorflow as tf
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from hitgen.model.models import CVAE, TemporalizeGenerator
+from hitgen.model.models import (
+    CVAE,
+    TemporalizeGenerator,
+    _EncoderOnlyGenerator,
+    _DecoderOnlyGenerator,
+)
 from hitgen.feature_engineering.feature_transformations import (
     detemporalize,
 )
@@ -54,11 +59,7 @@ class CreateTransformedVersionsCVAE:
         forecasting: bool = True,
         kl_weight_init: float = 0.1,
         noise_scale_init: float = 0.1,
-        n_blocks_encoder: int = 3,
-        n_blocks_decoder: int = 3,
-        n_hidden: int = 16,
-        n_layers: int = 3,
-        kernel_size: int = 2,
+        kernel_size: Tuple[int] = (2, 2, 1),
         patience: int = 30,
         horizon: int = 24,
         opt_score: str = "discriminative_score",
@@ -72,10 +73,6 @@ class CreateTransformedVersionsCVAE:
         self.forecasting = forecasting
         self.kl_weight_init = kl_weight_init
         self.noise_scale_init = noise_scale_init
-        self.n_blocks_encoder = n_blocks_encoder
-        self.n_blocks_decoder = n_blocks_decoder
-        self.n_hidden = n_hidden
-        self.n_layers = n_layers
         self.patience = patience
         self.kernel_size = kernel_size
         (self.data, self.s, self.freq) = self.load_data(
@@ -117,28 +114,40 @@ class CreateTransformedVersionsCVAE:
 
         feature_dict = self._feature_engineering()
 
+        # original Data
         self.original_wide = feature_dict["original_wide"]
-        self.original_train_wide = feature_dict["train_wide"]
-        self.original_test_wide = feature_dict["test_wide"]
-
         self.original_long = feature_dict["original_long"]
-        self.original_train_long = feature_dict["train_long"]
-        self.original_test_long = feature_dict["test_long"]
-
-        self.mask_wide = feature_dict["mask_wide"]
-        self.mask_train_wide = feature_dict["mask_train_wide"]
-        self.mask_test_wide = feature_dict["mask_test_wide"]
-
         self.original_long_transf = feature_dict["original_long_transf"]
-        self.original_train_long_transf = feature_dict["original_train_long_transf"]
-        self.original_test_long_transf = feature_dict["original_test_long_transf"]
-
         self.original_wide_transf = feature_dict["original_wide_transf"]
+
+        # training Data
+        self.original_train_wide = feature_dict["train_wide"]
+        self.original_train_long = feature_dict["train_long"]
+        self.original_train_long_transf = feature_dict["original_train_long_transf"]
         self.original_train_wide_transf = feature_dict["original_train_wide_transf"]
+
+        # validation data
+        self.original_val_wide = feature_dict["val_wide"]
+        self.original_val_long = feature_dict["val_long"]
+        self.original_val_long_transf = feature_dict["original_val_long_transf"]
+        self.original_val_wide_transf = feature_dict["original_val_wide_transf"]
+
+        # test data
+        self.original_test_wide = feature_dict["test_wide"]
+        self.original_test_long = feature_dict["test_long"]
+        self.original_test_long_transf = feature_dict["original_test_long_transf"]
         self.original_test_wide_transf = feature_dict["original_test_wide_transf"]
 
+        # mask data
+        self.mask_wide = feature_dict["mask_wide"]
+        self.mask_train_wide = feature_dict["mask_train_wide"]
+        self.mask_val_wide = feature_dict["mask_val_wide"]
+        self.mask_test_wide = feature_dict["mask_test_wide"]
+
+        # fourier features
         self.original_dyn_features = feature_dict["fourier_features_original"]
         self.train_dyn_features = feature_dict["fourier_features_train"]
+        self.val_dyn_features = feature_dict["fourier_features_val"]
         self.test_dyn_features = feature_dict["fourier_features_test"]
 
     @staticmethod
@@ -230,29 +239,35 @@ class CreateTransformedVersionsCVAE:
     def _load_or_create_split(
         self,
         train_test_split: float,
-        train_test_absolute: int,
+        val_split: float = 0.15,
     ) -> (np.ndarray, np.ndarray):
         """Load split from file if it exists, otherwise create and save a new split."""
         if os.path.exists(self.split_path):
             with open(self.split_path, "r") as f:
                 split_data = json.load(f)
-                return np.array(split_data["train_ids"]), np.array(
-                    split_data["test_ids"]
+                return (
+                    np.array(split_data["train_ids"]),
+                    np.array(split_data["val_ids"]),
+                    np.array(split_data["test_ids"]),
                 )
 
+        val_size = int(len(self.unique_ids) * val_split)
         np.random.shuffle(self.unique_ids)
-        train_size = int(len(self.unique_ids) * train_test_split)
-        if train_test_absolute:
-            train_ids = self.unique_ids[:train_test_absolute]
-        else:
-            train_ids = self.unique_ids[:train_size]
+        train_size = int(len(self.unique_ids) * (1 - val_split) * train_test_split)
 
-        test_ids = self.unique_ids[train_size:]
+        train_ids = self.unique_ids[:train_size]
+        val_ids = self.unique_ids[train_size : train_size + val_size]
+        test_ids = self.unique_ids[train_size + val_size :]
 
         os.makedirs(os.path.dirname(self.split_path), exist_ok=True)
         with open(self.split_path, "w") as f:
             json.dump(
-                {"train_ids": train_ids.tolist(), "test_ids": test_ids.tolist()}, f
+                {
+                    "train_ids": train_ids.tolist(),
+                    "val_ids": val_ids.tolist(),
+                    "test_ids": test_ids.tolist(),
+                },
+                f,
             )
 
         # ensuring that we have in the training set at least one series
@@ -267,7 +282,7 @@ class CreateTransformedVersionsCVAE:
             ds_max, train_ids, test_ids
         )
 
-        return train_ids, test_ids
+        return train_ids, val_ids, test_ids
 
     @staticmethod
     def _transform_log_returns(x):
@@ -459,10 +474,10 @@ class CreateTransformedVersionsCVAE:
         return pd.DataFrame(features, index=dates)
 
     def _feature_engineering(
-        self, train_test_split=0.7, train_size_absolute=None
+        self, train_test_split=0.7, val_split=0.15
     ) -> Dict[str, pd.DataFrame]:
         """
-        Apply preprocessing to raw time series, split into training and testing,
+        Apply preprocessing to raw time series, split into training, validation, and testing,
         compute periodic Fourier features, and return all relevant DataFrames.
         """
         self.ids = self.df["unique_id"].unique().sort()
@@ -476,14 +491,17 @@ class CreateTransformedVersionsCVAE:
         )
         mask_original_long = self.create_dataset_long_form(mask_original_wide, self.df)
 
-        self.train_ids, self.test_ids = self._load_or_create_split(
-            train_test_split, train_size_absolute
+        # splitting into train, validation, and test sets
+        self.train_ids, self.val_ids, self.test_ids = self._load_or_create_split(
+            train_test_split=train_test_split, val_split=val_split
         )
         self.train_ids.sort()
+        self.val_ids.sort()
         self.test_ids.sort()
         self.s_train = len(self.train_ids)
+        self.s_val = len(self.val_ids)
 
-        # create training dfs
+        ### TRAINING DATA ###
         train_long = original_long[original_long["unique_id"].isin(self.train_ids)]
         train_long_transf = original_long_transf[
             original_long_transf["unique_id"].isin(self.train_ids)
@@ -494,25 +512,39 @@ class CreateTransformedVersionsCVAE:
 
         # convert training long -> wide
         train_wide = self._create_dataset_wide_form(
-            data_long=train_long,
-            ids=self.train_ids,
-            full_dates=self.full_dates,
+            data_long=train_long, ids=self.train_ids, full_dates=self.full_dates
         )
-
         train_wide_transf = self._create_dataset_wide_form(
-            data_long=train_long_transf,
-            ids=self.train_ids,
-            full_dates=self.full_dates,
+            data_long=train_long_transf, ids=self.train_ids, full_dates=self.full_dates
         )
         mask_train_wide = self._create_dataset_wide_form(
-            data_long=mask_train_long,
-            ids=self.train_ids,
-            full_dates=self.full_dates,
+            data_long=mask_train_long, ids=self.train_ids, full_dates=self.full_dates
         )
 
         # set training scaler
         self._set_scaler_train(train_wide)
 
+        ### VALIDATION DATA ###
+        val_long = original_long[original_long["unique_id"].isin(self.val_ids)]
+        val_long_transf = original_long_transf[
+            original_long_transf["unique_id"].isin(self.val_ids)
+        ]
+        mask_val_long = mask_original_long[
+            mask_original_long["unique_id"].isin(self.val_ids)
+        ]
+
+        # convert validation long -> wide
+        val_wide = self._create_dataset_wide_form(
+            data_long=val_long, ids=self.val_ids, full_dates=self.full_dates
+        )
+        val_wide_transf = self._create_dataset_wide_form(
+            data_long=val_long_transf, ids=self.val_ids, full_dates=self.full_dates
+        )
+        mask_val_wide = self._create_dataset_wide_form(
+            data_long=mask_val_long, ids=self.val_ids, full_dates=self.full_dates
+        )
+
+        ### TESTING DATA ###
         test_long = original_long[original_long["unique_id"].isin(self.test_ids)]
         test_long_transf = original_long_transf[
             original_long_transf["unique_id"].isin(self.test_ids)
@@ -523,25 +555,20 @@ class CreateTransformedVersionsCVAE:
 
         # convert testing long -> wide
         test_wide = self._create_dataset_wide_form(
-            data_long=test_long,
-            ids=self.train_ids,
-            full_dates=self.full_dates,
+            data_long=test_long, ids=self.test_ids, full_dates=self.full_dates
         )
         test_wide_transf = self._create_dataset_wide_form(
-            data_long=test_long_transf,
-            ids=self.train_ids,
-            full_dates=self.full_dates,
+            data_long=test_long_transf, ids=self.test_ids, full_dates=self.full_dates
         )
         mask_test_wide = self._create_dataset_wide_form(
-            data_long=mask_test_long,
-            ids=self.train_ids,
-            full_dates=self.full_dates,
+            data_long=mask_test_long, ids=self.test_ids, full_dates=self.full_dates
         )
 
-        # convert mask to tensors
+        # convert masks to tensors
         self.mask_train_tf = tf.convert_to_tensor(
             mask_train_wide.values, dtype=tf.float32
         )
+        self.mask_val_tf = tf.convert_to_tensor(mask_val_wide.values, dtype=tf.float32)
         self.mask_test_tf = tf.convert_to_tensor(
             mask_test_wide.values, dtype=tf.float32
         )
@@ -549,158 +576,50 @@ class CreateTransformedVersionsCVAE:
             mask_original_wide.values, dtype=tf.float32
         )
 
+        # store raw datasets
         self.X_train_raw = train_wide.reset_index(drop=True)
+        self.X_val_raw = val_wide.reset_index(drop=True)
         self.X_test_raw = test_wide.reset_index(drop=True)
         self.X_orig_raw = original_wide.reset_index(drop=True)
 
+        # compute Fourier features
         fourier_features_train = self.compute_fourier_features(train_wide.index)
+        fourier_features_val = self.compute_fourier_features(val_wide.index)
         fourier_features_test = self.compute_fourier_features(test_wide.index)
         fourier_features_original = self.compute_fourier_features(original_wide.index)
 
         return {
-            # wide
+            # wide Data
             "original_wide": original_wide,
             "train_wide": train_wide,
+            "val_wide": val_wide,
             "test_wide": test_wide,
-            # long
+            # long Data
             "original_long": original_long,
             "train_long": train_long,
+            "val_long": val_long,
             "test_long": test_long,
-            # mask wide
+            # mask Wide
             "mask_train_wide": mask_train_wide,
+            "mask_val_wide": mask_val_wide,
             "mask_test_wide": mask_test_wide,
             "mask_wide": mask_original_wide,
-            # transformed long
+            # transformed Long Data
             "original_long_transf": original_long_transf,
             "original_train_long_transf": train_long_transf,
+            "original_val_long_transf": val_long_transf,
             "original_test_long_transf": test_long_transf,
-            # wide long
+            # wide Transformed Data
             "original_wide_transf": original_wide_transf,
             "original_train_wide_transf": train_wide_transf,
+            "original_val_wide_transf": val_wide_transf,
             "original_test_wide_transf": test_wide_transf,
-            # fourier features
+            # fourier Features
             "fourier_features_train": fourier_features_train,
+            "fourier_features_val": fourier_features_val,
             "fourier_features_test": fourier_features_test,
             "fourier_features_original": fourier_features_original,
         }
-
-    def fit(
-        self,
-        window_size: int,
-        epochs: int = 750,
-        patience: int = 30,
-        latent_dim: int = 32,
-        learning_rate: float = 0.001,
-        hyper_tuning: bool = False,
-        load_weights: bool = True,
-    ) -> tuple[CVAE, dict, EarlyStopping]:
-        """Training our CVAE"""
-
-        data_mask_temporalized = TemporalizeGenerator(
-            self.original_wide_transf,
-            self.mask_wide,
-            self.original_dyn_features,
-            window_size=window_size,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle,
-        )
-
-        encoder, decoder = get_CVAE(
-            window_size=window_size,
-            n_series=self.s,
-            latent_dim=latent_dim,
-            noise_scale_init=self.noise_scale_init,
-            n_blocks_encoder=self.n_blocks_encoder,
-            n_blocks_decoder=self.n_blocks_decoder,
-            n_hidden=self.n_hidden,
-            n_layers=self.n_layers,
-            kernel_size=self.kernel_size,
-            forecasting=self.forecasting,
-        )
-
-        cvae = CVAE(
-            encoder,
-            decoder,
-            kl_weight_initial=self.kl_weight_init,
-            forecasting=self.forecasting,
-        )
-        cvae.compile(
-            optimizer=keras.optimizers.Adam(
-                learning_rate=learning_rate,
-                # clipnorm=1.0,
-            ),
-            metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
-        )
-
-        es = EarlyStopping(
-            patience=patience,
-            verbose=1,
-            monitor="loss",
-            mode="auto",
-            restore_best_weights=True,
-        )
-        reduce_lr = ReduceLROnPlateau(
-            monitor="loss", factor=0.2, patience=10, min_lr=1e-6, cooldown=3, verbose=1
-        )
-
-        weights_folder = "assets/model_weights"
-        os.makedirs(weights_folder, exist_ok=True)
-
-        weights_file = os.path.join(
-            weights_folder, f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5"
-        )
-        history_file = os.path.join(
-            weights_folder,
-            f"{self.dataset_name}_{self.dataset_group}_training_history.json",
-        )
-        history = None
-
-        dummy_input = (
-            tf.random.normal((1, window_size, self.s)),  # batch_data
-            tf.ones((1, window_size, self.s)),  # batch_mask
-            tf.random.normal((1, window_size, 6)),  # batch_dyn_features
-        )
-        _ = cvae(dummy_input)
-
-        if os.path.exists(weights_file) and not hyper_tuning and load_weights:
-            print("Loading existing weights...")
-            cvae.load_weights(weights_file)
-
-            if os.path.exists(history_file):
-                print("Loading training history...")
-                with open(history_file, "r") as f:
-                    history = json.load(f)
-            else:
-                print("No history file found. Skipping history loading.")
-        else:
-
-            mc = ModelCheckpoint(
-                weights_file,
-                save_best_only=True,
-                save_weights_only=True,
-                monitor="loss",
-                mode="auto",
-                verbose=1,
-            )
-
-            history = cvae.fit(
-                x=data_mask_temporalized,
-                epochs=epochs,
-                batch_size=self.batch_size,
-                shuffle=False,
-                callbacks=[es, mc, reduce_lr],
-            )
-
-            if history is not None:
-                history = history.history
-                history_dict = {
-                    key: [float(val) for val in values]
-                    for key, values in history.items()
-                }
-                with open(history_file, "w") as f:
-                    json.dump(history_dict, f)
-
-        return cvae, history, es
 
     def update_best_scores(
         self,
@@ -711,12 +630,13 @@ class CreateTransformedVersionsCVAE:
         window_size: int,
         patience: int,
         kl_weight: float,
-        n_blocks_encoder: int,
-        n_blocks_decoder: int,
+        kernel_size: Tuple[int],
         n_hidden: int,
-        n_layers: int,
-        kernel_size: int,
         batch_size: int,
+        windows_batch_size: int,
+        coverage_fraction: float,
+        prediction_mode: str,
+        future_steps: int,
         epochs: int,
         learning_rate: float,
         forecasting: bool,
@@ -739,12 +659,13 @@ class CreateTransformedVersionsCVAE:
             "window_size": window_size,
             "patience": patience,
             "kl_weight": kl_weight,
-            "n_blocks_encoder": n_blocks_encoder,
-            "n_blocks_decoder": n_blocks_decoder,
-            "n_hidden": n_hidden,
-            "n_layers": n_layers,
             "kernel_size": kernel_size,
+            "n_hidden": n_hidden,
             "batch_size": batch_size,
+            "windows_batch_size": windows_batch_size,
+            "coverage_fraction": coverage_fraction,
+            "prediction_mode": prediction_mode,
+            "future_steps": future_steps,
             "epochs": epochs,
             "learning_rate": learning_rate,
             "forecasting": forecasting,
@@ -833,72 +754,111 @@ class CreateTransformedVersionsCVAE:
 
     def objective(self, trial):
         """
-        Objective function for Optuna to tune the CVAE hyperparameters.
+        Objective function for Optuna to tune the CVAE hyperparameters, evaluated using the validation set.
         """
         try:
             latent_dim = trial.suggest_int("latent_dim", 8, 128, step=8)
-            if self.freq == "M" or self.freq == "MS":
-                window_size = trial.suggest_int("window_size", 3, 12, step=3)
-            elif self.freq == "Q" or self.freq == "QS":
-                window_size = trial.suggest_int("window_size", 4, 8, step=2)
-            elif self.freq == "Y" or self.freq == "YS":
-                window_size = trial.suggest_int("window_size", 2, 4, step=1)
+            if self.freq in ["M", "MS"]:
+                window_size = trial.suggest_int("window_size", 6, 24, step=3)
+            elif self.freq in ["Q", "QS"]:
+                window_size = trial.suggest_int("window_size", 8, 16, step=2)
+            elif self.freq in ["Y", "YS"]:
+                window_size = trial.suggest_int("window_size", 4, 8, step=1)
             else:
                 window_size = trial.suggest_int("window_size", 4, 24, step=1)
+
+            stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
             patience = trial.suggest_int("patience", 10, 15, step=1)
             kl_weight = trial.suggest_float("kl_weight", 0.05, 0.5)
-            n_blocks_encoder = trial.suggest_int("n_blocks_encoder", 1, 3)
-            n_blocks_decoder = trial.suggest_int("n_blocks_decoder", 1, 3)
-            n_hidden = trial.suggest_int("n_hidden", 16, 64, step=8)
-            n_layers = trial.suggest_int("n_layers", 1, 3)
-            kernel_size = trial.suggest_int("kernel_size", 1, 3)
-            batch_size = trial.suggest_int("batch_size", 8, 32, step=8)
+            n_hidden = trial.suggest_int("n_hidden", 128, 256, step=32)
+
+            predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
+            valid_kernel_sizes = [
+                ks
+                for ks in predefined_kernel_sizes
+                if all(window_size >= k for k in ks)
+            ]
+            if not valid_kernel_sizes:
+                valid_kernel_sizes.append((1, 1, 1))
+
+            kernel_size = tuple(
+                trial.suggest_categorical("kernel_size", valid_kernel_sizes)
+            )
+            batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
+            windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
+            coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
+
+            prediction_mode = trial.suggest_categorical(
+                "prediction_mode", ["one_step_ahead", "multi_step_ahead"]
+            )
+            if prediction_mode == "multi_step_ahead":
+                future_steps = window_size
+            else:
+                future_steps = 1
             epochs = trial.suggest_int("epochs", 100, 500, step=25)
             learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
             noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
             forecasting = True
 
-            data_mask_temporalized = TemporalizeGenerator(
-                self.original_train_wide_transf,
-                self.mask_train_wide,
-                self.train_dyn_features,
+            data_mask_temporalized_train = TemporalizeGenerator(
+                data=self.original_train_wide_transf,
+                mask=self.mask_train_wide,
+                dyn_features=self.train_dyn_features,
                 window_size=window_size,
+                stride=stride,
                 batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="partial",
+                coverage_fraction=coverage_fraction,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+            )
+
+            data_mask_temporalized_val = TemporalizeGenerator(
+                data=self.original_val_wide_transf,
+                mask=self.mask_val_wide,
+                dyn_features=self.val_dyn_features,
+                window_size=window_size,
+                stride=stride,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="systematic",
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
             )
 
             encoder, decoder = get_CVAE(
                 window_size=window_size,
-                n_series=self.s_train,
+                input_dim=1,  # univariate series
                 latent_dim=latent_dim,
                 noise_scale_init=noise_scale_init,
-                n_blocks_encoder=n_blocks_encoder,
-                n_blocks_decoder=n_blocks_decoder,
-                n_hidden=n_hidden,
-                n_layers=n_layers,
                 kernel_size=kernel_size,
                 forecasting=forecasting,
+                n_hidden=n_hidden,
             )
 
             cvae = CVAE(
                 encoder, decoder, kl_weight_initial=kl_weight, forecasting=forecasting
             )
             cvae.compile(
-                optimizer=keras.optimizers.Adam(
-                    learning_rate=learning_rate,
-                ),
-                metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
+                optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+                metrics=[
+                    cvae.total_loss_tracker,
+                    cvae.reconstruction_loss_tracker,
+                    cvae.kl_loss_tracker,
+                ],
             )
 
             es = EarlyStopping(
-                patience=self.patience,
+                patience=patience,
                 verbose=1,
-                monitor="loss",
+                monitor="val_loss",
                 mode="auto",
                 restore_best_weights=True,
             )
             reduce_lr = ReduceLROnPlateau(
-                monitor="loss",
+                monitor="val_loss",
                 factor=0.2,
                 patience=10,
                 min_lr=1e-6,
@@ -907,40 +867,39 @@ class CreateTransformedVersionsCVAE:
             )
 
             history = cvae.fit(
-                x=data_mask_temporalized,
+                x=data_mask_temporalized_train,
+                validation_data=data_mask_temporalized_val,
                 epochs=epochs,
                 batch_size=batch_size,
                 shuffle=False,
                 callbacks=[es, reduce_lr],
             )
 
-            loss = min(history.history["loss"])
+            val_loss = min(history.history["loss"])
 
-            synthetic_long = self.predict_train(
+            synthetic_long = self.predict(
                 cvae,
-                latent_dim=latent_dim,
-                window_size=window_size,
-                data_mask_temporalized=data_mask_temporalized,
+                gen_data=data_mask_temporalized_val,
             )
 
             if self.opt_score == "discriminative_score":
                 score = self.compute_mean_discriminative_score(
-                    unique_ids=self.original_long["unique_id"].unique(),
+                    unique_ids=synthetic_long["unique_id"].unique(),
                     original_data=self.original_long,
                     synthetic_data=synthetic_long,
                     method="hitgen",
                     freq=self.freq,
                     dataset_name=self.dataset_name,
                     dataset_group=self.dataset_group,
-                    loss=loss,
+                    loss=val_loss,
                     generate_feature_plot=False,
                     store_score=False,
                     store_features_synth=False,
                     split="hypertuning",
                 )
-            else:
+            elif self.opt_score == "downstream_score":
                 score = compute_downstream_forecast(
-                    unique_ids=self.original_long["unique_id"].unique(),
+                    unique_ids=synthetic_long["unique_id"].unique(),
                     original_data=self.original_long,
                     synthetic_data=synthetic_long,
                     method="hitgen",
@@ -951,6 +910,8 @@ class CreateTransformedVersionsCVAE:
                     samples=10,
                     split="hypertuning",
                 )
+            else:
+                score = val_loss
 
             if score is None:
                 print("No valid scores computed. Pruning this trial.")
@@ -964,17 +925,18 @@ class CreateTransformedVersionsCVAE:
                 window_size=window_size,
                 patience=patience,
                 kl_weight=kl_weight,
-                n_blocks_encoder=n_blocks_encoder,
-                n_blocks_decoder=n_blocks_decoder,
-                n_hidden=n_hidden,
-                n_layers=n_layers,
                 kernel_size=kernel_size,
+                n_hidden=n_hidden,
                 batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_fraction=coverage_fraction,
                 epochs=epochs,
                 learning_rate=learning_rate,
                 forecasting=forecasting,
                 noise_scale_init=noise_scale_init,
-                loss=loss,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                loss=val_loss,
                 trial=trial.number,
             )
 
@@ -1046,8 +1008,6 @@ class CreateTransformedVersionsCVAE:
                 best_trial = study.best_trial
                 self.best_params = best_trial.params
 
-        self.best_params["bi_rnn"] = False
-        self.best_params["shuffle"] = False
         self.best_params["forecasting"] = True
 
         with open(
@@ -1058,26 +1018,26 @@ class CreateTransformedVersionsCVAE:
 
         print(f"Best Hyperparameters: {self.best_params}")
 
-        data_mask_temporalized = TemporalizeGenerator(
-            self.original_wide_transf,
-            self.mask_wide,
-            self.original_dyn_features,
+        data_mask_temporalized_test = TemporalizeGenerator(
+            self.original_test_wide_transf,
+            self.mask_test_wide,
+            self.test_dyn_features,
             window_size=self.best_params["window_size"],
             batch_size=self.best_params["batch_size"],
-            shuffle=self.best_params["shuffle"],
+            windows_batch_size=self.best_params["windows_batch_size"],
+            coverage_mode="systematic",
+            prediction_mode=self.best_params["prediction_mode"],
+            future_steps=self.best_params["future_steps"],
         )
 
         encoder, decoder = get_CVAE(
             window_size=self.best_params["window_size"],
-            n_series=self.s,
+            input_dim=1,  # univariate series
             latent_dim=self.best_params["latent_dim"],
             noise_scale_init=self.best_params["noise_scale_init"],
-            n_blocks_encoder=self.best_params["n_blocks_encoder"],
-            n_blocks_decoder=self.best_params["n_blocks_decoder"],
-            n_hidden=self.best_params["n_hidden"],
-            n_layers=self.best_params["n_layers"],
             kernel_size=self.best_params["kernel_size"],
             forecasting=self.best_params["forecasting"],
+            n_hidden=self.best_params["n_hidden"],
         )
 
         cvae = CVAE(
@@ -1090,7 +1050,11 @@ class CreateTransformedVersionsCVAE:
             optimizer=keras.optimizers.Adam(
                 learning_rate=self.best_params["learning_rate"]
             ),
-            metrics=[cvae.reconstruction_loss_tracker, cvae.kl_loss_tracker],
+            metrics=[
+                cvae.total_loss_tracker,
+                cvae.reconstruction_loss_tracker,
+                cvae.kl_loss_tracker,
+            ],
         )
 
         # final training with best parameters
@@ -1117,10 +1081,8 @@ class CreateTransformedVersionsCVAE:
         history = None
 
         dummy_input = (
-            tf.random.normal(
-                (1, self.best_params["window_size"], self.s)
-            ),  # batch_data
-            tf.ones((1, self.best_params["window_size"], self.s)),  # batch_mask
+            tf.random.normal((1, self.best_params["window_size"], 1)),  # batch_data
+            tf.ones((1, self.best_params["window_size"], 1)),  # batch_mask
             tf.random.normal(
                 (1, self.best_params["window_size"], 6)
             ),  # batch_dyn_features
@@ -1149,7 +1111,7 @@ class CreateTransformedVersionsCVAE:
             )
 
             history = cvae.fit(
-                x=data_mask_temporalized,
+                x=data_mask_temporalized_test,
                 epochs=self.best_params["epochs"],
                 batch_size=self.best_params["batch_size"],
                 shuffle=False,
@@ -1168,85 +1130,49 @@ class CreateTransformedVersionsCVAE:
         print("Training completed with the best hyperparameters.")
         return cvae
 
-    def predict(
+    def _predict_loop(
         self,
-        cvae: CVAE,
-        latent_dim: int,
-        window_size: int,
-        data_mask_temporalized,
-    ) -> Tuple[
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-    ]:
-        """Predict original time series using VAE"""
+        cvae,
+        generator: TemporalizeGenerator,
+        T: int,
+        N: int,
+        use_reconstruction: bool = True,
+    ) -> np.ndarray:
+        """
+        1) Loops over generator.
+        2) For each batch, does cvae.predict_on_batch.
+        3) Gathers them in a list, plus the metadata.
+        4) detemporalize => [T, N].
+        5) returns the reconstructed wide array.
+        """
+        all_preds = []
+        all_meta = []
 
-        z_mean, z_log_var, z = cvae.encoder.predict(
-            [
-                data_mask_temporalized.temporalized_data,
-                data_mask_temporalized.temporalized_mask,
-                data_mask_temporalized.temporalized_dyn_features,
-            ]
-        )
-        alpha = 5  # x times bigger variance
-        epsilon = np.random.normal(size=z_mean.shape) * 0.1
-        z_augmented = z_mean + np.exp(0.5 * z_log_var) * alpha * epsilon
-        # z_augmented = np.random.normal(size=(len(data_mask_temporalized.temporalized_mask), window_size, latent_dim))
-        generated_data, predictions = cvae.decoder.predict(
-            [
-                z_augmented,
-                data_mask_temporalized.temporalized_mask,
-                data_mask_temporalized.temporalized_dyn_features,
-            ]
-        )
+        for i in range(len(generator)):
+            (batch_x, _) = generator[i]  # => ( (batch_data, batch_mask, batch_dyn), _ )
+            batch_pred = cvae.predict_on_batch(batch_x)  # (recon, forecast)
 
-        X_hat_wide_transf = detemporalize(generated_data)
-        X_hat_wide = self.scaler.inverse_transform(X_hat_wide_transf)
+            if isinstance(batch_pred, (tuple, list)):
+                recon_out, z_mean_out, z_log_var_out, forecast_out = batch_pred
+                if use_reconstruction:
+                    batch_pred = recon_out
+                else:
+                    batch_pred = forecast_out
 
-        X_hat_long = self.create_dataset_long_form(X_hat_wide, self.original_long)
+            # shape of batch_pred => [B, window_size, 1]
+            all_preds.append(batch_pred)
+            # gather metadata
+            all_meta.extend(generator.last_batch_metadata)
 
-        X_hat_train_long = X_hat_long[X_hat_long["unique_id"].isin(self.train_ids)]
-        X_hat_test_long = X_hat_long[X_hat_long["unique_id"].isin(self.test_ids)]
+        predictions = np.concatenate(all_preds, axis=0)  # [B_total, window_size, 1]
+        reconst_wide = detemporalize(predictions, all_meta, T, N)  # shape [T, N]
+        return reconst_wide
 
-        return (
-            X_hat_long,
-            X_hat_train_long,
-            X_hat_test_long,
-        )
+    def predict(self, cvae, gen_data):
+        T, N = self.original_wide_transf.shape
 
-    def predict_train(
-        self,
-        cvae: CVAE,
-        window_size: int,
-        latent_dim: int,
-        data_mask_temporalized,
-    ) -> pd.DataFrame:
-        """Predict original time series using VAE"""
+        reconst_wide = self._predict_loop(cvae, gen_data, T, N, use_reconstruction=True)
+        reconst_wide = self.scaler.inverse_transform(reconst_wide)
+        X_hat_long = self.create_dataset_long_form(reconst_wide, self.original_long)
 
-        z_mean, z_log_var, z = cvae.encoder.predict(
-            [
-                data_mask_temporalized.temporalized_data,
-                data_mask_temporalized.temporalized_mask,
-                data_mask_temporalized.temporalized_dyn_features,
-            ]
-        )
-        alpha = 5  # x times bigger variance
-        epsilon = np.random.normal(size=z_mean.shape) * 0.1
-        z_augmented = z_mean + np.exp(0.5 * z_log_var) * alpha * epsilon
-        # z_augmented = np.random.normal(size=(len(data_mask_temporalized.temporalized_mask), window_size, latent_dim))
-        generated_data, predictions = cvae.decoder.predict(
-            [
-                z_augmented,
-                data_mask_temporalized.temporalized_mask,
-                data_mask_temporalized.temporalized_dyn_features,
-            ]
-        )
-
-        X_hat_transf = detemporalize(generated_data)
-        X_hat = self.scaler_train.inverse_transform(X_hat_transf)
-
-        x_hat_train_long = self.create_dataset_long_form(
-            X_hat, self.original_long, self.train_ids
-        )
-
-        return x_hat_train_long
+        return X_hat_long
