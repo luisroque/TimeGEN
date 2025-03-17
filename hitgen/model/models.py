@@ -107,7 +107,7 @@ class TemporalizeGenerator(utils.Sequence):
             raise ValueError("coverage_mode must be 'systematic' or 'partial'.")
 
         # shuffle entire big_metadata initially
-        np.random.shuffle(self.big_metadata)
+        # np.random.shuffle(self.big_metadata)
 
         assert prediction_mode in (
             "one_step_ahead",
@@ -259,78 +259,6 @@ class TemporalizeGenerator(utils.Sequence):
             pred_mask = tf.reshape(seg_mask, [1, self.future_steps, 1])
 
         return recon_target, recon_mask, pred_target, pred_mask
-
-
-class _EncoderOnlyGenerator(keras.utils.Sequence):
-    """
-    This small generator is used for calling `cvae.encoder.predict(...)`.
-    We take the same data_mask_temporalized, but yield only the "input" portion
-    (batch_data, batch_mask, batch_dyn), ignoring the targets.
-    """
-
-    def __init__(self, data_gen: TemporalizeGenerator):
-        self.data_gen = data_gen
-
-    def __len__(self):
-        return len(self.data_gen)
-
-    def __getitem__(self, index):
-        # the original generator returns ((data, mask, dyn), (recon_target, pred_target))
-        inputs, _ = self.data_gen[index]
-        # inputs => (batch_data, batch_mask, batch_dyn)
-        return inputs
-
-    def on_epoch_end(self):
-        self.data_gen.on_epoch_end()
-
-
-class _DecoderOnlyGenerator(keras.utils.Sequence):
-    """
-    This generator is used to feed the decoder after we have z_augmented.
-    We take the mask, dyn features from the original generator, and we supply z_augmented
-    as the first input in place of batch_data.
-    """
-
-    def __init__(self, data_gen: TemporalizeGenerator, z_augmented: np.ndarray):
-        self.data_gen = data_gen
-        self.z_augmented = z_augmented
-
-        # z_augmented should have shape [B_total, window_size, latent_dim]
-        # We gather the indices where each batch start/ends:
-        self.batch_size_list = []
-        self.cum_sizes = [0]
-        total_B = len(z_augmented)
-        for i in range(len(data_gen)):
-            # each __getitem__ returns a batch with shape [b_i, window_size, latent_dim]
-            (b_data, b_mask, b_dyn), _ = data_gen[i]
-            b_len = b_data.shape[0]  # number of windows
-            self.batch_size_list.append(b_len)
-            self.cum_sizes.append(self.cum_sizes[-1] + b_len)
-
-        # ensure final cum_sizes[-1] == total_B
-        if self.cum_sizes[-1] != total_B:
-            raise ValueError(
-                f"z_augmented shape mismatch: sum of batch sizes {self.cum_sizes[-1]} != {total_B}"
-            )
-
-    def __len__(self):
-        return len(self.data_gen)
-
-    def __getitem__(self, index):
-        # get the slice of z_augmented for this batch
-        start_idx = self.cum_sizes[index]
-        end_idx = self.cum_sizes[index + 1]
-
-        (b_data, b_mask, b_dyn, b_pred_mask), _ = self.data_gen[index]
-        z_batch = self.z_augmented[
-            start_idx:end_idx
-        ]  # [b_len, window_size, latent_dim]
-
-        # the decoder expects inputs => [latent_input, mask_input, dyn_input, pred_mask]
-        return [z_batch, b_mask, b_dyn, b_pred_mask]
-
-    def on_epoch_end(self):
-        self.data_gen.on_epoch_end()
 
 
 class Sampling(tf.keras.layers.Layer):
@@ -603,43 +531,6 @@ def get_CVAE(
     return enc, dec
 
 
-class MRHIBlock(tf.keras.layers.Layer):
-    def __init__(
-        self,
-        backcast_size,
-        n_hidden,
-        n_layers,
-        kernel_size: Tuple[int] = (2, 2, 1),
-        **kwargs,
-    ):
-        """
-        Multi-Rate Hierarchical Interpolation Block.
-        """
-        super(MRHIBlock, self).__init__(**kwargs)
-        self.backcast_size = backcast_size
-
-        kernel_size = kernel_size[-1]
-
-        self.pooling_layer = layers.MaxPooling1D(
-            pool_size=kernel_size, strides=1, padding="same"
-        )
-
-        self.mlp_stack = tf.keras.Sequential(
-            [layers.Dense(n_hidden, activation="relu") for _ in range(n_layers)]
-        )
-        self.backcast_layer = layers.TimeDistributed(
-            layers.Dense(backcast_size[1], activation="linear")
-        )
-
-    def call(self, inputs):
-        x = self.pooling_layer(inputs)
-        x = self.mlp_stack(x)
-
-        backcast = self.backcast_layer(x)
-
-        return backcast
-
-
 class UpsampleTimeLayer(tf.keras.layers.Layer):
     def __init__(self, target_len: int, method="bilinear"):
         super().__init__()
@@ -831,7 +722,7 @@ def encoder(
             n_knots=4,
             n_hidden=n_hidden,
             n_layers=n_layers,
-            kernel_size=kernel_size,
+            kernel_size=kernel_size[int(3 - n_layers) :],
         )
 
         backcast = mrhi_block(backcast_total)
@@ -898,7 +789,7 @@ def decoder(
                 n_knots=4,
                 n_hidden=n_hidden,
                 n_layers=n_layers,
-                kernel_size=kernel_size,
+                kernel_size=kernel_size[int(3 - n_layers) :],
             )
 
             backcast, forecast = mrhi_block(residual)
@@ -908,11 +799,12 @@ def decoder(
             final_backcast = final_backcast + backcast
     else:
         for i in range(n_blocks):
-            mrhi_block = MRHIBlock(
+            mrhi_block = MRHIBlock_backcast(
                 backcast_size=output_shape,
                 n_hidden=n_hidden,
+                n_knots=4,
                 n_layers=n_layers,
-                kernel_size=kernel_size,
+                kernel_size=kernel_size[int(3 - n_layers) :],
             )
             backcast = mrhi_block(residual)
             residual = residual - backcast
@@ -926,6 +818,9 @@ def decoder(
     final_forecast = layers.Multiply(name="masked_forecast_output")(
         [final_forecast, pred_mask]
     )
+
+    # final_backcast = mask_input * final_backcast + (1 - mask_input) * -999
+
     return tf.keras.Model(
         inputs=[latent_input, mask_input, dyn_features_input, pred_mask],
         outputs=[final_backcast, final_forecast],

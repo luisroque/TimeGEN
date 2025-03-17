@@ -12,8 +12,6 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from hitgen.model.models import (
     CVAE,
     TemporalizeGenerator,
-    _EncoderOnlyGenerator,
-    _DecoderOnlyGenerator,
 )
 from hitgen.feature_engineering.feature_transformations import (
     detemporalize,
@@ -173,10 +171,10 @@ class CreateTransformedVersionsCVAE:
 
         if unique_ids is None:
             df.columns = self.long_properties["unique_id"]
+            df["ds"] = self.long_properties["ds"]
         else:
             df.columns = unique_ids
-
-        df["ds"] = self.long_properties["ds"]
+            df.reset_index(inplace=True)
 
         data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
         data_long = data_long.sort_values(by=["unique_id", "ds"])
@@ -388,17 +386,8 @@ class CreateTransformedVersionsCVAE:
 
         # padding
         x_wide_filled = x_wide.fillna(0.0)
-        self.scaler = StandardScaler()
-        scaled_data = self.scaler.fit_transform(x_wide_filled)
 
-        return scaled_data, mask, x_wide_filled
-
-    def _set_scaler_train(self, df: pd.DataFrame):
-        """Sort and preprocess the data for feature engineering."""
-        # padding
-        x_wide_filled = df.fillna(0.0)
-        self.scaler_train = StandardScaler()
-        scaled_data_train = self.scaler_train.fit_transform(x_wide_filled)
+        return x_wide_filled, mask, x_wide_filled
 
     @staticmethod
     def _monthly_index(dates: pd.DatetimeIndex) -> np.ndarray:
@@ -481,14 +470,27 @@ class CreateTransformedVersionsCVAE:
         compute periodic Fourier features, and return all relevant DataFrames.
         """
         self.ids = self.df["unique_id"].unique().sort()
-        original_wide_transf, mask_original_wide, original_wide = self._preprocess_data(
+        original_wide_filled, mask_original_wide, original_wide = self._preprocess_data(
             self.df, self.ids
+        )
+
+        # scalers
+        self.scaler = StandardScaler()
+        self.scaler_train = StandardScaler()
+        self.scaler_val = StandardScaler()
+        self.scaler_test = StandardScaler()
+
+        original_wide_transf = pd.DataFrame(
+            self.scaler.fit_transform(original_wide_filled),
+            index=original_wide_filled.index,
+            columns=original_wide_filled.columns,
         )
 
         original_long = self.create_dataset_long_form(original_wide, self.df)
         original_long_transf = self.create_dataset_long_form(
             original_wide_transf, self.df
         )
+
         mask_original_long = self.create_dataset_long_form(mask_original_wide, self.df)
 
         # splitting into train, validation, and test sets
@@ -503,9 +505,6 @@ class CreateTransformedVersionsCVAE:
 
         ### TRAINING DATA ###
         train_long = original_long[original_long["unique_id"].isin(self.train_ids)]
-        train_long_transf = original_long_transf[
-            original_long_transf["unique_id"].isin(self.train_ids)
-        ]
         mask_train_long = mask_original_long[
             mask_original_long["unique_id"].isin(self.train_ids)
         ]
@@ -514,21 +513,20 @@ class CreateTransformedVersionsCVAE:
         train_wide = self._create_dataset_wide_form(
             data_long=train_long, ids=self.train_ids, full_dates=self.full_dates
         )
-        train_wide_transf = self._create_dataset_wide_form(
-            data_long=train_long_transf, ids=self.train_ids, full_dates=self.full_dates
+        train_wide_transf = pd.DataFrame(
+            self.scaler_train.fit_transform(train_wide),
+            index=train_wide.index,
+            columns=train_wide.columns,
         )
         mask_train_wide = self._create_dataset_wide_form(
             data_long=mask_train_long, ids=self.train_ids, full_dates=self.full_dates
         )
-
-        # set training scaler
-        self._set_scaler_train(train_wide)
+        train_long_transf = self.create_dataset_long_form(
+            train_wide_transf, self.df, unique_ids=self.train_ids
+        )
 
         ### VALIDATION DATA ###
         val_long = original_long[original_long["unique_id"].isin(self.val_ids)]
-        val_long_transf = original_long_transf[
-            original_long_transf["unique_id"].isin(self.val_ids)
-        ]
         mask_val_long = mask_original_long[
             mask_original_long["unique_id"].isin(self.val_ids)
         ]
@@ -537,18 +535,20 @@ class CreateTransformedVersionsCVAE:
         val_wide = self._create_dataset_wide_form(
             data_long=val_long, ids=self.val_ids, full_dates=self.full_dates
         )
-        val_wide_transf = self._create_dataset_wide_form(
-            data_long=val_long_transf, ids=self.val_ids, full_dates=self.full_dates
+        val_wide_transf = pd.DataFrame(
+            self.scaler_val.fit_transform(val_wide),
+            index=val_wide.index,
+            columns=val_wide.columns,
         )
         mask_val_wide = self._create_dataset_wide_form(
             data_long=mask_val_long, ids=self.val_ids, full_dates=self.full_dates
         )
+        val_long_transf = self.create_dataset_long_form(
+            val_wide_transf, self.df, unique_ids=self.val_ids
+        )
 
         ### TESTING DATA ###
         test_long = original_long[original_long["unique_id"].isin(self.test_ids)]
-        test_long_transf = original_long_transf[
-            original_long_transf["unique_id"].isin(self.test_ids)
-        ]
         mask_test_long = mask_original_long[
             mask_original_long["unique_id"].isin(self.test_ids)
         ]
@@ -557,11 +557,16 @@ class CreateTransformedVersionsCVAE:
         test_wide = self._create_dataset_wide_form(
             data_long=test_long, ids=self.test_ids, full_dates=self.full_dates
         )
-        test_wide_transf = self._create_dataset_wide_form(
-            data_long=test_long_transf, ids=self.test_ids, full_dates=self.full_dates
+        test_wide_transf = pd.DataFrame(
+            self.scaler_test.fit_transform(test_wide),
+            index=test_wide.index,
+            columns=test_wide.columns,
         )
         mask_test_wide = self._create_dataset_wide_form(
             data_long=mask_test_long, ids=self.test_ids, full_dates=self.full_dates
+        )
+        test_long_transf = self.create_dataset_long_form(
+            test_wide_transf, self.df, unique_ids=self.test_ids
         )
 
         # convert masks to tensors
@@ -772,25 +777,22 @@ class CreateTransformedVersionsCVAE:
             window_size = trial.suggest_int("window_size", 4, 24, step=1)
 
         stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
-        patience = trial.suggest_int("patience", 10, 15, step=1)
+        patience = trial.suggest_int("patience", 4, 8, step=1)
         kl_weight = trial.suggest_float("kl_weight", 0.05, 0.5)
         n_hidden = trial.suggest_int("n_hidden", 128, 256, step=32)
         time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
         n_blocks = trial.suggest_int("n_layers", 1, 3)
 
-        predefined_kernel_sizes = [
-            (1,),
-            (2,),
-            (2, 1),
-            (1, 1),
-            (2, 2, 1),
-            (4, 2, 1),
+        predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
+        valid_kernel_sizes = [
+            ks for ks in predefined_kernel_sizes if all(window_size >= k for k in ks)
         ]
+        if not valid_kernel_sizes:
+            valid_kernel_sizes.append((1, 1, 1))
 
-        valid_kernels = [ks for ks in predefined_kernel_sizes if len(ks) == n_blocks]
-        if not valid_kernels:
-            raise ValueError(f"No kernel_size tuples of length {n_blocks} found!")
-        kernel_size = trial.suggest_categorical("kernel_size", valid_kernels)
+        kernel_size = tuple(
+            trial.suggest_categorical("kernel_size", valid_kernel_sizes)
+        )
 
         batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
         windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
@@ -803,7 +805,7 @@ class CreateTransformedVersionsCVAE:
             future_steps = window_size
         else:
             future_steps = 1
-        epochs = trial.suggest_int("epochs", 100, 500, step=25)
+        epochs = trial.suggest_int("epochs", 1, 2, step=25)
         learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
         noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
@@ -828,7 +830,7 @@ class CreateTransformedVersionsCVAE:
             mask=self.mask_val_wide,
             dyn_features=self.val_dyn_features,
             window_size=window_size,
-            stride=stride,
+            stride=1,
             batch_size=batch_size,
             windows_batch_size=windows_batch_size,
             coverage_mode="systematic",
@@ -884,6 +886,7 @@ class CreateTransformedVersionsCVAE:
             batch_size=batch_size,
             shuffle=False,
             callbacks=[es, reduce_lr],
+            validation_freq=3,
         )
 
         val_loss = min(history.history["loss"])
@@ -891,6 +894,9 @@ class CreateTransformedVersionsCVAE:
         synthetic_long = self.predict(
             cvae,
             gen_data=data_mask_temporalized_val,
+            scaler=self.scaler_val,
+            original_data_wide=self.original_val_wide,
+            original_data_long=self.original_val_long,
         )
 
         if self.opt_score == "discriminative_score":
@@ -929,7 +935,7 @@ class CreateTransformedVersionsCVAE:
             raise optuna.exceptions.TrialPruned()
 
         self.update_best_scores(
-            original_data=self.original_long,
+            original_data=self.original_val_long,
             synthetic_data=synthetic_long,
             score=score,
             latent_dim=latent_dim,
@@ -1166,7 +1172,7 @@ class CreateTransformedVersionsCVAE:
         for i in range(len(generator)):
             (batch_x, targets) = generator[
                 i
-            ]  # => ( (batch_data, batch_mask, batch_dyn), _ )
+            ]  # => ( (batch_data, batch_mask, batch_dyn, pred_mask), _ )
             batch_pred = cvae.predict_on_batch(batch_x)  # (recon, forecast)
 
             if isinstance(batch_pred, (tuple, list)):
@@ -1185,11 +1191,11 @@ class CreateTransformedVersionsCVAE:
         reconst_wide = detemporalize(predictions, all_meta, T, N)  # shape [T, N]
         return reconst_wide
 
-    def predict(self, cvae, gen_data):
-        T, N = self.original_wide_transf.shape
+    def predict(self, cvae, gen_data, scaler, original_data_wide, original_data_long):
+        T, N = original_data_wide.shape
 
         reconst_wide = self._predict_loop(cvae, gen_data, T, N, use_reconstruction=True)
-        reconst_wide = self.scaler.inverse_transform(reconst_wide)
-        X_hat_long = self.create_dataset_long_form(reconst_wide, self.original_long)
+        reconst_wide = scaler.inverse_transform(reconst_wide)
+        X_hat_long = self.create_dataset_long_form(reconst_wide, original_data_long)
 
         return X_hat_long

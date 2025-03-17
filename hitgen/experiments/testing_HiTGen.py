@@ -298,25 +298,25 @@ if __name__ == "__main__":
             # hypertuning
             model = create_dataset_vae.hyper_tune_and_train()
 
-            data_mask_temporalized = TemporalizeGenerator(
-                create_dataset_vae.original_wide_transf,
-                create_dataset_vae.mask_wide,
-                create_dataset_vae.original_dyn_features,
+            data_mask_temporalized_test = TemporalizeGenerator(
+                create_dataset_vae.original_test_wide_transf,
+                create_dataset_vae.mask_test_wide,
+                create_dataset_vae.test_dyn_features,
                 window_size=create_dataset_vae.best_params["window_size"],
                 batch_size=create_dataset_vae.best_params["batch_size"],
                 windows_batch_size=create_dataset_vae.best_params["windows_batch_size"],
+                stride=1,
                 coverage_mode="systematic",
                 prediction_mode=create_dataset_vae.best_params["prediction_mode"],
                 future_steps=create_dataset_vae.best_params["future_steps"],
             )
 
-            (
-                _,
-                _,
-                synth_hitgen_test_long,
-            ) = create_dataset_vae.predict(
+            synth_hitgen_test_long = create_dataset_vae.predict(
                 model,
-                gen_data=data_mask_temporalized,
+                gen_data=data_mask_temporalized_test,
+                scaler=create_dataset_vae.scaler_test,
+                original_data_wide=create_dataset_vae.original_test_wide,
+                original_data_long=create_dataset_vae.original_test_long,
             )
 
             # TimeGAN synthetic data generation

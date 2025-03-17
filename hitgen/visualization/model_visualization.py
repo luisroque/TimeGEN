@@ -48,36 +48,46 @@ def plot_generated_vs_original(
     Plot generated series and the original series and store as pdf
     """
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    # n_series needs to be even
+
     if not n_series % 2 == 0:
         n_series -= 1
-    _, ax = plt.subplots(int(n_series // 2), 2, figsize=(18, 10))
+
+    fig, ax = plt.subplots(n_series // 2, 2, figsize=(18, 10))
     ax = ax.ravel()
+
     unique_ids = synth_data["unique_id"].unique()[:n_series]
+
     for i in range(n_series):
+        ts_id = unique_ids[i]
+
         ax[i].plot(
-            synth_data.loc[synth_data["unique_id"] == unique_ids[i]]["ds"],
-            synth_data.loc[synth_data["unique_id"] == unique_ids[i]]["y"],
-            label="new sample",
+            synth_data.loc[synth_data["unique_id"] == ts_id]["ds"],
+            synth_data.loc[synth_data["unique_id"] == ts_id]["y"],
+            label="Generated",
         )
         ax[i].plot(
-            original_test_data.loc[original_test_data["unique_id"] == unique_ids[i]][
-                "ds"
-            ],
-            original_test_data.loc[original_test_data["unique_id"] == unique_ids[i]][
-                "y"
-            ],
-            label="orig",
+            original_test_data.loc[original_test_data["unique_id"] == ts_id]["ds"],
+            original_test_data.loc[original_test_data["unique_id"] == ts_id]["y"],
+            label="Original",
         )
-    plt.legend()
+
+        ax[i].set_title(f"Time Series: {ts_id}", fontsize=12)
+        ax[i].set_xlabel("Date")
+        ax[i].set_ylabel("Value")
+
+    ax[-1].legend(loc="lower right")
+
     plt.suptitle(
         f"VAE generated dataset vs original -> {dataset_name}: {dataset_group}",
         fontsize=14,
     )
+
+    plt.tight_layout()
     os.makedirs("assets/plots", exist_ok=True)
     plt.savefig(
         f"assets/plots/{current_datetime}_vae_generated_vs_original_{suffix_name}_"
-        f"{dataset_name}_{dataset_group}_{round(score,2)}_{round(loss,2)}.pdf",
+        f"{dataset_name}_{dataset_group}_{round(score, 2)}_{round(loss, 2)}.pdf",
         format="pdf",
         bbox_inches="tight",
     )
+    plt.show()
