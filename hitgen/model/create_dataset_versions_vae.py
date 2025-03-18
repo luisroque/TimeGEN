@@ -650,6 +650,7 @@ class CreateTransformedVersionsCVAE:
         n_blocks: int,
         batch_size: int,
         windows_batch_size: int,
+        stride: int,
         coverage_fraction: float,
         prediction_mode: str,
         future_steps: int,
@@ -681,6 +682,7 @@ class CreateTransformedVersionsCVAE:
             "n_blocks": n_blocks,
             "batch_size": batch_size,
             "windows_batch_size": windows_batch_size,
+            "stride": stride,
             "coverage_fraction": coverage_fraction,
             "prediction_mode": prediction_mode,
             "future_steps": future_steps,
@@ -728,7 +730,7 @@ class CreateTransformedVersionsCVAE:
 
         os.makedirs(os.path.dirname(opt_path), exist_ok=True)
         with open(opt_path, "w") as f:
-            f.write(json.dumps(opt_meta_info) + "\n")
+            json.dumps(opt_meta_info)
 
         print(f"Best scores updated and saved to {scores_path}")
 
@@ -814,7 +816,7 @@ class CreateTransformedVersionsCVAE:
             future_steps = window_size
         else:
             future_steps = 1
-        epochs = trial.suggest_int("epochs", 1, 2, step=25)
+        epochs = trial.suggest_int("epochs", 100, 500, step=25)
         learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
         noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.5)
 
@@ -958,6 +960,7 @@ class CreateTransformedVersionsCVAE:
             n_blocks=n_blocks,
             batch_size=batch_size,
             windows_batch_size=windows_batch_size,
+            stride=stride,
             coverage_fraction=coverage_fraction,
             epochs=epochs,
             learning_rate=learning_rate,
@@ -1003,58 +1006,40 @@ class CreateTransformedVersionsCVAE:
             f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5",
         )
 
-        best_params_file = os.path.join(
+        best_params_meta_opt_file = os.path.join(
             weights_folder,
-            f"{self.dataset_name}_{self.dataset_group}_best_params.json",
+            f"{self.dataset_name}_{self.dataset_group}_best_hyperparameters_opt.json",
         )
 
-        if len(study.trials) == 0 and not os.path.exists(weights_file):
-            print("No trials have been completed yet. Running hyperparameter tuning...")
-            study.optimize(self.objective, n_trials=n_trials)
-
         try:
-            best_trial = study.best_trial
-            self.best_params = best_trial.params
-        except ValueError:
+            with open(best_params_meta_opt_file, "r") as f:
+                best_params = json.load(f)
+                self.best_params = best_params["best_score"][0]
+                print("Best params file found. Loading...")
+        except (FileNotFoundError, json.JSONDecodeError):
             print(
-                "No best trial found, likely due to no successful trials. Checking if best params file exists..."
+                f"Error loading best parameters file {best_params_meta_opt_file}. Proceeding with optimization..."
             )
-            if best_params_file:
-                try:
-                    with open(best_params_file, "r") as file:
-                        best_params = json.load(file)
-                        self.best_params = best_params
-                        print("Best params file found. Loading...")
-                except (FileNotFoundError, json.JSONDecodeError):
-                    print(
-                        f"Error loading best parameters file {best_params_file}. Proceeding with optimization..."
-                    )
-                    study.optimize(self.objective, n_trials=n_trials)
-                    best_trial = study.best_trial
-                    self.best_params = best_trial.params
-            else:
-                study.optimize(self.objective, n_trials=n_trials)
-                best_trial = study.best_trial
-                self.best_params = best_trial.params
+            study.optimize(self.objective, n_trials=n_trials)
+            with open(
+                best_params_meta_opt_file,
+                "r",
+            ) as f:
+                json.load(f)
 
-        self.best_params["forecasting"] = True
-
-        with open(
-            f"assets/model_weights/{self.dataset_name}_{self.dataset_group}_best_params.json",
-            "w",
-        ) as f:
-            json.dump(self.best_params, f)
+            self.best_params = best_params["best_score"][0]
 
         print(f"Best Hyperparameters: {self.best_params}")
 
-        data_mask_temporalized_test = TemporalizeGenerator(
-            self.original_test_wide_transf,
-            self.mask_test_wide,
-            self.test_dyn_features,
+        data_mask_temporalized = TemporalizeGenerator(
+            data=self.original_wide_transf,
+            mask=self.mask_wide,
+            dyn_features=self.original_dyn_features,
             window_size=self.best_params["window_size"],
             batch_size=self.best_params["batch_size"],
             windows_batch_size=self.best_params["windows_batch_size"],
             coverage_mode="systematic",
+            stride=1,
             prediction_mode=self.best_params["prediction_mode"],
             future_steps=self.best_params["future_steps"],
         )
@@ -1117,6 +1102,7 @@ class CreateTransformedVersionsCVAE:
             tf.random.normal(
                 (1, self.best_params["window_size"], 6)
             ),  # batch_dyn_features
+            tf.random.normal((1, self.best_params["future_steps"], 1)),  # pred_mask
         )
         _ = cvae(dummy_input)
 
@@ -1142,7 +1128,7 @@ class CreateTransformedVersionsCVAE:
             )
 
             history = cvae.fit(
-                x=data_mask_temporalized_test,
+                x=data_mask_temporalized,
                 epochs=self.best_params["epochs"],
                 batch_size=self.best_params["batch_size"],
                 shuffle=False,
@@ -1202,7 +1188,15 @@ class CreateTransformedVersionsCVAE:
         return reconst_wide
 
     def predict(
-        self, cvae, gen_data, scaler, original_data_wide, original_data_long, unique_ids
+        self,
+        cvae,
+        gen_data,
+        scaler,
+        original_data_wide,
+        original_data_long,
+        unique_ids,
+        filter_series=None,
+        unique_ids_filter=None,
     ):
         T, N = original_data_wide.shape
 
@@ -1211,5 +1205,7 @@ class CreateTransformedVersionsCVAE:
         X_hat_long = self.create_dataset_long_form(
             reconst_wide, original_data_long, unique_ids=unique_ids
         )
+        if filter_series:
+            X_hat_long = X_hat_long.loc[X_hat_long["unique_id"].isin(unique_ids_filter)]
 
         return X_hat_long

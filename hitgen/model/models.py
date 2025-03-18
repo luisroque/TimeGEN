@@ -37,8 +37,8 @@ class TemporalizeGenerator(utils.Sequence):
     def __init__(
         self,
         data,  # shape [T, N], univariate
-        dyn_features=None,  # shape [T, dyn_dim] or None
         mask=None,  # shape [T, N] or None
+        dyn_features=None,  # shape [T, dyn_dim] or None
         window_size=16,
         batch_size=8,  # series per batch
         windows_batch_size=4,  # windows per series
