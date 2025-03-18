@@ -314,7 +314,7 @@ if __name__ == "__main__":
             synth_hitgen_test_long = create_dataset_vae.predict(
                 model,
                 gen_data=data_mask_temporalized,
-                scaler=create_dataset_vae.scaler_test,
+                scaler=create_dataset_vae.scaler,
                 original_data_wide=create_dataset_vae.original_wide,
                 original_data_long=create_dataset_vae.original_long,
                 unique_ids=create_dataset_vae.unique_ids,
@@ -380,7 +380,7 @@ if __name__ == "__main__":
                 loss=0.0,
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
-                n_series=4,
+                n_series=8,
                 suffix_name="hitgen",
             )
 

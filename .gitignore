@@ -163,7 +163,7 @@ cython_debug/
 *__pycache__*
 
 model_binaries/
-assets/model_weights/
+assets/assets_batchwindows_traintotaldataset/model_weights/
 
 # data related
 original_datasets/

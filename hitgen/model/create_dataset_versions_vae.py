@@ -94,7 +94,7 @@ class CreateTransformedVersionsCVAE:
         self.features_input = (None, None, None)
         self.long_properties = {}
         self.split_path = f"assets/model_weights/data_split/{dataset_name}_{dataset_group}_data_split.json"
-        self.unique_ids = self.df["unique_id"].unique()
+        self.unique_ids = None
 
         # map each frequency string to (index_function, period)
         self.freq_map = {
@@ -253,9 +253,9 @@ class CreateTransformedVersionsCVAE:
             with open(self.split_path, "r") as f:
                 split_data = json.load(f)
                 return (
-                    np.array(split_data["train_ids"]),
-                    np.array(split_data["val_ids"]),
-                    np.array(split_data["test_ids"]),
+                    np.array(split_data["train_ids"]).tolist(),
+                    np.array(split_data["val_ids"]).tolist(),
+                    np.array(split_data["test_ids"]).tolist(),
                 )
 
         val_size = int(len(self.unique_ids) * val_split)
@@ -289,7 +289,7 @@ class CreateTransformedVersionsCVAE:
             ds_max, train_ids, test_ids
         )
 
-        return train_ids, val_ids, test_ids
+        return train_ids.tolist(), val_ids.tolist(), test_ids.tolist()
 
     @staticmethod
     def _transform_log_returns(x):
@@ -509,6 +509,7 @@ class CreateTransformedVersionsCVAE:
         self.train_ids.sort()
         self.val_ids.sort()
         self.test_ids.sort()
+        self.unique_ids = (self.train_ids + self.val_ids + self.test_ids).sort()
         self.s_train = len(self.train_ids)
         self.s_val = len(self.val_ids)
 
