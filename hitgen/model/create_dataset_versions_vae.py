@@ -933,7 +933,7 @@ class CreateTransformedVersionsCVAE:
         reduce_lr = ReduceLROnPlateau(
             monitor="val_loss",
             factor=0.2,
-            patience=10,
+            patience=3,
             min_lr=1e-6,
             cooldown=3,
             verbose=1,
@@ -946,7 +946,7 @@ class CreateTransformedVersionsCVAE:
             batch_size=batch_size,
             shuffle=False,
             callbacks=[es, reduce_lr],
-            validation_freq=5,
+            validation_freq=3,
         )
 
         val_loss = min(history.history["loss"])
