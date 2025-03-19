@@ -4,8 +4,8 @@ import argparse
 import pandas as pd
 from hitgen.model.create_dataset_versions_vae import (
     CreateTransformedVersionsCVAE,
-    TemporalizeGenerator,
 )
+from hitgen.model.models import build_tf_dataset
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
     compute_downstream_forecast,
@@ -167,15 +167,15 @@ DATASET_GROUP_FREQ = {
     "Tourism": {
         "Monthly": {"FREQ": "M", "H": 24},
     },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    # },
-    # "M3": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    #     "Yearly": {"FREQ": "Y", "H": 4},
-    # },
+    "M1": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
+    },
 }
 
 
@@ -298,10 +298,10 @@ if __name__ == "__main__":
             # hypertuning
             model = create_dataset_vae.hyper_tune_and_train()
 
-            data_mask_temporalized = TemporalizeGenerator(
-                data=create_dataset_vae.original_wide_transf,
-                mask=create_dataset_vae.mask_wide,
-                dyn_features=create_dataset_vae.original_dyn_features,
+            data_mask_temporalized_test = build_tf_dataset(
+                data=create_dataset_vae.original_test_wide_transf,
+                mask=create_dataset_vae.mask_test_wide,
+                dyn_features=create_dataset_vae.test_dyn_features,
                 window_size=create_dataset_vae.best_params["window_size"],
                 batch_size=create_dataset_vae.best_params["batch_size"],
                 windows_batch_size=create_dataset_vae.best_params["windows_batch_size"],
@@ -313,13 +313,11 @@ if __name__ == "__main__":
 
             synth_hitgen_test_long = create_dataset_vae.predict(
                 model,
-                gen_data=data_mask_temporalized,
-                scaler=create_dataset_vae.scaler,
-                original_data_wide=create_dataset_vae.original_wide,
-                original_data_long=create_dataset_vae.original_long,
-                unique_ids=create_dataset_vae.unique_ids,
-                filter_series=True,
-                unique_ids_filter=create_dataset_vae.test_ids,
+                gen_data=data_mask_temporalized_test,
+                scaler=create_dataset_vae.scaler_test,
+                original_data_wide=create_dataset_vae.original_test_wide,
+                original_data_long=create_dataset_vae.original_test_long,
+                unique_ids=create_dataset_vae.test_ids,
             )
 
             # TimeGAN synthetic data generation

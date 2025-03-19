@@ -2,263 +2,219 @@ import logging
 import os
 from typing import List, Tuple, Union
 import numpy as np
+import pandas as pd
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 from keras import layers
 import tensorflow as tf
-from tensorflow.keras import utils
 from keras import regularizers
 from tensorflow import keras
 
 K = keras.backend
 
 
-class TemporalizeGenerator(utils.Sequence):
+def build_tf_dataset(
+    data: pd.DataFrame,  # [T, N]
+    mask: pd.DataFrame,  # [T, N]
+    dyn_features: pd.DataFrame,  # [T, dyn_dim]
+    window_size: int = 16,
+    stride: int = None,
+    coverage_mode: str = "systematic",
+    coverage_fraction: float = 0.1,
+    prediction_mode: str = "one_step_ahead",
+    future_steps: int = 1,
+    batch_size: int = 8,
+    windows_batch_size: int = 8,
+    shuffle_buffer_size: int = 1000,
+    reshuffle_each_epoch: bool = True,
+) -> tf.data.Dataset:
     """
-    A generator for univariate time-series data of shape [T, N], optionally with dynamic
-    features [T, dyn_dim] and a mask [T, N]. It enumerates all valid windows of length
-    `window_size` across the N series, then samples and batches them as follows:
+    Build a tf.data.Dataset that yields ((x_data, x_mask, x_dyn, pred_mask),
+                                         (recon_target, recon_mask, pred_target, pred_mask)).
 
-    - coverage_mode='systematic': Uses all windows each epoch (shuffled).
-    - coverage_mode='partial': Randomly samples a subset (e.g., coverage_ratio or windows_per_epoch).
+    Steps:
+    1) Enumerate all (series_idx, start_time) pairs for valid windows of length `window_size`.
+    2) If coverage_mode='partial', sample `coverage_fraction` of these windows.
+    3) Build the arrays for inputs/targets: reconstruction + forecast.
+    4) Create a Dataset from these arrays.
+    5) Shuffle, then batch, then prefetch.
 
-    Windows are chunked into batches of size (batch_size * windows_batch_size). For each
-    window, two targets are built:
-      1. Reconstruction target (the same window).
-      2. Forecast target (one-step-ahead or multi-step-ahead, zero-padded if out of range).
+    Args:
+      data:            shape [T, N]. T = time length, N = number of series.
+      mask:            shape [T, N], or None.
+      dyn_features:    shape [T, dyn_dim], or None.
+      window_size:     Number of time steps in each window.
+      stride:          Step size between consecutive windows (default=window_size).
+      coverage_mode:   'systematic' => use all windows,
+                       'partial' => randomly sample coverage_fraction of windows.
+      coverage_fraction: Fraction of windows to keep if coverage_mode='partial'.
+      prediction_mode: 'one_step_ahead' or 'multi_step_ahead' for the forecast target.
+      future_steps:    Number of steps to forecast if multi_step_ahead.
+      batch_size:      Batch size for final dataset.
+      windows_batch_size: Number of windows per series for each batch.
+      shuffle_buffer_size:  Buffer size used in `dataset.shuffle()`.
+      reshuffle_each_epoch: Whether tf.data should reshuffle at each epoch.
 
-    In each __getitem__ call, the generator returns:
-      (batch_data, batch_mask, batch_dyn_features),
-      (recon_target, recon_mask, pred_target, pred_mask),
+    Returns:
+      A `tf.data.Dataset` of length = (num_windows // batch_size). Each element is:
+        Inputs: (x_data, x_mask, x_dyn, pred_mask)
+        Targets: (recon_target, recon_mask, pred_target, pred_mask)
+      where shapes are:
+        - x_data: [batch_size, window_size, 1]
+        - x_mask: [batch_size, window_size, 1]
+        - x_dyn:  [batch_size, window_size, dyn_dim]
+        - pred_mask: either [batch_size, 1, 1] (one_step) or [batch_size, future_steps, 1]
+        - recon_target, recon_mask: same shape as (x_data, x_mask)
+        - pred_target, pred_mask: same shape as (pred_mask).
     """
+    if stride is None:
+        stride = window_size
 
-    def __init__(
-        self,
-        data,  # shape [T, N], univariate
-        mask=None,  # shape [T, N] or None
-        dyn_features=None,  # shape [T, dyn_dim] or None
-        window_size=16,
-        batch_size=8,  # series per batch
-        windows_batch_size=4,  # windows per series
-        coverage_mode="systematic",  # or "partial"
-        coverage_fraction=0.1,  # fraction of total windows used per epoch if partial
-        stride=None,
-        prediction_mode="one_step_ahead",
-        future_steps=1,
-    ):
-        if not stride:
-            stride = window_size
-        self.data = tf.convert_to_tensor(data, dtype=tf.float32)
-        if dyn_features is not None:
-            self.dyn_features = tf.convert_to_tensor(dyn_features, dtype=tf.float32)
-            self.dyn_dim = self.dyn_features.shape[-1]
-        else:
-            self.dyn_features = None
-            self.dyn_dim = 0
+    T = data.shape[0]
+    N = data.shape[1]
 
-        if mask is not None:
-            self.mask = tf.convert_to_tensor(mask, dtype=tf.float32)
-        else:
-            self.mask = None
+    data = tf.convert_to_tensor(data, dtype=tf.float32)
+    mask = tf.convert_to_tensor(mask, dtype=tf.float32) if mask is not None else None
+    if dyn_features is not None:
+        dyn_features = tf.convert_to_tensor(dyn_features, dtype=tf.float32)
+        dyn_dim = dyn_features.shape[-1]
+    else:
+        dyn_dim = 0
 
-        self.window_size = window_size
-        self.batch_size = batch_size
-        self.windows_batch_size = windows_batch_size
-        self.coverage_fraction = coverage_fraction
-        self.stride = stride
-        self.coverage_mode = coverage_mode
+    # all valid (series, start_index) window pairs
+    big_meta = []
+    for s_idx in range(N):
+        n_possible = T - window_size + 1
+        if n_possible < 1:
+            continue
+        for st in range(0, n_possible, stride):
+            big_meta.append((s_idx, st))
+    big_meta = np.array(big_meta, dtype=object)
+    num_windows_total = len(big_meta)
 
-        # T = number of time points, N = number of series
-        self.T = self.data.shape[0]
-        self.N = self.data.shape[1]
+    block_size = batch_size * windows_batch_size
 
-        self.series_indices = tf.range(self.N)
-
-        meta_list = []
-        for s_idx in range(self.N):
-            n_possible = self.T - window_size + 1
-            if n_possible < 1:
-                # series too short => skip
-                continue
-            for st in range(0, n_possible, self.stride):
-                meta_list.append((s_idx, st))
-        self.big_metadata = np.array(meta_list, dtype=object)
-        self.num_windows_total = len(self.big_metadata)
-
-        self.block_size = self.batch_size * self.windows_batch_size
-
-        # coverage_mode logic
-        if coverage_mode == "systematic":
-            self.windows_per_epoch_actual = self.num_windows_total
-        elif coverage_mode == "partial":
-            # interpret coverage_ratio as fraction of total windows
-            if coverage_fraction <= 0 or coverage_fraction > 1:
-                raise ValueError("coverage_ratio must be in (0, 1].")
-            self.windows_per_epoch_actual = int(
-                coverage_fraction * self.num_windows_total
-            )
-            # at minimum, use 1 block if coverage_ratio is very small:
-            self.windows_per_epoch_actual = max(
-                self.block_size, self.windows_per_epoch_actual
-            )
-        else:
-            raise ValueError("coverage_mode must be 'systematic' or 'partial'.")
-
-        # shuffle entire big_metadata initially
-        # np.random.shuffle(self.big_metadata)
-
-        assert prediction_mode in (
-            "one_step_ahead",
-            "multi_step_ahead",
-        ), "prediction_mode must be 'one_step_ahead' or 'multi_step_ahead'."
-        self.prediction_mode = prediction_mode
-        self.future_steps = future_steps
-
-        self.epoch_indices = None
-        self.on_epoch_end()
-
-        self.steps_per_epoch = (
-            self.windows_per_epoch_actual + self.block_size - 1
-        ) // self.block_size
-
-        # For debugging
-        # print(
-        #     f"num_windows_total={self.num_windows_total}, windows_per_epoch_actual={self.windows_per_epoch_actual}, "
-        #     f"steps_per_epoch={self.steps_per_epoch}"
-        # )
-
-    def __len__(self):
-        return self.steps_per_epoch
-
-    def on_epoch_end(self):
-        """Pick the indices for this epoch. Then define steps_per_epoch accordingly."""
-        if self.coverage_mode == "systematic":
-            np.random.shuffle(self.big_metadata)
-            # define epoch_indices as 0..num_windows_total-1
-            self.epoch_indices = np.arange(self.num_windows_total)
-        else:
-            sampled = np.random.choice(
-                self.num_windows_total,
-                size=self.windows_per_epoch_actual,
-                replace=False,
-            )
-            self.epoch_indices = sampled
-
-    def __getitem__(self, idx):
-        """
-        Returns a batch of windows of shape [B, window_size, 1],
-        plus dynamic features => [B, window_size, dyn_dim],
-        plus the reconstruction and forecast targets.
-        """
-        start_i = idx * self.block_size
-        end_i = min(start_i + self.block_size, len(self.epoch_indices))
-        current_inds = self.epoch_indices[start_i:end_i]
-        current_meta = self.big_metadata[current_inds]
-
-        batch_data_list = []
-        batch_mask_list = []
-        batch_dyn_list = []
-
-        batch_recon_list = []
-        batch_recon_mask_list = []
-        batch_pred_list = []
-        batch_pred_mask_list = []
-
-        for s_idx, st in current_meta:
-            # gather the window from [st : st+window_size], series s_idx
-            w_data = self.data[st : st + self.window_size, s_idx]  # shape [window_size]
-            w_mask = self.mask[st : st + self.window_size, s_idx]  # shape [window_size]
-
-            if self.dyn_features is not None:
-                w_dyn = self.dyn_features[
-                    st : st + self.window_size, :
-                ]  # shape [window_size, dyn_dim]
-            else:
-                w_dyn = tf.zeros((self.window_size, 0), dtype=tf.float32)
-
-            w_data = tf.reshape(w_data, [1, self.window_size, 1])
-            w_mask = tf.reshape(w_mask, [1, self.window_size, 1])
-            w_dyn = tf.reshape(w_dyn, [1, self.window_size, self.dyn_dim])
-
-            recon_t, recon_m, pred_t, pred_m = self._build_targets(
-                s_idx, st, w_data, w_mask
-            )
-
-            batch_data_list.append(w_data)
-            batch_mask_list.append(w_mask)
-            batch_dyn_list.append(w_dyn)
-
-            batch_recon_list.append(recon_t)
-            batch_recon_mask_list.append(recon_m)
-            batch_pred_list.append(pred_t)
-            batch_pred_mask_list.append(pred_m)
-
-        batch_data = tf.concat(batch_data_list, axis=0)  # [B, window_size, 1]
-        batch_mask = tf.concat(batch_mask_list, axis=0)  # [B, window_size, 1]
-        batch_dyn = tf.concat(batch_dyn_list, axis=0)  # [B, window_size, dyn_dim]
-
-        batch_recon_target = tf.concat(batch_recon_list, axis=0)  # [B, window_size, 1]
-        batch_recon_mask = tf.concat(
-            batch_recon_mask_list, axis=0
-        )  # [B, window_size, 1]
-        batch_pred_target = tf.concat(batch_pred_list, axis=0)  # shape [B, * , 1]
-        batch_pred_mask = tf.concat(batch_pred_mask_list, axis=0)  # shape [B, * , 1]
-
-        # store metadata for this batch => used in manual inference loop
-        self.last_batch_metadata = current_meta  # list of (series_idx, start_idx)
-
-        return (
-            (batch_data, batch_mask, batch_dyn, batch_pred_mask),
-            (batch_recon_target, batch_recon_mask, batch_pred_target, batch_pred_mask),
+    if coverage_mode == "partial":
+        windows_needed = int(num_windows_total * coverage_fraction)
+        windows_needed = max(block_size, windows_needed)  # at least block_size windows
+        sampled_indices = np.random.choice(
+            num_windows_total, size=windows_needed, replace=False
         )
+        big_meta = big_meta[sampled_indices]
 
-    def _build_targets(self, s_idx, st, window_data, window_mask):
+    x_data_list = []
+    x_mask_list = []
+    x_dyn_list = []
+    recon_list = []
+    recon_mask_list = []
+    pred_list = []
+    pred_mask_list = []
+
+    def build_targets(s_idx, st):
         """
-        Build:
-          recon_target, recon_mask => same shape as input window
-          pred_target, pred_mask => shape depends on 'prediction_mode' & 'future_steps'
+        Returns recon_target, recon_mask, pred_target, pred_mask
+        for a single window start, following your old logic.
         """
         # reconstruction
-        recon_target = window_data
-        recon_mask = window_mask
+        recon_target = data[st : st + window_size, s_idx]  # shape [window_size]
+        recon_mask = (
+            mask[st : st + window_size, s_idx]
+            if mask is not None
+            else tf.ones_like(recon_target)
+        )
 
         # forecast
-        if self.prediction_mode == "one_step_ahead":
-            next_idx = st + self.window_size
-            if next_idx < self.T:
-                val_data = self.data[next_idx, s_idx]
-                val_mask = self.mask[next_idx, s_idx]
+        if prediction_mode == "one_step_ahead":
+            next_idx = st + window_size
+            if next_idx < T:
+                val_data = data[next_idx, s_idx]
+                val_mask = mask[next_idx, s_idx] if mask is not None else 1.0
             else:
                 val_data = 0.0
                 val_mask = 0.0
-
-            pred_target = tf.reshape(val_data, [1, 1, 1])  # => [1, 1, 1]
-            pred_mask = tf.reshape(val_mask, [1, 1, 1])  # => [1, 1, 1]
-
-        else:  # "multi_step_ahead"
-            start_pred = st + self.window_size
-            end_pred = start_pred + self.future_steps
-            if start_pred >= self.T:
-                # out of range
-                seg_data = tf.zeros([self.future_steps], dtype=tf.float32)
-                seg_mask = tf.zeros([self.future_steps], dtype=tf.float32)
+            pred_target = tf.reshape(val_data, [1])  # shape [1]
+            pred_mask = tf.reshape(val_mask, [1])  # shape [1]
+        else:
+            start_pred = st + window_size
+            end_pred = start_pred + future_steps
+            if start_pred >= T:
+                # out of range => all zeros
+                seg_data = tf.zeros([future_steps], dtype=tf.float32)
+                seg_mask = tf.zeros([future_steps], dtype=tf.float32)
             else:
-                seg_data = self.data[start_pred : min(end_pred, self.T), s_idx]
-                seg_mask = self.mask[start_pred : min(end_pred, self.T), s_idx]
+                seg_data = data[start_pred : min(end_pred, T), s_idx]
+                seg_mask = (
+                    mask[start_pred : min(end_pred, T), s_idx]
+                    if mask is not None
+                    else tf.ones_like(seg_data)
+                )
                 valid_len = tf.shape(seg_data)[0]
-                needed = self.future_steps - valid_len
+                needed = future_steps - valid_len
                 if needed > 0:
                     seg_data = tf.concat([seg_data, tf.zeros([needed])], axis=0)
                     seg_mask = tf.concat([seg_mask, tf.zeros([needed])], axis=0)
-
-            pred_target = tf.reshape(
-                seg_data, [1, self.future_steps, 1]
-            )  # => [1, future_steps, 1]
-            pred_mask = tf.reshape(seg_mask, [1, self.future_steps, 1])
+            pred_target = seg_data  # [future_steps]
+            pred_mask = seg_mask  # [future_steps]
 
         return recon_target, recon_mask, pred_target, pred_mask
+
+    for s_idx, st in big_meta:
+        w_data = data[st : st + window_size, s_idx]  # [window_size]
+        w_mask = (
+            mask[st : st + window_size, s_idx]
+            if mask is not None
+            else tf.ones_like(w_data)
+        )
+        if dyn_dim > 0:
+            w_dyn = dyn_features[st : st + window_size, :]  # [window_size, dyn_dim]
+        else:
+            w_dyn = tf.zeros((window_size, 0), dtype=tf.float32)
+
+        recon_t, recon_m, pred_t, pred_m = build_targets(s_idx, st)
+
+        # reshape so all are rank-3 or rank-2 consistently
+        x_data_list.append(tf.reshape(w_data, [window_size, 1]))
+        x_mask_list.append(tf.reshape(w_mask, [window_size, 1]))
+        x_dyn_list.append(w_dyn)  # shape [window_size, dyn_dim]
+
+        recon_list.append(tf.reshape(recon_t, [-1, 1]))  # [window_size,1] or [1,1]
+        recon_mask_list.append(tf.reshape(recon_m, [-1, 1]))
+        pred_list.append(tf.reshape(pred_t, [-1, 1]))  # [future_steps,1] or [1,1]
+        pred_mask_list.append(tf.reshape(pred_m, [-1, 1]))
+
+    # convert all lists to a single big tensor
+    x_data = tf.stack(x_data_list, axis=0)  # [num_windows, window_size, 1]
+    x_mask = tf.stack(x_mask_list, axis=0)  # [num_windows, window_size, 1]
+    x_dyn = tf.stack(x_dyn_list, axis=0)  # [num_windows, window_size, dyn_dim]
+
+    recon = tf.stack(
+        recon_list, axis=0
+    )  # shape [num_windows, window_size, 1] if one_step => window_size= ...
+    recon_m = tf.stack(recon_mask_list, axis=0)
+    pred = tf.stack(pred_list, axis=0)
+    pred_mask = tf.stack(pred_mask_list, axis=0)
+
+    big_meta = np.array(big_meta, dtype=np.int32)
+    dataset = tf.data.Dataset.from_tensor_slices(
+        (
+            (x_data, x_mask, x_dyn, pred_mask),
+            (recon, recon_m, pred, pred_mask),
+            big_meta,  # needed for detemporalize [num_windows, 2]
+        )
+    )
+
+    if not (coverage_mode == "systematic"):
+        dataset = dataset.shuffle(
+            buffer_size=shuffle_buffer_size,
+            reshuffle_each_iteration=reshuffle_each_epoch,
+        )
+
+    dataset = dataset.batch(block_size)
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
+    return dataset
 
 
 class Sampling(tf.keras.layers.Layer):
@@ -384,12 +340,10 @@ class CVAE(keras.Model):
 
     @tf.function
     def train_step(self, data):
-        """
-        data => ((batch_data, batch_mask, batch_dyn), (batch_recon_target, batch_pred_target))
-        """
         (
             (batch_data, batch_mask, batch_dyn, pred_mask),
             (recon_target, recon_mask, pred_target, pred_mask),
+            big_meta,
         ) = data
 
         with tf.GradientTape() as tape:
@@ -428,11 +382,15 @@ class CVAE(keras.Model):
 
     @tf.function
     def test_step(self, data):
-        (batch_data, batch_mask, batch_dyn, pred_mask), (
-            recon_target,
-            recon_mask,
-            pred_target,
-            pred_mask,
+        (
+            (batch_data, batch_mask, batch_dyn, pred_mask),
+            (
+                recon_target,
+                recon_mask,
+                pred_target,
+                pred_mask,
+            ),
+            big_meta,
         ) = data
 
         pred_reconst, z_mean, z_log_var, pred_forecast = self(

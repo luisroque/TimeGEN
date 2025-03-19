@@ -4,14 +4,14 @@ import pandas as pd
 
 def detemporalize(
     windows: np.ndarray,
-    metadata: list[tuple[int,int]],
+    metadata: np.ndarray,
     T: int,
     N: int,
 ) -> np.ndarray:
     """
     Reconstruct a [T, N] array from:
-      windows: shape [B, window_size, 1]
-      metadata: list of (series_idx, start_idx), length B
+      windows: [B, window_size, 1]
+      metadata: [B, 2] => (series_idx, start_idx)
     If multiple windows overlap a position => average them.
     Returns shape [T, N].
     """
@@ -22,11 +22,10 @@ def detemporalize(
     for b in range(B):
         s_idx, st = metadata[b]
         end = min(st + window_size, T)
-        w_slice = windows[b, :end - st, 0]  # shape [slice_len]
+        w_slice = windows[b, : end - st, 0]  # shape [slice_len]
         out[st:end, s_idx] += w_slice
         count[st:end, s_idx] += 1
 
-    valid = (count > 0)
+    valid = count > 0
     out[valid] /= count[valid]
     return out
-
