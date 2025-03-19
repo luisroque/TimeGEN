@@ -764,7 +764,7 @@ class CreateTransformedVersionsCVAE:
         if added_score:
             plot_generated_vs_original(
                 synth_data=synthetic_data,
-                original_test_data=original_data,
+                original_data=original_data,
                 score=score,
                 loss=loss,
                 dataset_name=self.dataset_name,

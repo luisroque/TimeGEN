@@ -14,154 +14,6 @@ from hitgen.metrics.discriminative_score import (
 from hitgen.visualization import plot_generated_vs_original
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
 
-# from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
-
-DATASETS_HYPERPARAMS_CONFIGS = {
-    "Tourism": {
-        "Monthly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        }
-    },
-    "M1": {
-        "Monthly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-        "Quarterly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-    },
-    "M3": {
-        "Monthly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-        "Quarterly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-        "Yearly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-    },
-    "M4": {
-        "Monthly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-        "Quarterly": {
-            # "timegan": {
-            #     "gan_args": ModelParameters(
-            #         batch_size=16,
-            #         lr=2e-4,
-            #         noise_dim=16,
-            #         layers_dim=32,
-            #         latent_dim=32,
-            #         gamma=1.0,
-            #     ),
-            #     "train_args": TrainParameters(
-            #         epochs=1000,
-            #         sequence_length=24,
-            #         number_sequences=4,
-            #     ),
-            # },
-        },
-    },
-}
 
 DATASET_GROUP_FREQ = {
     "Tourism": {
@@ -248,6 +100,8 @@ if __name__ == "__main__":
 
     for DATASET, SUBGROUPS in DATASET_GROUP_FREQ.items():
         for subgroup in SUBGROUPS.items():
+            dataset_group_results = []
+
             FREQ = extract_frequency(subgroup)
             H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]
@@ -262,23 +116,10 @@ if __name__ == "__main__":
             print(
                 f"Dataset: {DATASET}, Dataset-group: {DATASET_GROUP}, Frequency: {FREQ}"
             )
-            if (
-                DATASET not in DATASETS_HYPERPARAMS_CONFIGS
-                or DATASET_GROUP not in DATASETS_HYPERPARAMS_CONFIGS[DATASET]
-            ):
-                raise ValueError(
-                    f"Configuration for {DATASET} - {DATASET_GROUP} not found."
-                )
 
             print(
                 f"\n\nOptimization score to use for hyptertuning: {args.opt_score}\n\n"
             )
-            # dataset_config = DATASETS_HYPERPARAMS_CONFIGS[DATASET][DATASET_GROUP]
-
-            # TIMEGAN Configurations
-            # timegan_config = dataset_config["timegan"]
-            # gan_args = timegan_config["gan_args"]
-            # train_args = timegan_config["train_args"]
 
             SYNTHETIC_FILE_PATH_HITGEN = (
                 f"assets/model_weights/{DATASET}_{DATASET_GROUP}_synthetic_hitgen.pkl"
@@ -321,48 +162,9 @@ if __name__ == "__main__":
                 ds=create_dataset_vae.ds_test,
             )
 
-            # TimeGAN synthetic data generation
-
-            # parallel timegan training and synthetic data generation
-            # synth_timegan_data_all = Parallel(n_jobs=6)(
-            #     delayed(train_and_generate_synthetic)(
-            #         ts, original_data_long, DATASET, DATASET_GROUP, WINDOW_SIZE
-            #     )
-            #     for ts in original_data_long["unique_id"].unique()
-            # )
-
-            # best_params = hyper_tune_timegan(
-            #     train_data_long, DATASET, DATASET_GROUP, window_size=24, n_trials=50
-            # )
-            # final_model = train_timegan_with_best_params(
-            #     test_data_long, best_params, DATASET, DATASET_GROUP, window_size=24
-            # )
-
             test_unique_ids = create_dataset_vae.original_test_long[
                 "unique_id"
             ].unique()
-
-            # hypertuning timegan
-            # hyper_tune_timegan(
-            #     data=original_data_long,
-            #     dataset_name=DATASET,
-            #     dataset_group=DATASET_GROUP,
-            #     window_size=WINDOW_SIZE,
-            #     long_properties=create_dataset_vae.long_properties,
-            #     freq=FREQ,
-            # )
-
-            # synthetic_timegan_long = workflow_timegan(
-            #     test_unique_ids,
-            #     SYNTHETIC_FILE_PATH_TIMEGAN,
-            #     test_data_long,
-            #     DATASET,
-            #     DATASET_GROUP,
-            #     WINDOW_SIZE,
-            #     create_dataset_vae.long_properties,
-            #     FREQ,
-            #     timegan_config,
-            # )
 
             # metaforecast methods
             synthetic_metaforecast_long = workflow_metaforecast_methods(
@@ -374,7 +176,7 @@ if __name__ == "__main__":
 
             plot_generated_vs_original(
                 synth_data=synth_hitgen_test_long,
-                original_test_data=create_dataset_vae.original_test_long,
+                original_data=create_dataset_vae.original_test_long,
                 score=0.0,
                 loss=0.0,
                 dataset_name=DATASET,
@@ -449,34 +251,20 @@ if __name__ == "__main__":
                 f"score {hitgen_score_dtf['std_smape_original']:.4f}\n\n"
             )
 
-            results.append(
-                {
-                    "Dataset": DATASET,
-                    "Group": DATASET_GROUP,
-                    "Method": "HiTGen",
-                    "Discriminative Score": hitgen_score_disc,
-                    "TSTR (avg_smape_tstr)": hitgen_score_tstr["avg_smape_tstr"],
-                    "TRTR (avg_smape_trtr)": hitgen_score_tstr["avg_smape_trtr"],
-                    "DTF Concat Avg Score": hitgen_score_dtf["avg_smape_concat"],
-                    "DTF Original Avg Score": hitgen_score_dtf["avg_smape_original"],
-                    "DTF Concat Std Score": hitgen_score_dtf["std_smape_concat"],
-                    "DTF Original Std Score": hitgen_score_dtf["std_smape_original"],
-                }
-            )
-
-            # print("\nComputing discriminative score for TimeGAN synthetic data...")
-            # score_timegan = compute_discriminative_score(
-            #     unique_ids=test_unique_ids,
-            #     original_data=test_data_long,
-            #     synthetic_data=synthetic_timegan_long,
-            #     freq="M",
-            #     dataset_name=DATASET,
-            #     dataset_group=DATASET_GROUP,
-            #     loss=0.0,
-            #     samples=5,
-            # )
-
-            # print(f"Discriminative score for TimeGAN synthetic data: {score_timegan:.4f}")
+            row_hitgen = {
+                "Dataset": DATASET,
+                "Group": DATASET_GROUP,
+                "Method": "HiTGen",
+                "Discriminative Score": hitgen_score_disc,
+                "TSTR (avg_smape_tstr)": hitgen_score_tstr["avg_smape_tstr"],
+                "TRTR (avg_smape_trtr)": hitgen_score_tstr["avg_smape_trtr"],
+                "DTF Concat Avg Score": hitgen_score_dtf["avg_smape_concat"],
+                "DTF Original Avg Score": hitgen_score_dtf["avg_smape_original"],
+                "DTF Concat Std Score": hitgen_score_dtf["std_smape_concat"],
+                "DTF Original Std Score": hitgen_score_dtf["std_smape_original"],
+            }
+            dataset_group_results.append(row_hitgen)
+            results.append(row_hitgen)
 
             for method in METAFORECAST_METHODS:
                 synthetic_metaforecast_long_method = synthetic_metaforecast_long.loc[
@@ -494,7 +282,7 @@ if __name__ == "__main__":
 
                 plot_generated_vs_original(
                     synth_data=synthetic_metaforecast_long_method,
-                    original_test_data=create_dataset_vae.original_test_long,
+                    original_data=create_dataset_vae.original_test_long,
                     score=0.0,
                     loss=0.0,
                     dataset_name=DATASET,
@@ -571,25 +359,34 @@ if __name__ == "__main__":
                     f"score {score_dtf['std_smape_original']:.4f}\n\n"
                 )
 
-                results.append(
-                    {
-                        "Dataset": DATASET,
-                        "Group": DATASET_GROUP,
-                        "Method": method,
-                        "Discriminative Score": score_disc,
-                        "TSTR (avg_smape_tstr)": score_tstr["avg_smape_tstr"],
-                        "TRTR (avg_smape_trtr)": score_tstr["avg_smape_trtr"],
-                        "DTF Concat Avg Score": score_dtf["avg_smape_concat"],
-                        "DTF Original Avg Score": score_dtf["avg_smape_original"],
-                        "DTF Concat Std Score": score_dtf["std_smape_concat"],
-                        "DTF Original Std Score": score_dtf["std_smape_original"],
-                    }
-                )
+                row_method = {
+                    "Dataset": DATASET,
+                    "Group": DATASET_GROUP,
+                    "Method": method,
+                    "Discriminative Score": score_disc,
+                    "TSTR (avg_smape_tstr)": score_tstr["avg_smape_tstr"],
+                    "TRTR (avg_smape_trtr)": score_tstr["avg_smape_trtr"],
+                    "DTF Concat Avg Score": score_dtf["avg_smape_concat"],
+                    "DTF Original Avg Score": score_dtf["avg_smape_original"],
+                    "DTF Concat Std Score": score_dtf["std_smape_concat"],
+                    "DTF Original Std Score": score_dtf["std_smape_original"],
+                }
+                dataset_group_results.append(row_method)
+                results.append(row_method)
 
-    results_df = pd.DataFrame(results)
-    results_df = results_df.round(3)
+            dataset_group_df = pd.DataFrame(dataset_group_results).round(3)
+            os.makedirs("assets/results", exist_ok=True)
 
-    print(results_df)
+            dataset_group_df_results_path = (
+                f"assets/results/{DATASET}_{DATASET_GROUP}_synthetic_data_results.csv"
+            )
+            dataset_group_df.to_csv(dataset_group_df_results_path, index=False)
+            print(
+                f"\n==> Saved results for {DATASET} {DATASET_GROUP} to {dataset_group_df_results_path}\n"
+            )
 
-    results_path = "assets/results/synthetic_data_results.csv"
-    results_df.to_csv(results_path, index=False)
+    all_results_df = pd.DataFrame(results).round(3)
+    all_results_path = "assets/results/synthetic_data_results.csv"
+    all_results_df.to_csv(all_results_path, index=False)
+
+    print(f"==> Saved consolidated results to {all_results_path}")

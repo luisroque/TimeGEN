@@ -36,7 +36,7 @@ def plot_loss(history_dict):
 
 def plot_generated_vs_original(
     synth_data: pd.DataFrame,
-    original_test_data: pd.DataFrame,
+    original_data: pd.DataFrame,
     score: float,
     loss: float,
     dataset_name: str,
@@ -45,48 +45,56 @@ def plot_generated_vs_original(
     suffix_name: str = "hitgen",
 ) -> None:
     """
-    Plot generated series and the original series and store as pdf
+    Plot generated series and the original series for comparison and store as PDF.
     """
+
+    plt.style.use("bmh")
+
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     if not n_series % 2 == 0:
         n_series -= 1
 
-    fig, ax = plt.subplots(n_series // 2, 2, figsize=(18, 10))
-    ax = ax.ravel()
+    fig, axes = plt.subplots(n_series // 2, 2, figsize=(18, 10))
+    axes = axes.ravel()
 
     unique_ids = synth_data["unique_id"].unique()[:n_series]
 
     for i in range(n_series):
         ts_id = unique_ids[i]
 
-        ax[i].plot(
+        axes[i].plot(
             synth_data.loc[synth_data["unique_id"] == ts_id]["ds"],
             synth_data.loc[synth_data["unique_id"] == ts_id]["y"],
             label="Generated",
         )
-        ax[i].plot(
-            original_test_data.loc[original_test_data["unique_id"] == ts_id]["ds"],
-            original_test_data.loc[original_test_data["unique_id"] == ts_id]["y"],
+
+        axes[i].plot(
+            original_data.loc[original_data["unique_id"] == ts_id]["ds"],
+            original_data.loc[original_data["unique_id"] == ts_id]["y"],
             label="Original",
         )
 
-        ax[i].set_title(f"Time Series: {ts_id}", fontsize=12)
-        ax[i].set_xlabel("Date")
-        ax[i].set_ylabel("Value")
+        axes[i].set_title(f"Time Series ID: {ts_id}", fontsize=11, fontweight="bold")
+        axes[i].set_xlabel("Date", fontsize=9)
+        axes[i].set_ylabel("Value", fontsize=9)
+        axes[i].grid(True, linestyle="--", alpha=0.6)
 
-    ax[-1].legend(loc="lower right")
-
-    plt.suptitle(
-        f"VAE generated dataset vs original -> {dataset_name}: {dataset_group}",
+    axes[-1].legend(loc="lower right")
+    fig.suptitle(
+        f"VAE Generated vs. Original\n"
+        f"Dataset: {dataset_name} | Group: {dataset_group} | Score: {score:.2f}",
         fontsize=14,
+        fontweight="bold",
     )
 
     plt.tight_layout()
     os.makedirs("assets/plots", exist_ok=True)
     plt.savefig(
-        f"assets/plots/{current_datetime}_vae_generated_vs_original_{suffix_name}_"
-        f"{dataset_name}_{dataset_group}_{round(score, 2)}_{round(loss, 2)}.pdf",
+        f"assets/plots/"
+        f"{current_datetime}_vae_generated_vs_original_{suffix_name}_"
+        f"{dataset_name}_{dataset_group}_"
+        f"{round(score, 2)}_{round(loss, 2)}.pdf",
         format="pdf",
         bbox_inches="tight",
     )
