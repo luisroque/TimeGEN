@@ -164,18 +164,18 @@ DATASETS_HYPERPARAMS_CONFIGS = {
 }
 
 DATASET_GROUP_FREQ = {
-    "Tourism": {
-        "Monthly": {"FREQ": "M", "H": 24},
-    },
+    # "Tourism": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # },
     "M1": {
         "Monthly": {"FREQ": "M", "H": 24},
         "Quarterly": {"FREQ": "Q", "H": 8},
     },
-    "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-        "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    #     "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 
@@ -318,6 +318,7 @@ if __name__ == "__main__":
                 original_data_wide=create_dataset_vae.original_test_wide,
                 original_data_long=create_dataset_vae.original_test_long,
                 unique_ids=create_dataset_vae.test_ids,
+                ds=create_dataset_vae.ds_test,
             )
 
             # TimeGAN synthetic data generation

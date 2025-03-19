@@ -174,7 +174,13 @@ class CreateTransformedVersionsCVAE:
         n_series = int(ds.nunique()["unique_id"])
         return ds, n_series, freq
 
-    def create_dataset_long_form(self, data, original, unique_ids=None) -> pd.DataFrame:
+    def create_dataset_long_form(
+        self,
+        data: pd.DataFrame,
+        original: pd.DataFrame,
+        unique_ids: List = None,
+        ds: pd.DatetimeIndex = None,
+    ) -> pd.DataFrame:
         df = pd.DataFrame(data)
         df.sort_index(ascending=True, inplace=True)
 
@@ -183,16 +189,7 @@ class CreateTransformedVersionsCVAE:
             df["ds"] = self.long_properties["ds"]
         else:
             df.columns = unique_ids
-            if df.index.name == "ds" or isinstance(df.index, pd.DatetimeIndex):
-                df.reset_index(inplace=True)
-            else:
-                ds_unique_sorted = np.sort(original["ds"].unique())
-                if len(df) != len(ds_unique_sorted):
-                    raise ValueError(
-                        f"Length mismatch: DataFrame has {len(df)} rows, "
-                        f"while sorted unique 'ds' has {len(ds_unique_sorted)} entries."
-                    )
-                df["ds"] = ds_unique_sorted
+            df["ds"] = ds
 
         data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
         data_long = data_long.sort_values(by=["unique_id", "ds"])
@@ -506,11 +503,21 @@ class CreateTransformedVersionsCVAE:
         )
 
         original_long = self.create_dataset_long_form(original_wide, self.df)
+        self.ds_original = pd.DatetimeIndex(original_long["ds"].unique()).sort_values()
+        self.unique_ids_original = sorted(original_long["unique_id"].unique())
         original_long_transf = self.create_dataset_long_form(
-            original_wide_transf, self.df
+            original_wide_transf,
+            self.df,
+            unique_ids=self.unique_ids_original,
+            ds=self.ds_original,
         )
 
-        mask_original_long = self.create_dataset_long_form(mask_original_wide, self.df)
+        mask_original_long = self.create_dataset_long_form(
+            mask_original_wide,
+            self.df,
+            unique_ids=self.unique_ids_original,
+            ds=self.ds_original,
+        )
 
         # splitting into train, validation, and test sets
         self.train_ids, self.val_ids, self.test_ids = self._load_or_create_split(
@@ -519,19 +526,21 @@ class CreateTransformedVersionsCVAE:
         self.train_ids.sort()
         self.val_ids.sort()
         self.test_ids.sort()
-        self.unique_ids = (self.train_ids + self.val_ids + self.test_ids).sort()
         self.s_train = len(self.train_ids)
         self.s_val = len(self.val_ids)
 
         ### TRAINING DATA ###
         train_long = original_long[original_long["unique_id"].isin(self.train_ids)]
+        self.ds_train = pd.DatetimeIndex(train_long["ds"].unique()).sort_values()
+        self.unique_ids_train = sorted(train_long["unique_id"].unique())
+
         mask_train_long = mask_original_long[
             mask_original_long["unique_id"].isin(self.train_ids)
         ]
 
         # convert training long -> wide
         train_wide = self._create_dataset_wide_form(
-            data_long=train_long, ids=self.train_ids, full_dates=self.full_dates
+            data_long=train_long, ids=self.train_ids, full_dates=self.ds_train
         )
         train_wide_transf = pd.DataFrame(
             self.scaler_train.fit_transform(train_wide),
@@ -539,21 +548,24 @@ class CreateTransformedVersionsCVAE:
             columns=train_wide.columns,
         )
         mask_train_wide = self._create_dataset_wide_form(
-            data_long=mask_train_long, ids=self.train_ids, full_dates=self.full_dates
+            data_long=mask_train_long, ids=self.train_ids, full_dates=self.ds_train
         )
         train_long_transf = self.create_dataset_long_form(
-            train_wide_transf, self.df, unique_ids=self.train_ids
+            train_wide_transf, self.df, unique_ids=self.train_ids, ds=self.ds_train
         )
 
         ### VALIDATION DATA ###
         val_long = original_long[original_long["unique_id"].isin(self.val_ids)]
+        self.ds_val = pd.DatetimeIndex(val_long["ds"].unique()).sort_values()
+        self.unique_ids_val = sorted(val_long["unique_id"].unique())
+
         mask_val_long = mask_original_long[
             mask_original_long["unique_id"].isin(self.val_ids)
         ]
 
         # convert validation long -> wide
         val_wide = self._create_dataset_wide_form(
-            data_long=val_long, ids=self.val_ids, full_dates=self.full_dates
+            data_long=val_long, ids=self.val_ids, full_dates=self.ds_val
         )
         val_wide_transf = pd.DataFrame(
             self.scaler_val.fit_transform(val_wide),
@@ -561,16 +573,18 @@ class CreateTransformedVersionsCVAE:
             columns=val_wide.columns,
         )
         mask_val_wide = self._create_dataset_wide_form(
-            data_long=mask_val_long, ids=self.val_ids, full_dates=self.full_dates
+            data_long=mask_val_long, ids=self.val_ids, full_dates=self.ds_val
         )
         val_long_transf = self.create_dataset_long_form(
-            val_wide_transf, self.df, unique_ids=self.val_ids
+            val_wide_transf, self.df, unique_ids=self.val_ids, ds=self.ds_val
         )
 
         ### TRAIN + VALIDATION DATA ###
         trainval_ids = self.train_ids + self.val_ids
 
         trainval_long = original_long[original_long["unique_id"].isin(trainval_ids)]
+        self.ds_trainval = pd.DatetimeIndex(trainval_long["ds"].unique()).sort_values()
+        self.unique_ids_trainval = sorted(trainval_long["unique_id"].unique())
         mask_trainval_long = mask_original_long[
             mask_original_long["unique_id"].isin(trainval_ids)
         ]
@@ -579,7 +593,7 @@ class CreateTransformedVersionsCVAE:
         trainval_wide = self._create_dataset_wide_form(
             data_long=trainval_long,
             ids=trainval_ids,
-            full_dates=self.full_dates,
+            full_dates=self.ds_trainval,
         )
         trainval_wide_transf = pd.DataFrame(
             self.scaler_trainval.fit_transform(trainval_wide),
@@ -589,23 +603,24 @@ class CreateTransformedVersionsCVAE:
         mask_trainval_wide = self._create_dataset_wide_form(
             data_long=mask_trainval_long,
             ids=trainval_ids,
-            full_dates=self.full_dates,
+            full_dates=self.ds_trainval,
         )
         trainval_long_transf = self.create_dataset_long_form(
-            trainval_wide_transf,
-            self.df,
-            unique_ids=trainval_ids,
+            trainval_wide_transf, self.df, unique_ids=trainval_ids, ds=self.ds_trainval
         )
 
         ### TESTING DATA ###
         test_long = original_long[original_long["unique_id"].isin(self.test_ids)]
+        self.ds_test = pd.DatetimeIndex(test_long["ds"].unique()).sort_values()
+        self.unique_ids_test = sorted(test_long["unique_id"].unique())
+
         mask_test_long = mask_original_long[
             mask_original_long["unique_id"].isin(self.test_ids)
         ]
 
         # convert testing long -> wide
         test_wide = self._create_dataset_wide_form(
-            data_long=test_long, ids=self.test_ids, full_dates=self.full_dates
+            data_long=test_long, ids=self.test_ids, full_dates=self.ds_test
         )
         test_wide_transf = pd.DataFrame(
             self.scaler_test.fit_transform(test_wide),
@@ -613,10 +628,10 @@ class CreateTransformedVersionsCVAE:
             columns=test_wide.columns,
         )
         mask_test_wide = self._create_dataset_wide_form(
-            data_long=mask_test_long, ids=self.test_ids, full_dates=self.full_dates
+            data_long=mask_test_long, ids=self.test_ids, full_dates=self.ds_test
         )
         test_long_transf = self.create_dataset_long_form(
-            test_wide_transf, self.df, unique_ids=self.test_ids
+            test_wide_transf, self.df, unique_ids=self.test_ids, ds=self.ds_test
         )
 
         # convert masks to tensors
@@ -958,6 +973,7 @@ class CreateTransformedVersionsCVAE:
             original_data_wide=self.original_val_wide,
             original_data_long=self.original_val_long,
             unique_ids=self.val_ids,
+            ds=self.ds_val,
         )
 
         if self.opt_score == "discriminative_score":
@@ -1227,6 +1243,7 @@ class CreateTransformedVersionsCVAE:
         original_data_wide: pd.DataFrame,
         original_data_long: pd.DataFrame,
         unique_ids: List,
+        ds: pd.DatetimeIndex,
         filter_series: bool = None,
         unique_ids_filter: List = None,
     ):
@@ -1235,7 +1252,7 @@ class CreateTransformedVersionsCVAE:
         reconst_wide = self._predict_loop(cvae, gen_data, T, N, use_reconstruction=True)
         reconst_wide = scaler.inverse_transform(reconst_wide)
         X_hat_long = self.create_dataset_long_form(
-            reconst_wide, original_data_long, unique_ids=unique_ids
+            reconst_wide, original_data_long, unique_ids=unique_ids, ds=ds
         )
         if filter_series:
             X_hat_long = X_hat_long.loc[X_hat_long["unique_id"].isin(unique_ids_filter)]
