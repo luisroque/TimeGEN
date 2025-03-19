@@ -9,11 +9,10 @@ import optuna
 from tensorflow import keras
 import tensorflow as tf
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from hitgen.model.models import CVAE, build_tf_dataset
 from hitgen.feature_engineering.feature_transformations import (
     detemporalize,
 )
-from hitgen.model.models import get_CVAE
+from hitgen.model.models import get_CVAE, KLScheduleCallback, CVAE, build_tf_dataset
 from hitgen.metrics.discriminative_score import (
     compute_discriminative_score,
     compute_downstream_forecast,
@@ -52,8 +51,6 @@ class CreateTransformedVersionsCVAE:
         noise_scale: float = 0.1,
         amplitude: float = 1.0,
         forecasting: bool = True,
-        kl_weight_init: float = 0.1,
-        noise_scale_init: float = 0.1,
         kernel_size: Tuple[int] = (2, 2, 1),
         patience: int = 30,
         horizon: int = 24,
@@ -66,8 +63,6 @@ class CreateTransformedVersionsCVAE:
         self.amplitude = amplitude
         self.batch_size = batch_size
         self.forecasting = forecasting
-        self.kl_weight_init = kl_weight_init
-        self.noise_scale_init = noise_scale_init
         self.patience = patience
         self.kernel_size = kernel_size
         (self.data, self.s, self.freq) = self.load_data(
@@ -707,7 +702,6 @@ class CreateTransformedVersionsCVAE:
         latent_dim: int,
         window_size: int,
         patience: int,
-        kl_weight: float,
         kernel_size: Tuple[int],
         n_hidden: int,
         time_dist_units: int,
@@ -721,7 +715,6 @@ class CreateTransformedVersionsCVAE:
         epochs: int,
         learning_rate: float,
         forecasting: bool,
-        noise_scale_init: float,
         loss: float,
         trial: int,
     ) -> None:
@@ -739,7 +732,6 @@ class CreateTransformedVersionsCVAE:
             "latent_dim": latent_dim,
             "window_size": window_size,
             "patience": patience,
-            "kl_weight": kl_weight,
             "kernel_size": kernel_size,
             "n_hidden": n_hidden,
             "time_dist_units": time_dist_units,
@@ -753,7 +745,6 @@ class CreateTransformedVersionsCVAE:
             "epochs": epochs,
             "learning_rate": learning_rate,
             "forecasting": forecasting,
-            "noise_scale_init": noise_scale_init,
             "loss": loss,
             self.opt_score: score,
         }
@@ -838,215 +829,225 @@ class CreateTransformedVersionsCVAE:
 
     def objective(self, trial):
         """
-        Objective function for Optuna to tune the CVAE hyperparameters, evaluated using the validation set.
+        Objective function for Optuna to tune the CVAE hyperparameters,
+        evaluated using the validation set.
         """
-        # try:
-        latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
-        if self.freq in ["M", "MS"]:
-            window_size = trial.suggest_int("window_size", 6, 24, step=3)
-        elif self.freq in ["Q", "QS"]:
-            window_size = trial.suggest_int("window_size", 8, 16, step=2)
-        elif self.freq in ["Y", "YS"]:
-            window_size = trial.suggest_int("window_size", 4, 8, step=1)
-        else:
-            window_size = trial.suggest_int("window_size", 4, 24, step=1)
+        try:
+            latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
 
-        stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
-        patience = trial.suggest_int("patience", 4, 6, step=1)
-        kl_weight = trial.suggest_float("kl_weight", 0.05, 0.35)
-        n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
-        time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
-        n_blocks = trial.suggest_int("n_layers", 1, 3)
+            if self.freq in ["M", "MS"]:
+                window_size = trial.suggest_int("window_size", 6, 24, step=3)
+            elif self.freq in ["Q", "QS"]:
+                window_size = trial.suggest_int("window_size", 8, 16, step=2)
+            elif self.freq in ["Y", "YS"]:
+                window_size = trial.suggest_int("window_size", 4, 8, step=1)
+            else:
+                window_size = trial.suggest_int("window_size", 4, 24, step=1)
 
-        predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
-        valid_kernel_sizes = [
-            ks for ks in predefined_kernel_sizes if all(window_size >= k for k in ks)
-        ]
-        if not valid_kernel_sizes:
-            valid_kernel_sizes.append((1, 1, 1))
+            stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
+            patience = trial.suggest_int("patience", 4, 6, step=1)
 
-        kernel_size = tuple(
-            trial.suggest_categorical("kernel_size", valid_kernel_sizes)
-        )
+            n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
+            time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
+            n_blocks = trial.suggest_int("n_layers", 1, 3)
 
-        batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
-        windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
-        coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
+            predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
+            valid_kernel_sizes = [
+                ks
+                for ks in predefined_kernel_sizes
+                if all(window_size >= k for k in ks)
+            ]
+            if not valid_kernel_sizes:
+                valid_kernel_sizes.append((1, 1, 1))
 
-        prediction_mode = trial.suggest_categorical(
-            "prediction_mode", ["one_step_ahead", "multi_step_ahead"]
-        )
-        if prediction_mode == "multi_step_ahead":
-            future_steps = window_size
-        else:
-            future_steps = 1
-        epochs = trial.suggest_int("epochs", 100, 750, step=25)
-        learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
-        noise_scale_init = trial.suggest_float("noise_scale_init", 0.01, 0.35)
+            kernel_size = tuple(
+                trial.suggest_categorical("kernel_size", valid_kernel_sizes)
+            )
 
-        forecasting = True
+            batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
+            windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
+            coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
 
-        data_mask_temporalized_train = build_tf_dataset(
-            data=self.original_train_wide_transf,
-            mask=self.mask_train_wide,
-            dyn_features=self.train_dyn_features,
-            window_size=window_size,
-            stride=stride,
-            batch_size=batch_size,
-            windows_batch_size=windows_batch_size,
-            coverage_mode="partial",
-            coverage_fraction=coverage_fraction,
-            prediction_mode=prediction_mode,
-            future_steps=future_steps,
-        )
+            prediction_mode = trial.suggest_categorical(
+                "prediction_mode", ["one_step_ahead", "multi_step_ahead"]
+            )
+            if prediction_mode == "multi_step_ahead":
+                future_steps = window_size
+            else:
+                future_steps = 1
 
-        data_mask_temporalized_val = build_tf_dataset(
-            data=self.original_val_wide_transf,
-            mask=self.mask_val_wide,
-            dyn_features=self.val_dyn_features,
-            window_size=window_size,
-            stride=1,
-            batch_size=batch_size,
-            windows_batch_size=windows_batch_size,
-            coverage_mode="systematic",
-            prediction_mode=prediction_mode,
-            future_steps=future_steps,
-        )
+            epochs = trial.suggest_int("epochs", 100, 750, step=25)
+            learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
 
-        encoder, decoder = get_CVAE(
-            window_size=window_size,
-            input_dim=1,  # univariate series
-            latent_dim=latent_dim,
-            pred_dim=future_steps,
-            time_dist_units=time_dist_units,
-            n_blocks=n_blocks,
-            noise_scale_init=noise_scale_init,
-            kernel_size=kernel_size,
-            forecasting=forecasting,
-            n_hidden=n_hidden,
-        )
+            forecasting = True
 
-        cvae = CVAE(
-            encoder, decoder, kl_weight_initial=kl_weight, forecasting=forecasting
-        )
-        cvae.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
-            metrics=[
-                cvae.total_loss_tracker,
-                cvae.reconstruction_loss_tracker,
-                cvae.kl_loss_tracker,
-            ],
-        )
+            data_mask_temporalized_train = build_tf_dataset(
+                data=self.original_train_wide_transf,
+                mask=self.mask_train_wide,
+                dyn_features=self.train_dyn_features,
+                window_size=window_size,
+                stride=stride,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="partial",
+                coverage_fraction=coverage_fraction,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+            )
 
-        es = EarlyStopping(
-            patience=patience,
-            verbose=1,
-            monitor="val_loss",
-            mode="auto",
-            restore_best_weights=True,
-        )
-        reduce_lr = ReduceLROnPlateau(
-            monitor="val_loss",
-            factor=0.2,
-            patience=3,
-            min_lr=1e-6,
-            cooldown=3,
-            verbose=1,
-        )
+            data_mask_temporalized_val = build_tf_dataset(
+                data=self.original_val_wide_transf,
+                mask=self.mask_val_wide,
+                dyn_features=self.val_dyn_features,
+                window_size=window_size,
+                stride=1,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="systematic",
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+            )
 
-        history = cvae.fit(
-            x=data_mask_temporalized_train,
-            validation_data=data_mask_temporalized_val,
-            epochs=epochs,
-            batch_size=batch_size,
-            shuffle=False,
-            callbacks=[es, reduce_lr],
-            validation_freq=3,
-        )
+            encoder, decoder = get_CVAE(
+                window_size=window_size,
+                input_dim=1,  # univariate series
+                latent_dim=latent_dim,
+                pred_dim=future_steps,
+                time_dist_units=time_dist_units,
+                n_blocks=n_blocks,
+                kernel_size=kernel_size,
+                forecasting=forecasting,
+                n_hidden=n_hidden,
+            )
 
-        val_loss = min(history.history["loss"])
+            cvae = CVAE(
+                encoder=encoder,
+                decoder=decoder,
+                forecasting=forecasting,
+            )
+            cvae.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+                metrics=[
+                    cvae.total_loss_tracker,
+                    cvae.reconstruction_loss_tracker,
+                    cvae.kl_loss_tracker,
+                ],
+            )
 
-        synthetic_long = self.predict(
-            cvae,
-            gen_data=data_mask_temporalized_val,
-            scaler=self.scaler_val,
-            original_data_wide=self.original_val_wide,
-            original_data_long=self.original_val_long,
-            unique_ids=self.val_ids,
-            ds=self.ds_val,
-        )
+            kl_callback = KLScheduleCallback(
+                cvae_model=cvae,
+                kl_start=0.0,
+                kl_end=1.0,
+                warmup_epochs=int(epochs * 0.3),
+            )
 
-        if self.opt_score == "discriminative_score":
-            score = self.compute_mean_discriminative_score(
-                unique_ids=synthetic_long["unique_id"].unique(),
-                original_data=self.original_long,
+            es = EarlyStopping(
+                patience=patience,
+                verbose=1,
+                monitor="val_loss",
+                mode="auto",
+                restore_best_weights=True,
+            )
+            reduce_lr = ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.2,
+                patience=3,
+                min_lr=1e-6,
+                cooldown=3,
+                verbose=1,
+            )
+
+            history = cvae.fit(
+                x=data_mask_temporalized_train,
+                validation_data=data_mask_temporalized_val,
+                epochs=epochs,
+                batch_size=batch_size,
+                shuffle=False,
+                callbacks=[es, reduce_lr, kl_callback],
+                validation_freq=3,
+            )
+
+            val_loss = min(history.history["loss"])
+
+            synthetic_long = self.predict(
+                cvae,
+                gen_data=data_mask_temporalized_val,
+                scaler=self.scaler_val,
+                original_data_wide=self.original_val_wide,
+                original_data_long=self.original_val_long,
+                unique_ids=self.val_ids,
+                ds=self.ds_val,
+            )
+
+            if self.opt_score == "discriminative_score":
+                score = self.compute_mean_discriminative_score(
+                    unique_ids=synthetic_long["unique_id"].unique(),
+                    original_data=self.original_long,
+                    synthetic_data=synthetic_long,
+                    method="hitgen",
+                    freq=self.freq,
+                    dataset_name=self.dataset_name,
+                    dataset_group=self.dataset_group,
+                    loss=val_loss,
+                    generate_feature_plot=False,
+                    store_score=False,
+                    store_features_synth=False,
+                    split="hypertuning",
+                )
+            elif self.opt_score == "downstream_score":
+                score = compute_downstream_forecast(
+                    unique_ids=synthetic_long["unique_id"].unique(),
+                    original_data=self.original_long,
+                    synthetic_data=synthetic_long,
+                    method="hitgen",
+                    freq=self.freq,
+                    horizon=self.h,
+                    dataset_name=self.dataset_name,
+                    dataset_group=self.dataset_group,
+                    samples=10,
+                    split="hypertuning",
+                )
+            else:
+                score = val_loss
+
+            if score is None:
+                print("No valid scores computed. Pruning this trial.")
+                raise optuna.exceptions.TrialPruned()
+
+            self.update_best_scores(
+                original_data=self.original_val_long,
                 synthetic_data=synthetic_long,
-                method="hitgen",
-                freq=self.freq,
-                dataset_name=self.dataset_name,
-                dataset_group=self.dataset_group,
+                score=score,
+                latent_dim=latent_dim,
+                window_size=window_size,
+                patience=patience,
+                kernel_size=kernel_size,
+                n_hidden=n_hidden,
+                time_dist_units=time_dist_units,
+                n_blocks=n_blocks,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                stride=stride,
+                coverage_fraction=coverage_fraction,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                forecasting=forecasting,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
                 loss=val_loss,
-                generate_feature_plot=False,
-                store_score=False,
-                store_features_synth=False,
-                split="hypertuning",
+                trial=trial.number,
             )
-        elif self.opt_score == "downstream_score":
-            score = compute_downstream_forecast(
-                unique_ids=synthetic_long["unique_id"].unique(),
-                original_data=self.original_long,
-                synthetic_data=synthetic_long,
-                method="hitgen",
-                freq=self.freq,
-                horizon=self.h,
-                dataset_name=self.dataset_name,
-                dataset_group=self.dataset_group,
-                samples=10,
-                split="hypertuning",
-            )
-        else:
-            score = val_loss
 
-        if score is None:
-            print("No valid scores computed. Pruning this trial.")
+            # clean GPU memory between trials
+            del cvae, encoder, decoder
+            tf.keras.backend.clear_session()
+            gc.collect()
+
+            return score
+
+        except Exception as e:
+            print(f"Error in trial: {e}")
             raise optuna.exceptions.TrialPruned()
-
-        self.update_best_scores(
-            original_data=self.original_val_long,
-            synthetic_data=synthetic_long,
-            score=score,
-            latent_dim=latent_dim,
-            window_size=window_size,
-            patience=patience,
-            kl_weight=kl_weight,
-            kernel_size=kernel_size,
-            n_hidden=n_hidden,
-            time_dist_units=time_dist_units,
-            n_blocks=n_blocks,
-            batch_size=batch_size,
-            windows_batch_size=windows_batch_size,
-            stride=stride,
-            coverage_fraction=coverage_fraction,
-            epochs=epochs,
-            learning_rate=learning_rate,
-            forecasting=forecasting,
-            noise_scale_init=noise_scale_init,
-            prediction_mode=prediction_mode,
-            future_steps=future_steps,
-            loss=val_loss,
-            trial=trial.number,
-        )
-
-        # clean GPU memory between trials
-        del cvae, encoder, decoder
-        tf.keras.backend.clear_session()
-        gc.collect()
-
-        return score
-
-        # except Exception as e:
-        #     print(f"Error in trial: {e}")
-        #     raise optuna.exceptions.TrialPruned()
 
     def hyper_tune_and_train(self, n_trials=100):
         """
@@ -1115,7 +1116,6 @@ class CreateTransformedVersionsCVAE:
             latent_dim=self.best_params["latent_dim"],
             pred_dim=self.best_params["future_steps"],
             time_dist_units=self.best_params["time_dist_units"],
-            noise_scale_init=self.best_params["noise_scale_init"],
             kernel_size=self.best_params["kernel_size"],
             forecasting=self.best_params["forecasting"],
             n_hidden=self.best_params["n_hidden"],
@@ -1124,7 +1124,6 @@ class CreateTransformedVersionsCVAE:
         cvae = CVAE(
             encoder,
             decoder,
-            kl_weight_initial=self.best_params["kl_weight"],
             forecasting=self.best_params["forecasting"],
         )
         cvae.compile(

@@ -218,26 +218,19 @@ def build_tf_dataset(
 
 
 class Sampling(tf.keras.layers.Layer):
-    def __init__(self, noise_scale_init=0.01, **kwargs):
+    def __init__(self, **kwargs):
         super(Sampling, self).__init__(**kwargs)
-        # define noise_scale as a mutable variable
-        self.noise_scale = tf.Variable(
-            noise_scale_init, trainable=False, dtype=tf.float32, name="noise_scale"
-        )
 
     def call(self, inputs):
         """
         Performs the reparameterization trick.
         """
         z_mean, z_log_var = inputs
-        batch = tf.shape(z_mean)[0]
-        seq_len = tf.shape(z_mean)[1]
-        latent_dim = tf.shape(z_mean)[2]
 
-        epsilon = tf.keras.backend.random_normal(shape=(batch, seq_len, latent_dim))
+        epsilon = tf.random.normal(tf.shape(z_mean))
 
-        # reparameterization trick with dynamic noise scaling
-        return z_mean + tf.exp(0.5 * z_log_var) * self.noise_scale * epsilon
+        # reparameterization trick
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 
 def masked_mse(y_true, y_pred, mask):
@@ -251,12 +244,38 @@ def masked_mse(y_true, y_pred, mask):
     return mse
 
 
+class KLScheduleCallback(tf.keras.callbacks.Callback):
+    """
+    Linearly increases the CVAE's KL weight from `kl_start` to `kl_end`
+    over `warmup_epochs` epochs.
+    """
+
+    def __init__(self, cvae_model, kl_start=0.0, kl_end=1.0, warmup_epochs=10):
+        super().__init__()
+        self.cvae_model = cvae_model
+        self.kl_start = kl_start
+        self.kl_end = kl_end
+        self.warmup_epochs = warmup_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        # ramp up linearly until warmup_epochs
+        if epoch < self.warmup_epochs:
+            ratio = float(epoch) / float(self.warmup_epochs)
+            new_kl = self.kl_start + ratio * (self.kl_end - self.kl_start)
+        else:
+            new_kl = self.kl_end
+
+        self.cvae_model.kl_weight = new_kl
+
+        print(f"[Epoch {epoch}] kl_weight set to {new_kl:.4f}")
+
+
 class CVAE(keras.Model):
     def __init__(
         self,
         encoder: keras.Model,
         decoder: keras.Model,
-        kl_weight_initial: float = None,
+        kl_weight_initial: float = 0.0,
         forecasting: bool = True,
         **kwargs,
     ) -> None:
@@ -264,9 +283,7 @@ class CVAE(keras.Model):
         self.encoder = encoder
         self.decoder = decoder
 
-        self.kl_weight = tf.Variable(
-            kl_weight_initial, trainable=False, name="kl_weight"
-        )
+        self.kl_weight = kl_weight_initial
 
         self.forecasting = forecasting
 
@@ -426,7 +443,7 @@ class CVAE(keras.Model):
             {
                 "encoder": self.encoder.get_config(),
                 "decoder": self.decoder.get_config(),
-                "kl_weight_initial": float(self.kl_weight.numpy()),
+                "kl_weight_initial": self.kl_weight,
                 "forecasting": self.forecasting,
             }
         )
@@ -448,7 +465,6 @@ def get_CVAE(
     pred_dim: int,
     time_dist_units: int = 16,
     n_blocks: int = 3,
-    noise_scale_init: float = 0.01,
     kernel_size: Tuple[int] = (2, 2, 1),
     n_hidden: int = 256,
     forecasting: bool = True,
@@ -469,7 +485,6 @@ def get_CVAE(
         latent_dim=latent_dim,
         time_dist_units=time_dist_units,
         n_blocks=n_blocks,
-        noise_scale_init=noise_scale_init,
         kernel_size=kernel_size,
         n_hidden=n_hidden,
     )
@@ -656,7 +671,6 @@ def encoder(
     n_hidden: int = 256,
     n_layers: int = 2,
     kernel_size: Tuple[int] = (2, 2, 1),
-    noise_scale_init: float = 0.01,
 ):
     main_input = layers.Input(shape=input_shape, name="main_input")
     mask_input = layers.Input(shape=input_shape, name="mask_input")
@@ -699,9 +713,7 @@ def encoder(
         final_output
     )
 
-    z = Sampling(name="sampling", noise_scale_init=noise_scale_init)(
-        [z_mean, z_log_var]
-    )
+    z = Sampling(name="sampling")([z_mean, z_log_var])
 
     return tf.keras.Model(
         inputs=[main_input, mask_input, dyn_features_input],
@@ -776,8 +788,6 @@ def decoder(
     final_forecast = layers.Multiply(name="masked_forecast_output")(
         [final_forecast, pred_mask]
     )
-
-    # final_backcast = mask_input * final_backcast + (1 - mask_input) * -999
 
     return tf.keras.Model(
         inputs=[latent_input, mask_input, dyn_features_input, pred_mask],
