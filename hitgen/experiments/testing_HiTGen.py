@@ -1,33 +1,40 @@
 import multiprocessing
 import os
-import argparse
 import pandas as pd
 from hitgen.model.create_dataset_versions_vae import (
     CreateTransformedVersionsCVAE,
 )
 from hitgen.model.models import build_tf_dataset
-from hitgen.metrics.discriminative_score import (
+from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
     compute_downstream_forecast,
     tstr,
 )
 from hitgen.visualization import plot_generated_vs_original
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
+from hitgen.metrics.evaluation_pipeline import evaluation_pipeline_hitgen
+from hitgen.experiments.helper import (
+    extract_score,
+    extract_frequency,
+    extract_horizon,
+    has_final_score_in_tuple,
+    cmd_parser,
+)
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
     # "M1": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     #     "Quarterly": {"FREQ": "Q", "H": 8},
     # },
-    "M3": {
-        # "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-        "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M3": {
+    # "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    #     "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 
@@ -42,59 +49,10 @@ METAFORECAST_METHODS = [
 ]
 
 
-def extract_frequency(dataset_group):
-    """Safely extracts frequency from dataset group."""
-    freq = dataset_group[1]["FREQ"]
-    return freq
-
-
-def extract_horizon(dataset_group):
-    """Safely extracts horizon from dataset group."""
-    h = dataset_group[1]["H"]
-    return h
-
-
-def extract_score(dataset_group):
-    """Safely extracts frequency from dataset group."""
-    score = dataset_group[1]["final_score"]
-    return score
-
-
-def has_final_score_in_tuple(tpl):
-    """Check if the second element is a dictionary and contains 'final_score'"""
-    return isinstance(tpl[1], dict) and "final_score" in tpl[1]
-
-
-def set_device(
-    use_gpu: bool,
-):
-    """Configures TensorFlow to use GPU or CPU."""
-    if not use_gpu:
-        print("Using CPU as specified by the user.")
-        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
 
-    parser = argparse.ArgumentParser(
-        description="Run synthetic data generation using HiTGen."
-    )
-    parser.add_argument(
-        "--use-gpu",
-        action="store_true",
-        help="Use GPU if available (default: False, meaning it runs on CPU).",
-    )
-    parser.add_argument(
-        "--opt-score",
-        choices=["discriminative_score", "downstream_score", "val_loss"],
-        default="val_loss",
-        help="Select the score for the hyperparameter tuning optimization. Choices: "
-        "'discriminative_score', 'downstream_score' or 'val_loss' (default: 'val_loss').",
-    )
-    args = parser.parse_args()
-
-    set_device(args.use_gpu)
+    args = cmd_parser()
 
     results = []
 
@@ -102,10 +60,10 @@ if __name__ == "__main__":
         for subgroup in SUBGROUPS.items():
             dataset_group_results = []
 
+            SAMPLING_STRATEGIES = ["MR", "IR", "NP"]
             FREQ = extract_frequency(subgroup)
             H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]
-            hitgen_score_disc = None
             if has_final_score_in_tuple(subgroup):
                 print(
                     f"Dataset: {DATASET}, Dataset-group: {DATASET_GROUP}, Frequency: {FREQ} "
@@ -152,119 +110,43 @@ if __name__ == "__main__":
                 future_steps=create_dataset_vae.best_params["future_steps"],
             )
 
-            synth_hitgen_test_long = create_dataset_vae.predict(
-                model,
-                gen_data=data_mask_temporalized_test,
-                scaler=create_dataset_vae.scaler_test,
-                original_data_wide=create_dataset_vae.original_test_wide,
-                original_data_long=create_dataset_vae.original_test_long,
-                unique_ids=create_dataset_vae.test_ids,
-                ds=create_dataset_vae.ds_test,
-            )
-
             test_unique_ids = create_dataset_vae.original_test_long[
                 "unique_id"
             ].unique()
 
-            # metaforecast methods
+            # ----------------------------------------------------------------
+            # HiTGen
+            # ----------------------------------------------------------------
+            row_hitgen = {}
+
+            for sampling_strategy in SAMPLING_STRATEGIES:
+                row_hitgen = evaluation_pipeline_hitgen(
+                    dataset=DATASET,
+                    dataset_group=DATASET_GROUP,
+                    model=model,
+                    cvae=create_dataset_vae,
+                    gen_data=data_mask_temporalized_test,
+                    sampling_strategy=sampling_strategy,
+                    freq=FREQ,
+                    h=H,
+                    test_unique_ids=test_unique_ids,
+                    row_hitgen=row_hitgen,
+                    noise_scale=5,
+                )
+
+            # append all hitgen variations results
+            dataset_group_results.append(row_hitgen)
+            results.append(row_hitgen)
+
+            # ----------------------------------------------------------------
+            # Metaforecast Methods
+            # ----------------------------------------------------------------
             synthetic_metaforecast_long = workflow_metaforecast_methods(
                 df=create_dataset_vae.original_test_long,
                 freq=FREQ,
                 dataset=DATASET,
                 dataset_group=DATASET_GROUP,
             )
-
-            plot_generated_vs_original(
-                synth_data=synth_hitgen_test_long,
-                original_data=create_dataset_vae.original_test_long,
-                score=0.0,
-                loss=0.0,
-                dataset_name=DATASET,
-                dataset_group=DATASET_GROUP,
-                n_series=8,
-                suffix_name="hitgen",
-            )
-
-            if not hitgen_score_disc:
-                print("\nComputing discriminative score for HiTGen synthetic data...")
-                hitgen_score_disc = compute_discriminative_score(
-                    unique_ids=test_unique_ids,
-                    original_data=create_dataset_vae.original_test_long,
-                    synthetic_data=synth_hitgen_test_long,
-                    method="hitgen",
-                    freq=FREQ,
-                    dataset_name=DATASET,
-                    dataset_group=DATASET_GROUP,
-                    loss=0.0,
-                    samples=5,
-                    split="test",
-                )
-
-            print("\nComputing TSTR score for HiTGen synthetic data...")
-            hitgen_score_tstr = tstr(
-                unique_ids=test_unique_ids,
-                original_data=create_dataset_vae.original_test_long,
-                synthetic_data=synth_hitgen_test_long,
-                method="hitgen",
-                freq=FREQ,
-                horizon=H,
-                dataset_name=DATASET,
-                dataset_group=DATASET_GROUP,
-                samples=5,
-                split="test",
-            )
-
-            print(
-                "\nComputing downstream task forecasting score for HiTGen synthetic data..."
-            )
-            hitgen_score_dtf = compute_downstream_forecast(
-                unique_ids=test_unique_ids,
-                original_data=create_dataset_vae.original_test_long,
-                synthetic_data=synth_hitgen_test_long,
-                method="hitgen",
-                freq=FREQ,
-                horizon=H,
-                dataset_name=DATASET,
-                dataset_group=DATASET_GROUP,
-                samples=10,
-                split="test",
-            )
-
-            print(f"\n\n{DATASET}")
-            print(f"{DATASET_GROUP}")
-
-            print(
-                f"Discriminative score for HiTGen synthetic data: {hitgen_score_disc:.4f}"
-            )
-
-            print(
-                f"TSTR score for HiTGen synthetic data: "
-                f"TSTR {hitgen_score_tstr['avg_smape_tstr']:.4f} vs TRTR "
-                f"score {hitgen_score_tstr['avg_smape_trtr']:.4f}"
-            )
-
-            print(
-                f"Downstream task forecasting score for HiTGen synthetic data: "
-                f"concat avg score {hitgen_score_dtf['avg_smape_concat']:.4f} vs original "
-                f"score {hitgen_score_dtf['avg_smape_original']:.4f}\n\n"
-                f"concat std score {hitgen_score_dtf['std_smape_concat']:.4f} vs original "
-                f"score {hitgen_score_dtf['std_smape_original']:.4f}\n\n"
-            )
-
-            row_hitgen = {
-                "Dataset": DATASET,
-                "Group": DATASET_GROUP,
-                "Method": "HiTGen",
-                "Discriminative Score": hitgen_score_disc,
-                "TSTR (avg_smape_tstr)": hitgen_score_tstr["avg_smape_tstr"],
-                "TRTR (avg_smape_trtr)": hitgen_score_tstr["avg_smape_trtr"],
-                "DTF Concat Avg Score": hitgen_score_dtf["avg_smape_concat"],
-                "DTF Original Avg Score": hitgen_score_dtf["avg_smape_original"],
-                "DTF Concat Std Score": hitgen_score_dtf["std_smape_concat"],
-                "DTF Original Std Score": hitgen_score_dtf["std_smape_original"],
-            }
-            dataset_group_results.append(row_hitgen)
-            results.append(row_hitgen)
 
             for method in METAFORECAST_METHODS:
                 synthetic_metaforecast_long_method = synthetic_metaforecast_long.loc[

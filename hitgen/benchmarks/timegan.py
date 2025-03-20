@@ -14,7 +14,7 @@ from joblib import Parallel, delayed
 from statsmodels.tsa.seasonal import seasonal_decompose
 from ydata_synthetic.synthesizers.timeseries import TimeSeriesSynthesizer
 from ydata_synthetic.synthesizers import ModelParameters, TrainParameters
-from hitgen.metrics.discriminative_score import (
+from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize

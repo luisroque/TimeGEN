@@ -189,14 +189,13 @@ def compute_discriminative_score(
     loss,
     generate_feature_plot=False,
     samples=1,
-    store_score=True,
     store_features_synth=True,
     split="train",
 ):
     score_file = f"assets/results/{dataset_name}_{dataset_group}_{method}_discriminative_score.json"
     os.makedirs("assets/results", exist_ok=True)
 
-    if os.path.exists(score_file) and store_score:
+    if os.path.exists(score_file):
         print(f"Score file '{score_file}' exists. Loading score...")
         with open(score_file, "r") as f:
             final_score = json.load(f).get("final_score", None)
@@ -333,10 +332,9 @@ def compute_discriminative_score(
         print("No valid iterations completed. Final score is undefined.")
         final_score = None
 
-    if store_score:
-        with open(score_file, "w") as f:
-            json.dump({"final_score": final_score}, f)
-            print(f"Final score saved to '{score_file}'")
+    with open(score_file, "w") as f:
+        json.dump({"final_score": final_score}, f)
+        print(f"Final score saved to '{score_file}'")
 
     return final_score
 
@@ -382,6 +380,8 @@ def tstr(
         print(f"Results file '{results_file}' exists. Loading results...")
         with open(results_file, "r") as f:
             final_results = json.load(f)
+        print(f"Loaded real score: {final_results['avg_smape_trtr']:.4f}")
+        print(f"Loaded synth score: {final_results['avg_smape_tstr']:.4f}")
         return final_results
 
     results_trtr = []
@@ -540,6 +540,8 @@ def compute_downstream_forecast(
         print(f"Results file '{results_file}' exists. Loading results...")
         with open(results_file, "r") as f:
             final_results = json.load(f)
+        print(f"Loaded real score: {final_results['avg_smape_original']:.4f}")
+        print(f"Loaded synth score: {final_results['avg_smape_concat']:.4f}")
         return final_results
 
     results_original = []

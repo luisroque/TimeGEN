@@ -13,7 +13,7 @@ from hitgen.feature_engineering.feature_transformations import (
     detemporalize,
 )
 from hitgen.model.models import get_CVAE, KLScheduleCallback, CVAE, build_tf_dataset
-from hitgen.metrics.discriminative_score import (
+from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
     compute_downstream_forecast,
 )
@@ -1250,6 +1250,159 @@ class CreateTransformedVersionsCVAE:
 
         reconst_wide = self._predict_loop(cvae, gen_data, T, N, use_reconstruction=True)
         reconst_wide = scaler.inverse_transform(reconst_wide)
+        X_hat_long = self.create_dataset_long_form(
+            reconst_wide, original_data_long, unique_ids=unique_ids, ds=ds
+        )
+        if filter_series:
+            X_hat_long = X_hat_long.loc[X_hat_long["unique_id"].isin(unique_ids_filter)]
+
+        return X_hat_long
+
+    def _predict_random_loop(
+        self,
+        cvae: keras.Model,
+        dataset: tf.data.Dataset,
+        T: int,
+        N: int,
+        use_reconstruction: bool = True,
+    ) -> np.ndarray:
+        """
+        Generate predictions by sampling z ~ N(0,I) from the prior, ignoring the encoder.
+        This yields more 'global' diversity, but no guidance from the input data.
+        """
+
+        all_predictions = []
+        all_metas = []
+
+        for (
+            (batch_data, batch_mask, batch_dyn, batch_pred_mask),
+            _,
+            batch_meta,
+        ) in dataset:
+
+            latent_dim = self.best_params["latent_dim"]
+            window_size = self.best_params["window_size"]
+
+            z_random = tf.random.normal(
+                shape=(tf.shape(batch_data)[0], window_size, latent_dim)
+            )
+
+            recon_out, forecast_out = cvae.decoder(
+                [z_random, batch_mask, batch_dyn, batch_pred_mask], training=False
+            )
+
+            chosen_out = recon_out if use_reconstruction else forecast_out
+
+            all_predictions.append(chosen_out)
+            all_metas.append(batch_meta)
+
+        all_predictions = tf.concat(all_predictions, axis=0).numpy()
+        all_metas = tf.concat(all_metas, axis=0).numpy()
+
+        reconst_wide = detemporalize(all_predictions, all_metas, T, N)
+        return reconst_wide
+
+    def predict_random_latent(
+        self,
+        cvae: keras.Model,
+        gen_data: tf.data.Dataset,
+        scaler: StandardScaler,
+        original_data_wide: pd.DataFrame,
+        original_data_long: pd.DataFrame,
+        unique_ids: List,
+        ds: pd.DatetimeIndex,
+        filter_series: bool = None,
+        unique_ids_filter: List = None,
+    ) -> pd.DataFrame:
+        """
+        Public method that calls _predict_random_loop, then transforms outputs to your usual wide/long format.
+        """
+        T, N = original_data_wide.shape
+
+        reconst_wide = self._predict_random_loop(
+            cvae, gen_data, T, N, use_reconstruction=True
+        )
+
+        reconst_wide = scaler.inverse_transform(reconst_wide)
+
+        X_hat_long = self.create_dataset_long_form(
+            reconst_wide, original_data_long, unique_ids=unique_ids, ds=ds
+        )
+        if filter_series:
+            X_hat_long = X_hat_long.loc[X_hat_long["unique_id"].isin(unique_ids_filter)]
+
+        return X_hat_long
+
+    @staticmethod
+    def _predict_guided_extra_noise_loop(
+        cvae: keras.Model,
+        dataset: tf.data.Dataset,
+        T: int,
+        N: int,
+        noise_scale: float = 1.0,
+        use_reconstruction: bool = True,
+    ) -> np.ndarray:
+        """
+        Like _predict_loop, but we manually do:
+          z_mean, z_log_var = encoder(...)
+          z = z_mean + noise_scale * exp(0.5 * z_log_var) * epsilon
+        so that we can inject more diversity
+        """
+
+        all_predictions = []
+        all_metas = []
+
+        for (
+            (batch_data, batch_mask, batch_dyn, batch_pred_mask),
+            _,
+            batch_meta,
+        ) in dataset:
+            z_mean, z_log_var, _ = cvae.encoder(
+                [batch_data, batch_mask, batch_dyn], training=False
+            )
+
+            eps = tf.random.normal(tf.shape(z_mean))
+            z_sample = z_mean + noise_scale * tf.exp(0.5 * z_log_var) * eps
+
+            recon_out, forecast_out = cvae.decoder(
+                [z_sample, batch_mask, batch_dyn, batch_pred_mask], training=False
+            )
+
+            chosen_out = recon_out if use_reconstruction else forecast_out
+
+            all_predictions.append(chosen_out)
+            all_metas.append(batch_meta)
+
+        all_predictions = tf.concat(all_predictions, axis=0).numpy()
+        all_metas = tf.concat(all_metas, axis=0).numpy()
+
+        reconst_wide = detemporalize(all_predictions, all_metas, T, N)
+        return reconst_wide
+
+    def predict_guided_with_extra_noise(
+        self,
+        cvae: keras.Model,
+        gen_data: tf.data.Dataset,
+        scaler: StandardScaler,
+        original_data_wide: pd.DataFrame,
+        original_data_long: pd.DataFrame,
+        unique_ids: List,
+        ds: pd.DatetimeIndex,
+        noise_scale: float = 2.0,
+        filter_series: bool = None,
+        unique_ids_filter: List = None,
+    ) -> pd.DataFrame:
+        """
+        Generate data that is guided by the new input (through the encoder)
+        but adds extra noise for diversity.
+        """
+        T, N = original_data_wide.shape
+
+        reconst_wide = self._predict_guided_extra_noise_loop(
+            cvae, gen_data, T, N, noise_scale=noise_scale, use_reconstruction=True
+        )
+        reconst_wide = scaler.inverse_transform(reconst_wide)
+
         X_hat_long = self.create_dataset_long_form(
             reconst_wide, original_data_long, unique_ids=unique_ids, ds=ds
         )
