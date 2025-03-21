@@ -3,6 +3,7 @@ import os
 from typing import List, Tuple, Union
 import numpy as np
 import pandas as pd
+import hashlib
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
@@ -19,6 +20,9 @@ def build_tf_dataset(
     data: pd.DataFrame,  # [T, N]
     mask: pd.DataFrame,  # [T, N]
     dyn_features: pd.DataFrame,  # [T, dyn_dim]
+    cache_split: str,
+    cache_dataset_name: str,
+    cache_dataset_group: str,
     window_size: int = 16,
     stride: int = None,
     coverage_mode: str = "systematic",
@@ -69,6 +73,37 @@ def build_tf_dataset(
         - recon_target, recon_mask: same shape as (x_data, x_mask)
         - pred_target, pred_mask: same shape as (pred_mask).
     """
+    param_str = (
+        f"win{window_size}-str{stride}-covmode{coverage_mode}-covfrac{coverage_fraction}"
+        f"-predmode{prediction_mode}-fut{future_steps}-batch{batch_size}-wbatch{windows_batch_size}"
+        f"-shufbuf{shuffle_buffer_size}-reshuff{reshuffle_each_epoch}"
+    )
+
+    data_shape_str = f"T{data.shape[0]}_N{data.shape[1]}"
+    if dyn_features is not None:
+        data_shape_str += f"_dyn{dyn_features.shape[1]}"
+    mask_shape_str = "mask" if mask is not None else "nomask"
+
+    full_param_str = f"{data_shape_str}-{mask_shape_str}-{param_str}"
+
+    # hashing
+    hash_val = hashlib.md5(full_param_str.encode("utf-8")).hexdigest()
+    cache_dir = (
+        f"assets/tf_datasets/{cache_dataset_name}_{cache_dataset_group}_"
+        f"{cache_split}_dataset_{hash_val}"
+    )
+
+    if os.path.isdir(cache_dir) and os.listdir(cache_dir):
+        print(f"[build_tf_dataset] Loading dataset from {cache_dir} ...")
+        dataset = tf.data.Dataset.load(cache_dir)
+        return dataset
+    else:
+        os.makedirs(cache_dir, exist_ok=True)
+        print(
+            f"[build_tf_dataset] No cached dataset found; building from scratch.\n"
+            f"Will save to {cache_dir}"
+        )
+
     if stride is None:
         stride = window_size
 
@@ -213,6 +248,9 @@ def build_tf_dataset(
 
     dataset = dataset.batch(block_size)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
+    print(f"[build_tf_dataset] Saving dataset to {cache_dir}")
+    dataset.save(cache_dir)
 
     return dataset
 
