@@ -7,14 +7,14 @@ from hitgen.metrics.evaluation_metrics import (
     tstr,
 )
 from hitgen.visualization import plot_generated_vs_original
-from hitgen.model.create_dataset_versions_vae import CreateTransformedVersionsCVAE
+from hitgen.model.create_dataset_versions_vae import HiTGenPipeline
 
 
 def evaluation_pipeline_hitgen(
     dataset: str,
     dataset_group: str,
     model: keras.Model,
-    cvae: CreateTransformedVersionsCVAE,
+    pipeline: HiTGenPipeline,
     gen_data: tf.data.Dataset,
     sampling_strategy: str,
     freq: str,
@@ -37,44 +37,57 @@ def evaluation_pipeline_hitgen(
     print(f"\n\n----- HiTGen {sampling_strategy} synthetic data -----\n\n")
 
     if sampling_strategy == "MR":
-        synth_hitgen_test_long = cvae.predict(
+        synth_hitgen_test_long = pipeline.predict(
             cvae=model,
             gen_data=gen_data,
-            scaler=cvae.scaler_test,
-            original_data_wide=cvae.original_test_wide,
-            original_data_long=cvae.original_test_long,
-            unique_ids=cvae.test_ids,
-            ds=cvae.ds_test,
+            scaler=pipeline.scaler_test,
+            original_data_wide=pipeline.original_test_wide,
+            original_data_long=pipeline.original_test_long,
+            unique_ids=pipeline.test_ids,
+            ds=pipeline.ds_test,
         )
 
     elif sampling_strategy == "NP":
-        synth_hitgen_test_long = cvae.predict_random_latent(
+        synth_hitgen_test_long = pipeline.predict_random_latent(
             cvae=model,
             gen_data=gen_data,
-            scaler=cvae.scaler_test,
-            original_data_wide=cvae.original_test_wide,
-            original_data_long=cvae.original_test_long,
-            unique_ids=cvae.test_ids,
-            ds=cvae.ds_test,
+            scaler=pipeline.scaler_test,
+            original_data_wide=pipeline.original_test_wide,
+            original_data_long=pipeline.original_test_long,
+            unique_ids=pipeline.test_ids,
+            ds=pipeline.ds_test,
         )
 
     elif sampling_strategy == "IR":
-        synth_hitgen_test_long = cvae.predict_guided_with_extra_noise(
+        synth_hitgen_test_long = pipeline.predict_guided_with_extra_noise(
             cvae=model,
             gen_data=gen_data,
-            scaler=cvae.scaler_test,
-            original_data_wide=cvae.original_test_wide,
-            original_data_long=cvae.original_test_long,
-            unique_ids=cvae.test_ids,
-            ds=cvae.ds_test,
+            scaler=pipeline.scaler_test,
+            original_data_wide=pipeline.original_test_wide,
+            original_data_long=pipeline.original_test_long,
+            unique_ids=pipeline.test_ids,
+            ds=pipeline.ds_test,
             noise_scale=noise_scale,
+        )
+
+    elif sampling_strategy == "TNP":
+        synth_hitgen_test_long = pipeline.predict_random_latent(
+            cvae=model,
+            gen_data=gen_data,
+            scaler=pipeline.scaler,
+            original_data_wide=pipeline.original_wide,
+            original_data_long=pipeline.original_long,
+            unique_ids=pipeline.unique_ids_original,
+            ds=pipeline.ds_original,
+            filter_series=True,
+            unique_ids_filter=pipeline.test_ids,
         )
     else:
         raise ValueError(f"Unknown sampling_strategy='{sampling_strategy}'")
 
     plot_generated_vs_original(
         synth_data=synth_hitgen_test_long,
-        original_data=cvae.original_test_long,
+        original_data=pipeline.original_test_long,
         score=0.0,
         loss=0.0,
         dataset_name=dataset,
@@ -86,7 +99,7 @@ def evaluation_pipeline_hitgen(
     print("\nComputing discriminative score for HiTGen synthetic data...")
     hitgen_score_disc = compute_discriminative_score(
         unique_ids=test_unique_ids,
-        original_data=cvae.original_test_long,
+        original_data=pipeline.original_test_long,
         synthetic_data=synth_hitgen_test_long,
         method=f"hitgen[{sampling_strategy}]",
         freq=freq,
@@ -100,7 +113,7 @@ def evaluation_pipeline_hitgen(
     print("\nComputing TSTR score for HiTGen synthetic data...")
     hitgen_score_tstr = tstr(
         unique_ids=test_unique_ids,
-        original_data=cvae.original_test_long,
+        original_data=pipeline.original_test_long,
         synthetic_data=synth_hitgen_test_long,
         method=f"hitgen[{sampling_strategy}]",
         freq=freq,
@@ -114,7 +127,7 @@ def evaluation_pipeline_hitgen(
     print("\nComputing downstream task forecasting score for HiTGen synthetic data...")
     hitgen_score_dtf = compute_downstream_forecast(
         unique_ids=test_unique_ids,
-        original_data=cvae.original_test_long,
+        original_data=pipeline.original_test_long,
         synthetic_data=synth_hitgen_test_long,
         method=f"hitgen[{sampling_strategy}]",
         freq=freq,

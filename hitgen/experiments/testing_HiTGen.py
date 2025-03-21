@@ -2,7 +2,7 @@ import multiprocessing
 import os
 import pandas as pd
 from hitgen.model.create_dataset_versions_vae import (
-    CreateTransformedVersionsCVAE,
+    HiTGenPipeline,
 )
 from hitgen.model.models import build_tf_dataset
 from hitgen.metrics.evaluation_metrics import (
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         for subgroup in SUBGROUPS.items():
             dataset_group_results = []
 
-            SAMPLING_STRATEGIES = ["MR", "IR", "NP"]
+            SAMPLING_STRATEGIES = ["MR", "IR", "NP", "TNP"]
             FREQ = extract_frequency(subgroup)
             H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]
@@ -86,7 +86,7 @@ if __name__ == "__main__":
                 f"assets/model_weights/{DATASET}_{DATASET_GROUP}_synthetic_timegan.pkl"
             )
 
-            create_dataset_vae = CreateTransformedVersionsCVAE(
+            hitgen_pipeline = HiTGenPipeline(
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
                 freq=FREQ,
@@ -95,24 +95,22 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            model = create_dataset_vae.hyper_tune_and_train()
+            model = hitgen_pipeline.hyper_tune_and_train()
+
+            test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
             data_mask_temporalized_test = build_tf_dataset(
-                data=create_dataset_vae.original_test_wide_transf,
-                mask=create_dataset_vae.mask_test_wide,
-                dyn_features=create_dataset_vae.test_dyn_features,
-                window_size=create_dataset_vae.best_params["window_size"],
-                batch_size=create_dataset_vae.best_params["batch_size"],
-                windows_batch_size=create_dataset_vae.best_params["windows_batch_size"],
+                data=hitgen_pipeline.original_test_wide_transf,
+                mask=hitgen_pipeline.mask_test_wide,
+                dyn_features=hitgen_pipeline.test_dyn_features,
+                window_size=hitgen_pipeline.best_params["window_size"],
+                batch_size=hitgen_pipeline.best_params["batch_size"],
+                windows_batch_size=hitgen_pipeline.best_params["windows_batch_size"],
                 stride=1,
                 coverage_mode="systematic",
-                prediction_mode=create_dataset_vae.best_params["prediction_mode"],
-                future_steps=create_dataset_vae.best_params["future_steps"],
+                prediction_mode=hitgen_pipeline.best_params["prediction_mode"],
+                future_steps=hitgen_pipeline.best_params["future_steps"],
             )
-
-            test_unique_ids = create_dataset_vae.original_test_long[
-                "unique_id"
-            ].unique()
 
             # ----------------------------------------------------------------
             # HiTGen
@@ -120,11 +118,18 @@ if __name__ == "__main__":
             row_hitgen = {}
 
             for sampling_strategy in SAMPLING_STRATEGIES:
+                if sampling_strategy == "TNP":
+                    print(
+                        "\nTraining model with TNP (Train and then sample with No Prior knowledge)..."
+                    )
+                    model, data_mask_temporalized = hitgen_pipeline.fit()
+                    data_mask_temporalized_test = data_mask_temporalized
+
                 row_hitgen = evaluation_pipeline_hitgen(
                     dataset=DATASET,
                     dataset_group=DATASET_GROUP,
                     model=model,
-                    cvae=create_dataset_vae,
+                    pipeline=hitgen_pipeline,
                     gen_data=data_mask_temporalized_test,
                     sampling_strategy=sampling_strategy,
                     freq=FREQ,
@@ -142,7 +147,7 @@ if __name__ == "__main__":
             # Metaforecast Methods
             # ----------------------------------------------------------------
             synthetic_metaforecast_long = workflow_metaforecast_methods(
-                df=create_dataset_vae.original_test_long,
+                df=hitgen_pipeline.original_test_long,
                 freq=FREQ,
                 dataset=DATASET,
                 dataset_group=DATASET_GROUP,
@@ -155,7 +160,7 @@ if __name__ == "__main__":
 
                 synthetic_metaforecast_long_method = (
                     synthetic_metaforecast_long_method.merge(
-                        create_dataset_vae.original_test_long[["unique_id", "ds"]],
+                        hitgen_pipeline.original_test_long[["unique_id", "ds"]],
                         on=["unique_id", "ds"],
                         how="right",
                     )
@@ -164,7 +169,7 @@ if __name__ == "__main__":
 
                 plot_generated_vs_original(
                     synth_data=synthetic_metaforecast_long_method,
-                    original_data=create_dataset_vae.original_test_long,
+                    original_data=hitgen_pipeline.original_test_long,
                     score=0.0,
                     loss=0.0,
                     dataset_name=DATASET,
@@ -179,7 +184,7 @@ if __name__ == "__main__":
 
                 score_disc = compute_discriminative_score(
                     unique_ids=test_unique_ids,
-                    original_data=create_dataset_vae.original_test_long,
+                    original_data=hitgen_pipeline.original_test_long,
                     synthetic_data=synthetic_metaforecast_long_method,
                     method=method,
                     freq=FREQ,
@@ -193,7 +198,7 @@ if __name__ == "__main__":
                 print(f"\nComputing TSTR score for {method} synthetic data...")
                 score_tstr = tstr(
                     unique_ids=test_unique_ids,
-                    original_data=create_dataset_vae.original_test_long,
+                    original_data=hitgen_pipeline.original_test_long,
                     synthetic_data=synthetic_metaforecast_long_method,
                     method=method,
                     freq=FREQ,
@@ -209,7 +214,7 @@ if __name__ == "__main__":
                 )
                 score_dtf = compute_downstream_forecast(
                     unique_ids=test_unique_ids,
-                    original_data=create_dataset_vae.original_test_long,
+                    original_data=hitgen_pipeline.original_test_long,
                     synthetic_data=synthetic_metaforecast_long_method,
                     method=method,
                     freq=FREQ,

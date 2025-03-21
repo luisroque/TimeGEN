@@ -27,14 +27,14 @@ class InvalidFrequencyError(Exception):
     pass
 
 
-class CreateTransformedVersionsCVAE:
+class HiTGenPipeline:
     """
     Class for creating transformed versions of the dataset using a Conditional Variational Autoencoder (CVAE).
     """
 
     _instance = None
 
-    def __new__(cls, *args, **kwargs) -> "CreateTransformedVersionsCVAE":
+    def __new__(cls, *args, **kwargs) -> "HiTGenPipeline":
         """
         Override the __new__ method to implement the Singleton design pattern.
         """
@@ -693,6 +693,138 @@ class CreateTransformedVersionsCVAE:
             "fourier_features_test": fourier_features_test,
             "fourier_features_original": fourier_features_original,
         }
+
+    def fit(self):
+        weights_folder = "assets/model_weights"
+        os.makedirs(weights_folder, exist_ok=True)
+
+        best_params_meta_opt_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_best_hyperparameters_opt.json",
+        )
+
+        try:
+            with open(best_params_meta_opt_file, "r") as f:
+                best_params = json.load(f)
+                self.best_params = best_params["best_score"][0]
+                print("Best params file found. Loading...")
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(
+                f"Error loading best parameters file {best_params_meta_opt_file}. Proceeding with optimization..."
+            )
+
+        print(f"Best Hyperparameters: {self.best_params}")
+
+        data_mask_temporalized = build_tf_dataset(
+            data=self.original_wide_transf,
+            mask=self.mask_wide,
+            dyn_features=self.original_dyn_features,
+            window_size=self.best_params["window_size"],
+            batch_size=self.best_params["batch_size"],
+            windows_batch_size=self.best_params["windows_batch_size"],
+            coverage_mode="systematic",
+            stride=1,
+            prediction_mode=self.best_params["prediction_mode"],
+            future_steps=self.best_params["future_steps"],
+        )
+
+        encoder, decoder = get_CVAE(
+            window_size=self.best_params["window_size"],
+            input_dim=1,  # univariate series
+            latent_dim=self.best_params["latent_dim"],
+            pred_dim=self.best_params["future_steps"],
+            time_dist_units=self.best_params["time_dist_units"],
+            kernel_size=self.best_params["kernel_size"],
+            forecasting=self.best_params["forecasting"],
+            n_hidden=self.best_params["n_hidden"],
+        )
+
+        cvae = CVAE(
+            encoder,
+            decoder,
+            forecasting=self.best_params["forecasting"],
+        )
+        cvae.compile(
+            optimizer=keras.optimizers.Adam(
+                learning_rate=self.best_params["learning_rate"]
+            ),
+            metrics=[
+                cvae.total_loss_tracker,
+                cvae.reconstruction_loss_tracker,
+                cvae.kl_loss_tracker,
+            ],
+        )
+
+        early_stopping = tf.keras.callbacks.EarlyStopping(
+            monitor="loss",
+            patience=self.best_params["patience"],
+            mode="auto",
+            restore_best_weights=True,
+        )
+        reduce_lr = ReduceLROnPlateau(
+            monitor="loss", factor=0.2, patience=10, min_lr=1e-6, cooldown=3, verbose=1
+        )
+
+        weights_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}__vae_[TNP].weights.h5",
+        )
+        history_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_training_history_[TNP].json",
+        )
+        history = None
+
+        dummy_input = (
+            tf.random.normal((1, self.best_params["window_size"], 1)),  # batch_data
+            tf.ones((1, self.best_params["window_size"], 1)),  # batch_mask
+            tf.random.normal(
+                (1, self.best_params["window_size"], 6)
+            ),  # batch_dyn_features
+            tf.random.normal((1, self.best_params["future_steps"], 1)),  # pred_mask
+        )
+        _ = cvae(dummy_input)
+
+        if os.path.exists(weights_file):
+            print("Loading existing weights...")
+            cvae.load_weights(weights_file)
+
+            if os.path.exists(history_file):
+                print("Loading training history...")
+                with open(history_file, "r") as f:
+                    history = json.load(f)
+            else:
+                print("No history file found. Skipping history loading.")
+        else:
+
+            mc = ModelCheckpoint(
+                weights_file,
+                save_best_only=True,
+                save_weights_only=True,
+                monitor="loss",
+                mode="auto",
+                verbose=1,
+            )
+
+            history = cvae.fit(
+                x=data_mask_temporalized,
+                epochs=self.best_params["epochs"],
+                batch_size=self.best_params["batch_size"],
+                shuffle=False,
+                callbacks=[early_stopping, mc, reduce_lr],
+            )
+
+            if history is not None:
+                history = history.history
+                history_dict = {
+                    key: [float(val) for val in values]
+                    for key, values in history.items()
+                }
+                with open(history_file, "w") as f:
+                    json.dump(history_dict, f)
+
+        print("Training for [TNP] completed with the best hyperparameters.")
+        return cvae, data_mask_temporalized
 
     def update_best_scores(
         self,
