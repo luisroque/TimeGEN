@@ -60,7 +60,7 @@ if __name__ == "__main__":
         for subgroup in SUBGROUPS.items():
             dataset_group_results = []
 
-            SAMPLING_STRATEGIES = ["MR", "IR", "NP", "TNP"]
+            SAMPLING_STRATEGIES = ["MR", "IR", "NP"]
             FREQ = extract_frequency(subgroup)
             H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]
@@ -118,13 +118,6 @@ if __name__ == "__main__":
             row_hitgen = {}
 
             for sampling_strategy in SAMPLING_STRATEGIES:
-                if sampling_strategy == "TNP":
-                    print(
-                        "\nTraining model with TNP (Train and then sample with No Prior knowledge)..."
-                    )
-                    model, data_mask_temporalized = hitgen_pipeline.fit()
-                    data_mask_temporalized_test = data_mask_temporalized
-
                 row_hitgen = evaluation_pipeline_hitgen(
                     dataset=DATASET,
                     dataset_group=DATASET_GROUP,

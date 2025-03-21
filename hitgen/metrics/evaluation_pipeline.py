@@ -70,18 +70,6 @@ def evaluation_pipeline_hitgen(
             noise_scale=noise_scale,
         )
 
-    elif sampling_strategy == "TNP":
-        synth_hitgen_test_long = pipeline.predict_random_latent(
-            cvae=model,
-            gen_data=gen_data,
-            scaler=pipeline.scaler,
-            original_data_wide=pipeline.original_wide,
-            original_data_long=pipeline.original_long,
-            unique_ids=pipeline.unique_ids_original,
-            ds=pipeline.ds_original,
-            filter_series=True,
-            unique_ids_filter=pipeline.test_ids,
-        )
     else:
         raise ValueError(f"Unknown sampling_strategy='{sampling_strategy}'")
 
