@@ -726,6 +726,9 @@ class HiTGenPipeline:
             stride=1,
             prediction_mode=self.best_params["prediction_mode"],
             future_steps=self.best_params["future_steps"],
+            cache_dataset_name=self.dataset_name,
+            cache_dataset_group=self.dataset_group,
+            cache_split="original",
         )
 
         encoder, decoder = get_CVAE(
@@ -1025,6 +1028,9 @@ class HiTGenPipeline:
                 coverage_fraction=coverage_fraction,
                 prediction_mode=prediction_mode,
                 future_steps=future_steps,
+                cache_dataset_name=self.dataset_name,
+                cache_dataset_group=self.dataset_group,
+                cache_split="train",
             )
 
             data_mask_temporalized_val = build_tf_dataset(
@@ -1038,6 +1044,9 @@ class HiTGenPipeline:
                 coverage_mode="systematic",
                 prediction_mode=prediction_mode,
                 future_steps=future_steps,
+                cache_dataset_name=self.dataset_name,
+                cache_dataset_group=self.dataset_group,
+                cache_split="val",
             )
 
             encoder, decoder = get_CVAE(
@@ -1240,6 +1249,9 @@ class HiTGenPipeline:
             stride=1,
             prediction_mode=self.best_params["prediction_mode"],
             future_steps=self.best_params["future_steps"],
+            cache_dataset_name=self.dataset_name,
+            cache_dataset_group=self.dataset_group,
+            cache_split="trainval",
         )
 
         encoder, decoder = get_CVAE(

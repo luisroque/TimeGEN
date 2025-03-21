@@ -351,6 +351,39 @@ def smape(y_true, y_pred):
     return smape_value
 
 
+def split_series_by_horizon(
+    df: pd.DataFrame, horizon: int
+) -> (pd.DataFrame, pd.DataFrame):
+    """
+    Splits each series in df into:
+      - train portion: all timesteps except the last `horizon` points
+      - test portion: the final `horizon` points
+    Returns (df_train, df_test).
+    """
+    df_train_list = []
+    df_test_list = []
+
+    for uid, grp in df.groupby("unique_id"):
+        grp_sorted = grp.sort_values("ds")  # ensure chronological
+        if len(grp_sorted) <= horizon:
+            # If not enough points, the entire series goes to train, or you can skip it
+            df_train_list.append(grp_sorted)
+            continue
+
+        cutoff_idx = len(grp_sorted) - horizon
+        df_train_part = grp_sorted.iloc[:cutoff_idx]
+        df_test_part = grp_sorted.iloc[cutoff_idx:]
+
+        df_train_list.append(df_train_part)
+        df_test_list.append(df_test_part)
+
+    df_train = pd.concat(df_train_list, ignore_index=True)
+    df_test = (
+        pd.concat(df_test_list, ignore_index=True) if df_test_list else pd.DataFrame()
+    )
+    return df_train, df_test
+
+
 def tstr(
     unique_ids,
     original_data,
@@ -364,138 +397,123 @@ def tstr(
     split="test",
 ):
     """
-    Train two models:
-        1) TRTR (Train on Real, Test on Real)
-        2) TSTR (Train on Synthetic, Test on Real)
+    We have a 'test set' of series. For each test series, we define:
+      - a 'train portion' => all but last horizon steps
+      - a 'test portion'  => last horizon steps
 
-    Compare their performance on a hold-out test set across multiple splits.
-    The final metric reported is the SMAPE.
+    Then we do:
+      TRTR = Train on real train portion, predict real test portion
+      TSTR = Train on synthetic train portion, predict real test portion
+
+    We'll do this across `samples` different index splits (if you want multiple seeds or something),
+    but you said you want the same set of test series, so we won't do a train_idx vs test_idx for
+    the entire dataset. Instead, we always filter for test series, then do an internal
+    time-based horizon split for each test series.
+
+    Returns dict with average SMAPE for TRTR vs. TSTR.
     """
+
     results_file = (
         f"assets/results/{dataset_name}_{dataset_group}_{method}_TSTR_results.json"
     )
     os.makedirs("assets/results", exist_ok=True)
 
+    # If we already have cached results, load them
     if os.path.exists(results_file):
         print(f"Results file '{results_file}' exists. Loading results...")
         with open(results_file, "r") as f:
             final_results = json.load(f)
-        print(f"Loaded real score: {final_results['avg_smape_trtr']:.4f}")
-        print(f"Loaded synth score: {final_results['avg_smape_tstr']:.4f}")
+        print(f"Loaded real score (TRTR): {final_results['avg_smape_trtr']:.4f}")
+        print(f"Loaded synth score (TSTR): {final_results['avg_smape_tstr']:.4f}")
         return final_results
 
     results_trtr = []
     results_tstr = []
 
+    # Possibly remove "method" column from synthetic
     synthetic_data = synthetic_data.drop(columns=["method"], errors="ignore")
 
     for sample_idx in range(samples):
         print(f"\n--- Sample {sample_idx+1} of {samples} ---")
 
-        trtr_cache_file = (
-            f"assets/results/{dataset_name}_{dataset_group}_{method}_{split}"
-            f"TRTR_sample{sample_idx}.json"
-        )
-
+        # Because you said you only want the test set's time series:
+        # We do a "split_train_test" if needed, or else just test_idx is the set of series
         train_idx, test_idx = split_train_test(
             unique_ids,
             sample_idx,
             split_dir=f"assets/model_weights/{dataset_name}_{dataset_group}_{split}_data_split_forecast",
         )
 
+        # 'test_idx' presumably is the set of *test series* we want.
+        # So we filter original_data => df_test_real, synthetic_data => df_test_synth
+        # That means these dataframes contain *all timesteps* for each test series.
         df_test_real, _ = filter_data_by_indices(original_data, test_idx, label_value=0)
         df_test_synth, _ = filter_data_by_indices(
             synthetic_data, test_idx, label_value=1, downstream_forecast=True
         )
 
-        input_size = 50
+        print(f"Found {df_test_real['unique_id'].nunique()} test series in real data.")
+        print(
+            f"Found {df_test_synth['unique_id'].nunique()} test series in synthetic data."
+        )
 
+        # 1) Time-based split per series in real test data:
+        df_train_real, df_holdout_real = split_series_by_horizon(df_test_real, horizon)
+
+        # 2) Time-based split per series in synthetic test data:
+        #    Actually we only need the 'train portion' from synthetic, because test portion is always real
+        df_train_synth, _ = split_series_by_horizon(df_test_synth, horizon)
+
+        print(
+            f"   [TRTR] Real train portion: {df_train_real.shape}, Real test portion: {df_holdout_real.shape}"
+        )
+        print(
+            f"   [TSTR] Synthetic train portion: {df_train_synth.shape}, Real test portion: {df_holdout_real.shape}"
+        )
+
+        # Build models
         model_trtr = NHITS(
             h=horizon,
             max_steps=500,
-            input_size=input_size,
+            input_size=50,
             start_padding_enabled=True,
             scaler_type="standard",
         )
         model_tstr = NHITS(
             h=horizon,
             max_steps=500,
-            input_size=input_size,
+            input_size=50,
             start_padding_enabled=True,
             scaler_type="standard",
         )
 
-        if os.path.exists(trtr_cache_file):
-            print(f"    [TRTR] Cache file found for sample={sample_idx}, loading ...")
-            with open(trtr_cache_file, "r") as f:
-                cached_data = json.load(f)
-            smape_trtr = cached_data["smape_trtr"]
-            print(f"    [TRTR] Loaded SMAPE={smape_trtr:.4f} from cache.")
-        else:
-            print("    [TRTR] Training on Real, Testing on Real ...")
-            nf_trtr = NeuralForecast(models=[model_trtr], freq=freq)
-            cv_model_trtr = nf_trtr.cross_validation(
-                df=df_test_real, test_size=horizon, n_windows=None
-            )
-            fcst_trtr = cv_model_trtr.reset_index()
-
-            smape_trtr = smape(fcst_trtr["y"], fcst_trtr["NHITS"])
-            print(f"    [TRTR] Computed SMAPE={smape_trtr:.4f}")
-
-            with open(trtr_cache_file, "w") as f:
-                json.dump(
-                    {"smape_trtr": smape_trtr},
-                    f,
-                )
-            print(f"    [TRTR] Results saved to '{trtr_cache_file}'")
-
-        print("    [TRTR] Training on Real, Testing on Real ...")
+        # === TRTR ===
+        print("   [TRTR] Fit on real train portion, predict on real test portion.")
         nf_trtr = NeuralForecast(models=[model_trtr], freq=freq)
-        cv_model_trtr = nf_trtr.cross_validation(
-            df=df_test_real, test_size=horizon, n_windows=None
-        )
-        fcst_trtr = cv_model_trtr.reset_index()
 
-        cutoff_value = fcst_trtr["cutoff"].iloc[0]
-
-        df_test_synth_concat = df_test_synth.loc[
-            df_test_synth["ds"] <= cutoff_value
-        ].copy()
-
-        df_test_synth_concat["unique_id"] = df_test_synth_concat[
-            "unique_id"
-        ].str.replace("_synth$", "", regex=True)
-
-        df_test_real_concat = df_test_real.loc[df_test_real["ds"] > cutoff_value].copy()
-
-        df_tstr = pd.concat(
-            [df_test_synth_concat, df_test_real_concat], axis=0, ignore_index=True
-        ).sort_values(by=["unique_id", "ds"])
-
-        print("    [TSTR] Training on Synthetic, Testing on Real ...")
-        nf_tstr = NeuralForecast(models=[model_tstr], freq=freq)
-        cv_model_tstr = nf_tstr.cross_validation(
-            df=df_tstr, test_size=horizon, n_windows=None
-        )
-        fcst_tstr = cv_model_tstr.reset_index()
-
+        nf_trtr.fit(df_train_real)
+        fcst_trtr = nf_trtr.predict(df_holdout_real)
         smape_trtr = smape(fcst_trtr["y"], fcst_trtr["NHITS"])
-        smape_tstr = smape(fcst_tstr["y"], fcst_tstr["NHITS"])
+        print(f"   [TRTR] SMAPE={smape_trtr:.4f}")
 
-        print(f"    SMAPE (TRTR - Real->Real):  {smape_trtr:.4f}")
-        print(f"    SMAPE (TSTR - Synth->Real): {smape_tstr:.4f}")
+        # === TSTR ===
+        print("   [TSTR] Fit on synthetic train portion, predict on real test portion.")
+        nf_tstr = NeuralForecast(models=[model_tstr], freq=freq)
+
+        nf_tstr.fit(df_train_synth)
+        fcst_tstr = nf_tstr.predict(df_holdout_real)
+        smape_tstr = smape(fcst_tstr["y"], fcst_tstr["NHITS"])
+        print(f"   [TSTR] SMAPE={smape_tstr:.4f}")
 
         results_trtr.append(smape_trtr)
         results_tstr.append(smape_tstr)
 
     if results_trtr and results_tstr:
-        avg_smape_trtr = np.mean(results_trtr)
-        avg_smape_tstr = np.mean(results_tstr)
+        avg_smape_trtr = float(np.mean(results_trtr))
+        avg_smape_tstr = float(np.mean(results_tstr))
         print("\n\n### Final Results across samples ###")
-        print(f"Avg SMAPE (TRTR):  {avg_smape_trtr:.4f}  (Train on Real, Test on Real)")
-        print(
-            f"Avg SMAPE (TSTR):  {avg_smape_tstr:.4f}  (Train on Synth, Test on Real)"
-        )
+        print(f"Avg SMAPE (TRTR):  {avg_smape_trtr:.4f}  (Train Real -> Test Real)")
+        print(f"Avg SMAPE (TSTR):  {avg_smape_tstr:.4f}  (Train Synth -> Test Real)")
     else:
         avg_smape_trtr = None
         avg_smape_tstr = None

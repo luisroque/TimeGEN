@@ -23,17 +23,17 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    "Tourism": {
-        "Monthly": {"FREQ": "M", "H": 24},
-    },
-    "M1": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-    },
+    # "Tourism": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # },
+    # "M1": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    # },
     "M3": {
         "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-        "Yearly": {"FREQ": "Y", "H": 4},
+        # "Quarterly": {"FREQ": "Q", "H": 8},
+        # "Yearly": {"FREQ": "Y", "H": 4},
     },
 }
 
@@ -110,6 +110,9 @@ if __name__ == "__main__":
                 coverage_mode="systematic",
                 prediction_mode=hitgen_pipeline.best_params["prediction_mode"],
                 future_steps=hitgen_pipeline.best_params["future_steps"],
+                cache_dataset_name=DATASET,
+                cache_dataset_group=DATASET_GROUP,
+                cache_split="test",
             )
 
             # ----------------------------------------------------------------
