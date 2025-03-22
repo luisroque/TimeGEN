@@ -1,4 +1,7 @@
 from typing import List, Dict
+import numpy as np
+import os
+import json
 from tensorflow import keras
 import tensorflow as tf
 from hitgen.metrics.evaluation_metrics import (
@@ -8,6 +11,7 @@ from hitgen.metrics.evaluation_metrics import (
 )
 from hitgen.visualization import plot_generated_vs_original
 from hitgen.model.create_dataset_versions_vae import HiTGenPipeline
+from hitgen.metrics.evaluation_metrics import smape
 
 
 def evaluation_pipeline_hitgen(
@@ -169,3 +173,61 @@ def evaluation_pipeline_hitgen(
     ]
 
     return row_hitgen
+
+
+def evaluation_pipeline_hitgen_forecast(
+    dataset: str,
+    dataset_group: str,
+    pipeline: HiTGenPipeline,
+    model: keras.Model,
+    horizon: int,
+    freq: str,
+    row_forecast: dict,
+) -> dict:
+    """
+    Evaluate direct forecasting.
+
+    - uses `pipeline.predict_future(...)` to forecast the holdout portion
+    - computes an error metric
+    - stores results in row_forecast dict, which you return/update
+
+    Returns:
+      The updated row_forecast dictionary with forecast metrics.
+    """
+    os.makedirs("assets/results_forecast", exist_ok=True)
+    results_file = (
+        f"assets/results_forecast/{dataset}_{dataset_group}_forecast_{horizon}.json"
+    )
+
+    print(f"\n\n=== {dataset} {dataset_group} Forecast Evaluation ===\n")
+    print(f"Forecast horizon = {horizon}, freq = {freq}\n")
+
+    forecast_df = pipeline.predict_future(
+        cvae=model,
+    )
+
+    if forecast_df.empty:
+        print("No forecast results found.")
+        row_forecast["Forecast SMAPE"] = None
+        return row_forecast
+
+    forecast_df = forecast_df.dropna(subset=["y", "y_true"])
+    if forecast_df.empty:
+        print("No valid y,y_true pairs. Can't compute sMAPE.")
+        row_forecast["Forecast SMAPE"] = None
+        return row_forecast
+
+    smape_result = smape(y_true=forecast_df["y_true"], y_pred=forecast_df["y"])
+
+    print(f"\n[Forecast] sMAPE = {smape_result:.4f}\n")
+
+    row_forecast["Dataset"] = dataset
+    row_forecast["Group"] = dataset_group
+    row_forecast["Forecast Horizon"] = horizon
+    row_forecast["Forecast SMAPE"] = float(round(smape_result, 4))
+
+    with open(results_file, "w") as f:
+        json.dump(row_forecast, f)
+    print(f"Results for forecast saved to '{results_file}'")
+
+    return row_forecast

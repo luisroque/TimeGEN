@@ -4,7 +4,7 @@ import pandas as pd
 from hitgen.model.create_dataset_versions_vae import (
     HiTGenPipeline,
 )
-from hitgen.model.models import build_tf_dataset
+from hitgen.model.models import build_tf_dataset, build_tf_dataset_multivariate
 from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
     compute_downstream_forecast,
@@ -12,7 +12,10 @@ from hitgen.metrics.evaluation_metrics import (
 )
 from hitgen.visualization import plot_generated_vs_original
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
-from hitgen.metrics.evaluation_pipeline import evaluation_pipeline_hitgen
+from hitgen.metrics.evaluation_pipeline import (
+    evaluation_pipeline_hitgen,
+    evaluation_pipeline_hitgen_forecast,
+)
 from hitgen.experiments.helper import (
     extract_score,
     extract_frequency,
@@ -23,18 +26,18 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
     # "M1": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     #     "Quarterly": {"FREQ": "Q", "H": 8},
     # },
-    "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        # "Quarterly": {"FREQ": "Q", "H": 8},
-        # "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # "Quarterly": {"FREQ": "Q", "H": 8},
+    # "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 
@@ -61,6 +64,7 @@ if __name__ == "__main__":
             dataset_group_results = []
 
             SAMPLING_STRATEGIES = ["MR", "IR", "NP"]
+            SAMPLING_STRATEGIES_MULTIVAR = ["MR_Multivar", "IR_Multivar", "NP_Multivar"]
             FREQ = extract_frequency(subgroup)
             H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]
@@ -95,7 +99,9 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            model = hitgen_pipeline.hyper_tune_and_train()
+            # model = hitgen_pipeline.hyper_tune_and_train()
+            # model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
+            model_multivariate = hitgen_pipeline.hyper_tune_and_train_multivariate()
 
             test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
@@ -115,16 +121,47 @@ if __name__ == "__main__":
                 cache_split="test",
             )
 
+            data_mask_temporalized_multivar_test = build_tf_dataset_multivariate(
+                data=hitgen_pipeline.original_test_wide_transf,
+                mask=hitgen_pipeline.mask_test_wide,
+                dyn_features=hitgen_pipeline.test_dyn_features,
+                window_size=hitgen_pipeline.best_params["window_size"],
+                batch_size=hitgen_pipeline.best_params["batch_size"],
+                windows_batch_size=hitgen_pipeline.best_params["windows_batch_size"],
+                stride=1,
+                coverage_mode="systematic",
+                prediction_mode=hitgen_pipeline.best_params["prediction_mode"],
+                future_steps=hitgen_pipeline.best_params["future_steps"],
+                cache_dataset_name=DATASET,
+                cache_dataset_group=DATASET_GROUP + "_multivar",
+                cache_split="test",
+            )
+
             # ----------------------------------------------------------------
             # HiTGen
             # ----------------------------------------------------------------
             row_hitgen = {}
 
-            for sampling_strategy in SAMPLING_STRATEGIES:
+            # for sampling_strategy in SAMPLING_STRATEGIES:
+            #     row_hitgen = evaluation_pipeline_hitgen(
+            #         dataset=DATASET,
+            #         dataset_group=DATASET_GROUP,
+            #         model=model,
+            #         pipeline=hitgen_pipeline,
+            #         gen_data=data_mask_temporalized_test,
+            #         sampling_strategy=sampling_strategy,
+            #         freq=FREQ,
+            #         h=H,
+            #         test_unique_ids=test_unique_ids,
+            #         row_hitgen=row_hitgen,
+            #         noise_scale=5,
+            #     )
+
+            for sampling_strategy in SAMPLING_STRATEGIES_MULTIVAR:
                 row_hitgen = evaluation_pipeline_hitgen(
                     dataset=DATASET,
                     dataset_group=DATASET_GROUP,
-                    model=model,
+                    model=model_multivariate,
                     pipeline=hitgen_pipeline,
                     gen_data=data_mask_temporalized_test,
                     sampling_strategy=sampling_strategy,
@@ -135,7 +172,18 @@ if __name__ == "__main__":
                     noise_scale=5,
                 )
 
-            # append all hitgen variations results
+            row_hitgen_forecast = {}
+            # row_forecast = evaluation_pipeline_hitgen_forecast(
+            #     dataset=DATASET,
+            #     dataset_group=DATASET_GROUP,
+            #     model=model_forecasting,
+            #     pipeline=hitgen_pipeline,
+            #     horizon=H,
+            #     freq=FREQ,
+            #     row_forecast=row_hitgen_forecast,
+            # )
+
+            # append all hitgen results
             dataset_group_results.append(row_hitgen)
             results.append(row_hitgen)
 
