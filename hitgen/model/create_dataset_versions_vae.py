@@ -12,7 +12,13 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from hitgen.feature_engineering.feature_transformations import (
     detemporalize,
 )
-from hitgen.model.models import get_CVAE, KLScheduleCallback, CVAE, build_tf_dataset
+from hitgen.model.models import (
+    get_CVAE,
+    KLScheduleCallback,
+    CVAE,
+    build_tf_dataset,
+    build_forecast_dataset,
+)
 from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
     compute_downstream_forecast,
@@ -452,11 +458,13 @@ class HiTGenPipeline:
         Compute sinusoidal (Fourier) terms for a given frequency.
         """
         dates = pd.to_datetime(dates)
+        if not isinstance(dates, pd.DatetimeIndex):
+            dates = pd.DatetimeIndex(dates)
 
         try:
             index_func, period = self.freq_map[self.freq]
         except KeyError:
-            # for weekly, we might have something like "W-THU", so let's handle that generically:
+            # for weekly, we might have something like "W-THU", so let's handle that generically
             if self.freq.startswith("W-"):
                 index_func, period = self._weekly_index, 52.18
             else:
@@ -693,6 +701,71 @@ class HiTGenPipeline:
             "fourier_features_test": fourier_features_test,
             "fourier_features_original": fourier_features_original,
         }
+
+    def build_test_holdout(
+        self,
+        test_long: pd.DataFrame,
+        horizon: int,
+        window_size: int,
+    ) -> Tuple[pd.DataFrame, List]:
+        """
+        Create a 'test_holdout_long' DataFrame that:
+          - For each test series, includes the last `window_size` historical rows.
+          - Adds `horizon` new rows with future timestamps (and Fourier features),
+            where `y` is set to NaN.
+        """
+
+        holdout_list = []
+
+        for uid in self.test_ids:
+            df_ser = test_long[test_long["unique_id"] == uid].copy()
+            df_ser.sort_values("ds", inplace=True)
+
+            if len(df_ser) < window_size:
+                print(
+                    f"[build_test_holdout] Series {uid} has < {window_size} rows. Skipping."
+                )
+                continue
+
+            hist_tail = df_ser.iloc[-window_size:].copy()
+
+            last_date = hist_tail["ds"].max()
+            future_dates = pd.date_range(
+                start=last_date + pd.tseries.frequencies.to_offset(self.freq),
+                periods=horizon,
+                freq=self.freq,
+            )
+
+            future_df = pd.DataFrame(
+                {
+                    "unique_id": [uid] * horizon,
+                    "ds": future_dates,
+                    "y": np.nan,  # predictions
+                }
+            )
+
+            ffuture = self.compute_fourier_features(future_df["ds"])
+            ffuture.reset_index(drop=True, inplace=True)
+
+            future_df = pd.concat([future_df.reset_index(drop=True), ffuture], axis=1)
+
+            # attach the fourier columns to hist_tail for the last window_size steps
+            hist_ff = self.compute_fourier_features(hist_tail["ds"])
+            hist_ff.reset_index(drop=True, inplace=True)
+            hist_tail = pd.concat([hist_tail.reset_index(drop=True), hist_ff], axis=1)
+
+            holdout_ser = pd.concat([hist_tail, future_df], ignore_index=True)
+            holdout_list.append(holdout_ser)
+
+        if not holdout_list:
+            return pd.DataFrame(), []
+
+        test_holdout_long = pd.concat(holdout_list, ignore_index=True)
+        test_holdout_long.sort_values(["unique_id", "ds"], inplace=True)
+
+        dyn_future_cols = ffuture.columns
+
+        return test_holdout_long, dyn_future_cols
 
     def fit(self):
         weights_folder = "assets/model_weights"
@@ -953,7 +1026,6 @@ class HiTGenPipeline:
                 loss=loss,
                 samples=3,
                 generate_feature_plot=generate_feature_plot,
-                store_score=store_score,
                 store_features_synth=store_features_synth,
                 split=split,
             )
@@ -1031,6 +1103,7 @@ class HiTGenPipeline:
                 cache_dataset_name=self.dataset_name,
                 cache_dataset_group=self.dataset_group,
                 cache_split="train",
+                store_dataset=False,
             )
 
             data_mask_temporalized_val = build_tf_dataset(
@@ -1047,6 +1120,7 @@ class HiTGenPipeline:
                 cache_dataset_name=self.dataset_name,
                 cache_dataset_group=self.dataset_group,
                 cache_split="val",
+                store_dataset=False,
             )
 
             encoder, decoder = get_CVAE(
@@ -1190,6 +1264,187 @@ class HiTGenPipeline:
             print(f"Error in trial: {e}")
             raise optuna.exceptions.TrialPruned()
 
+    def objective_forecast(self, trial):
+        """
+        Objective function for Optuna to tune CVAE hyperparameters,
+        specifically for multi-step forecasting, with future_steps=self.h.
+        """
+
+        # try:
+        latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
+
+        if self.freq in ["M", "MS"]:
+            window_size = trial.suggest_int("window_size", 6, 24, step=3)
+        elif self.freq in ["Q", "QS"]:
+            window_size = trial.suggest_int("window_size", 8, 16, step=2)
+        elif self.freq in ["Y", "YS"]:
+            window_size = trial.suggest_int("window_size", 4, 8, step=1)
+        else:
+            window_size = trial.suggest_int("window_size", 4, 24, step=1)
+
+        stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
+        patience = trial.suggest_int("patience", 4, 6, step=1)
+
+        n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
+        time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
+        n_blocks = trial.suggest_int("n_layers", 1, 3)
+
+        predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
+        valid_kernel_sizes = [
+            ks for ks in predefined_kernel_sizes if all(window_size >= k for k in ks)
+        ]
+        if not valid_kernel_sizes:
+            valid_kernel_sizes.append((1, 1, 1))
+        kernel_size = tuple(
+            trial.suggest_categorical("kernel_size", valid_kernel_sizes)
+        )
+
+        batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
+        windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
+        coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
+
+        # force multi-step
+        prediction_mode = "multi_step_ahead"
+        future_steps = self.h
+
+        epochs = trial.suggest_int("epochs", 100, 750, step=25)
+        learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
+
+        forecasting = True
+
+        data_mask_temporalized_train = build_tf_dataset(
+            data=self.original_train_wide_transf,
+            mask=self.mask_train_wide,
+            dyn_features=self.train_dyn_features,
+            window_size=window_size,
+            stride=stride,
+            batch_size=batch_size,
+            windows_batch_size=windows_batch_size,
+            coverage_mode="partial",
+            coverage_fraction=coverage_fraction,
+            prediction_mode=prediction_mode,
+            future_steps=future_steps,
+            cache_dataset_name=self.dataset_name,
+            cache_dataset_group=self.dataset_group + "_forecasting",
+            cache_split="train",
+            store_dataset=False,
+        )
+
+        data_mask_temporalized_val = build_tf_dataset(
+            data=self.original_val_wide_transf,
+            mask=self.mask_val_wide,
+            dyn_features=self.val_dyn_features,
+            window_size=window_size,
+            stride=1,
+            batch_size=batch_size,
+            windows_batch_size=windows_batch_size,
+            coverage_mode="systematic",
+            prediction_mode=prediction_mode,
+            future_steps=future_steps,
+            cache_dataset_name=self.dataset_name,
+            cache_dataset_group=self.dataset_group + "_forecasting",
+            cache_split="val",
+            store_dataset=False,
+        )
+
+        encoder, decoder = get_CVAE(
+            window_size=window_size,
+            input_dim=1,  # univariate
+            latent_dim=latent_dim,
+            pred_dim=future_steps,
+            time_dist_units=time_dist_units,
+            n_blocks=n_blocks,
+            kernel_size=kernel_size,
+            forecasting=forecasting,
+            n_hidden=n_hidden,
+        )
+
+        cvae = CVAE(encoder, decoder, forecasting=forecasting)
+        cvae.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+            metrics=[
+                cvae.total_loss_tracker,
+                cvae.reconstruction_loss_tracker,
+                cvae.kl_loss_tracker,
+            ],
+        )
+
+        kl_callback = KLScheduleCallback(
+            cvae_model=cvae,
+            kl_start=0.0,
+            kl_end=1.0,
+            warmup_epochs=int(epochs * 0.3),
+        )
+
+        es = EarlyStopping(
+            patience=patience,
+            verbose=1,
+            monitor="val_loss",
+            mode="auto",
+            restore_best_weights=True,
+        )
+        reduce_lr = ReduceLROnPlateau(
+            monitor="val_loss",
+            factor=0.2,
+            patience=3,
+            min_lr=1e-6,
+            cooldown=3,
+            verbose=1,
+        )
+
+        history = cvae.fit(
+            x=data_mask_temporalized_train,
+            validation_data=data_mask_temporalized_val,
+            epochs=epochs,
+            batch_size=batch_size,
+            shuffle=False,
+            callbacks=[es, reduce_lr, kl_callback],
+            validation_freq=3,
+        )
+
+        val_loss = min(history.history["loss"])
+
+        score = val_loss
+
+        synthetic_long = self.predict_future(
+            cvae,
+        )
+
+        self.update_best_scores(
+            original_data=self.original_val_long,
+            synthetic_data=synthetic_long,
+            score=score,
+            latent_dim=latent_dim,
+            window_size=window_size,
+            patience=patience,
+            kernel_size=kernel_size,
+            n_hidden=n_hidden,
+            time_dist_units=time_dist_units,
+            n_blocks=n_blocks,
+            batch_size=batch_size,
+            windows_batch_size=windows_batch_size,
+            stride=stride,
+            coverage_fraction=coverage_fraction,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            forecasting=forecasting,
+            prediction_mode=prediction_mode,
+            future_steps=future_steps,
+            loss=val_loss,
+            trial=trial.number,
+        )
+
+        # clean GPU memory
+        del cvae, encoder, decoder
+        tf.keras.backend.clear_session()
+        gc.collect()
+
+        return score
+
+        # except Exception as e:
+        #     print(f"Error in objective_forecast trial: {e}")
+        #     raise optuna.exceptions.TrialPruned()
+
     def hyper_tune_and_train(self, n_trials=100):
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
@@ -1207,11 +1462,6 @@ class HiTGenPipeline:
 
         weights_folder = "assets/model_weights"
         os.makedirs(weights_folder, exist_ok=True)
-
-        weights_file = os.path.join(
-            weights_folder,
-            f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5",
-        )
 
         best_params_meta_opt_file = os.path.join(
             weights_folder,
@@ -1353,6 +1603,155 @@ class HiTGenPipeline:
                     json.dump(history_dict, f)
 
         print("Training completed with the best hyperparameters.")
+        return cvae
+
+    def hyper_tune_and_train_forecasting(self, n_trials=100):
+        """
+        Run Optuna hyperparameter tuning for the CVAE purely for multi-step forecasting,
+        then train the best model.
+        """
+        import optuna
+
+        study_name = f"{self.dataset_name}_{self.dataset_group}_opt_vae_forecasting"
+        storage = "sqlite:///optuna_study.db"
+
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage,
+            direction="minimize",
+            load_if_exists=True,
+        )
+
+        weights_folder = "assets/model_weights_forecasting"
+        os.makedirs(weights_folder, exist_ok=True)
+
+        best_params_meta_opt_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_best_hyperparameters_opt.json",
+        )
+
+        try:
+            with open(best_params_meta_opt_file, "r") as f:
+                best_params = json.load(f)
+                self.best_params = best_params["best_score"][0]
+                print("Best forecast params file found. Loading...")
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(
+                f"No best forecast params found in {best_params_meta_opt_file}. Proceeding with optimization..."
+            )
+            study.optimize(self.objective_forecast, n_trials=n_trials)
+
+            with open(best_params_meta_opt_file, "r") as f:
+                best_params = json.load(f)
+            self.best_params = best_params["best_score"][0]
+
+        print(f"Best Forecasting Hyperparameters: {self.best_params}")
+
+        data_mask_temporalized = build_tf_dataset(
+            data=self.original_trainval_wide_transf,
+            mask=self.mask_trainval_wide,
+            dyn_features=self.trainval_dyn_features,
+            window_size=self.best_params["window_size"],
+            batch_size=self.best_params["batch_size"],
+            windows_batch_size=self.best_params["windows_batch_size"],
+            coverage_mode="systematic",
+            stride=1,
+            prediction_mode="multi_step_ahead",
+            future_steps=self.h,
+            cache_dataset_name=self.dataset_name,
+            cache_dataset_group=self.dataset_group + "_forecasting",
+            cache_split="trainval",
+        )
+
+        encoder, decoder = get_CVAE(
+            window_size=self.best_params["window_size"],
+            input_dim=1,
+            latent_dim=self.best_params["latent_dim"],
+            pred_dim=self.best_params["future_steps"],
+            time_dist_units=self.best_params["time_dist_units"],
+            kernel_size=self.best_params["kernel_size"],
+            forecasting=True,
+            n_hidden=self.best_params["n_hidden"],
+        )
+
+        cvae = CVAE(encoder, decoder, forecasting=True)
+        cvae.compile(
+            optimizer=keras.optimizers.Adam(
+                learning_rate=self.best_params["learning_rate"]
+            ),
+            metrics=[
+                cvae.total_loss_tracker,
+                cvae.reconstruction_loss_tracker,
+                cvae.kl_loss_tracker,
+            ],
+        )
+
+        early_stopping = tf.keras.callbacks.EarlyStopping(
+            monitor="loss",
+            patience=self.best_params["patience"],
+            mode="auto",
+            restore_best_weights=True,
+        )
+        reduce_lr = ReduceLROnPlateau(
+            monitor="loss", factor=0.2, patience=10, min_lr=1e-6, cooldown=3, verbose=1
+        )
+
+        weights_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}__vae_forecasting.weights.h5",
+        )
+        history_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_training_history_forecasting.json",
+        )
+
+        dummy_input = (
+            tf.random.normal((1, self.best_params["window_size"], 1)),
+            tf.ones((1, self.best_params["window_size"], 1)),
+            tf.random.normal((1, self.best_params["window_size"], 6)),
+            tf.random.normal((1, self.best_params["future_steps"], 1)),
+        )
+        _ = cvae(dummy_input)
+
+        if os.path.exists(weights_file):
+            print("Loading existing forecasting weights...")
+            cvae.load_weights(weights_file)
+
+            if os.path.exists(history_file):
+                print("Loading training history for forecasting...")
+                with open(history_file, "r") as f:
+                    history = json.load(f)
+            else:
+                print("No forecasting history file found. Skipping load.")
+        else:
+            mc = ModelCheckpoint(
+                weights_file,
+                save_best_only=True,
+                save_weights_only=True,
+                monitor="loss",
+                mode="auto",
+                verbose=1,
+            )
+
+            history = cvae.fit(
+                x=data_mask_temporalized,
+                epochs=self.best_params["epochs"],
+                batch_size=self.best_params["batch_size"],
+                shuffle=False,
+                callbacks=[early_stopping, mc, reduce_lr],
+            )
+
+            if history is not None:
+                history_dict = {
+                    key: [float(val) for val in values]
+                    for key, values in history.history.items()
+                }
+                with open(history_file, "w") as f:
+                    json.dump(history_dict, f)
+
+        print(
+            "Training for multi-step forecasting completed with best hyperparameters."
+        )
         return cvae
 
     @staticmethod
@@ -1554,3 +1953,68 @@ class HiTGenPipeline:
             X_hat_long = X_hat_long.loc[X_hat_long["unique_id"].isin(unique_ids_filter)]
 
         return X_hat_long
+
+    def predict_future(
+        self,
+        cvae: keras.Model,
+    ) -> pd.DataFrame:
+        """
+          - For each test series, we take the last 'window_size' points as input,
+            plus the next 'horizon' dynamic features.
+          - We pass them into the CVAE => get forecast_out for each series.
+          - We build a DataFrame that merges y_true with y_pred.
+
+        Returns:
+          DataFrame [unique_id, ds, y, y_pred]
+          for the final horizon steps of each series.
+        """
+        holdout_df, dyn_feature_cols = self.build_test_holdout(
+            test_long=self.original_test_long,
+            horizon=self.h,
+            window_size=self.best_params["window_size"],
+        )
+
+        forecast_dataset, meta_list = build_forecast_dataset(
+            holdout_df=holdout_df,
+            unique_ids=self.test_ids,
+            lookback_window=self.best_params["window_size"],
+            horizon=self.h,
+            dyn_feature_cols=dyn_feature_cols,
+        )
+        if forecast_dataset is None:
+            print("No valid data to forecast.")
+            return pd.DataFrame()
+
+        pred_tuple = cvae.predict(forecast_dataset, verbose=0)
+        recon_out, z_mean_out, z_log_var_out, forecast_out = pred_tuple
+
+        # forecast_out => [num_series, horizon, 1]
+        forecast_out = self.scaler_test.inverse_transform(forecast_out.squeeze(-1))[
+            :, :, None
+        ]
+
+        # align the forecast to the real data
+        # create a new DataFrame with [unique_id, ds, y_pred] and then we merge on the real y
+        # each row in 'meta_list' corresponds to forecast_out[i, ...]
+
+        results = []
+        for i, uid in enumerate(meta_list):
+            y_pred = forecast_out[i, :, 0]  # [horizon]
+
+            df_ser = holdout_df.loc[holdout_df["unique_id"] == uid].sort_values("ds")
+            # the last horizon points we are predicting
+            fut_part = df_ser.iloc[-self.h :] if self.h > 0 else pd.DataFrame()
+
+            if not fut_part.empty:
+                subres = fut_part.copy()
+                subres["y_pred"] = y_pred
+                subres = subres[["unique_id", "ds", "y", "y_pred"]]
+                subres = subres.rename(columns={"y": "y_true"})
+                subres = subres.rename(columns={"y_pred": "y"})
+                results.append(subres)
+
+        if not results:
+            return pd.DataFrame()
+
+        df_forecast = pd.concat(results, ignore_index=True)
+        return df_forecast

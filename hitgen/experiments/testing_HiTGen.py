@@ -12,7 +12,10 @@ from hitgen.metrics.evaluation_metrics import (
 )
 from hitgen.visualization import plot_generated_vs_original
 from hitgen.benchmarks.metaforecast import workflow_metaforecast_methods
-from hitgen.metrics.evaluation_pipeline import evaluation_pipeline_hitgen
+from hitgen.metrics.evaluation_pipeline import (
+    evaluation_pipeline_hitgen,
+    evaluation_pipeline_hitgen_forecast,
+)
 from hitgen.experiments.helper import (
     extract_score,
     extract_frequency,
@@ -23,18 +26,18 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
     # "M1": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     #     "Quarterly": {"FREQ": "Q", "H": 8},
     # },
-    "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        # "Quarterly": {"FREQ": "Q", "H": 8},
-        # "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # "Quarterly": {"FREQ": "Q", "H": 8},
+    # "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 
@@ -95,7 +98,8 @@ if __name__ == "__main__":
             )
 
             # hypertuning
-            model = hitgen_pipeline.hyper_tune_and_train()
+            # model = hitgen_pipeline.hyper_tune_and_train()
+            model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
 
             test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
@@ -135,7 +139,18 @@ if __name__ == "__main__":
                     noise_scale=5,
                 )
 
-            # append all hitgen variations results
+            row_hitgen_forecast = {}
+            row_forecast = evaluation_pipeline_hitgen_forecast(
+                dataset=DATASET,
+                dataset_group=DATASET_GROUP,
+                model=model_forecasting,
+                pipeline=hitgen_pipeline,
+                horizon=H,
+                freq=FREQ,
+                row_forecast=row_hitgen_forecast,
+            )
+
+            # append all hitgen results
             dataset_group_results.append(row_hitgen)
             results.append(row_hitgen)
 

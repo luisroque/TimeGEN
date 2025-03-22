@@ -33,6 +33,7 @@ def build_tf_dataset(
     windows_batch_size: int = 8,
     shuffle_buffer_size: int = 1000,
     reshuffle_each_epoch: bool = True,
+    store_dataset: bool = True,
 ) -> tf.data.Dataset:
     """
     Build a tf.data.Dataset that yields ((x_data, x_mask, x_dyn, pred_mask),
@@ -98,11 +99,7 @@ def build_tf_dataset(
         dataset = tf.data.Dataset.load(cache_dir)
         return dataset
     else:
-        os.makedirs(cache_dir, exist_ok=True)
-        print(
-            f"[build_tf_dataset] No cached dataset found; building from scratch.\n"
-            f"Will save to {cache_dir}"
-        )
+        print(f"[build_tf_dataset] No cached dataset found; building from scratch.\n")
 
     if stride is None:
         stride = window_size
@@ -249,10 +246,99 @@ def build_tf_dataset(
     dataset = dataset.batch(block_size)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
-    print(f"[build_tf_dataset] Saving dataset to {cache_dir}")
-    dataset.save(cache_dir)
+    if store_dataset:
+        print(f"[build_tf_dataset] Saving dataset to {cache_dir}")
+        os.makedirs(cache_dir, exist_ok=True)
+        dataset.save(cache_dir)
 
     return dataset
+
+
+def build_forecast_dataset(
+    holdout_df: pd.DataFrame,
+    unique_ids: List[str],
+    lookback_window: int,
+    horizon: int,
+    dyn_feature_cols: List[str],
+) -> Tuple[tf.data.Dataset, List]:
+    """
+    Build a tf.data.Dataset with exactly 1 sample per series,
+    where each sample is (x_data, x_mask, x_dyn, pred_mask).
+
+    x_data = last 'window_size' points from that series
+    pred_mask = shape [horizon, 1], all ones.
+
+    holdout_df has columns:
+      ['unique_id', 'ds', 'y'] + dynamic feature columns.
+    """
+    x_data_list = []
+    x_mask_list = []
+    x_dyn_list = []
+    pred_mask_list = []
+
+    meta_list = []
+
+    for uid in unique_ids:
+        df_ser = holdout_df[holdout_df["unique_id"] == uid].sort_values("ds")
+
+        # extract the lookback_window from the "history"
+        hist_part = (
+            df_ser.iloc[-(lookback_window + horizon) : -horizon]
+            if horizon > 0
+            else df_ser.iloc[-lookback_window:]
+        )
+
+        fut_part = df_ser.iloc[-horizon:] if horizon > 0 else pd.DataFrame()
+
+        x_vals = hist_part["y"].values  # [window_size,]
+        x_mask = np.ones_like(x_vals, dtype=np.float32)
+        if len(x_vals) < lookback_window:
+            # zero-pad or skip
+            print(f"Series {uid} doesn't have enough history. Skipping.")
+            continue
+
+        if len(dyn_feature_cols) > 0:
+            hist_dyn = hist_part[dyn_feature_cols].values  # [window_size, dyn_dim]
+        else:
+            hist_dyn = np.zeros((lookback_window, 0), dtype=np.float32)
+
+        pmask = (
+            np.ones((horizon, 1), dtype=np.float32) if horizon > 0 else np.zeros((1, 1))
+        )
+
+        x_vals = x_vals.reshape(lookback_window, 1)
+        x_mask = x_mask.reshape(lookback_window, 1)
+
+        x_data_list.append(x_vals)
+        x_mask_list.append(x_mask)
+        x_dyn_list.append(hist_dyn)
+        pred_mask_list.append(pmask)
+
+        # keep track of which series + final timestamps for alignment
+        meta_list.append(uid)
+
+    x_data = tf.convert_to_tensor(np.stack(x_data_list, axis=0), dtype=tf.float32)
+    x_mask = tf.convert_to_tensor(np.stack(x_mask_list, axis=0), dtype=tf.float32)
+    x_dyn = tf.convert_to_tensor(np.stack(x_dyn_list, axis=0), dtype=tf.float32)
+    pred_mask = tf.convert_to_tensor(np.stack(pred_mask_list, axis=0), dtype=tf.float32)
+
+    # pass placeholders since we only want the forecast_out
+    recon_stub = tf.zeros_like(x_data)
+    recon_mask_stub = tf.ones_like(x_data)
+    pred_stub = tf.zeros_like(pred_mask)
+    big_meta = np.arange(len(meta_list))[:, None]
+
+    # build final dataset of shape [num_series, ...]
+    dataset = tf.data.Dataset.from_tensor_slices(
+        (
+            (x_data, x_mask, x_dyn, pred_mask),
+            (recon_stub, recon_mask_stub, pred_stub, pred_mask),
+            big_meta,
+        )
+    )
+
+    dataset = dataset.batch(len(meta_list))
+    return dataset, meta_list
 
 
 class Sampling(tf.keras.layers.Layer):
@@ -513,7 +599,7 @@ def get_CVAE(
       dyn_features:   (window_size, d_something)
     """
     input_shape_main = (window_size, input_dim)
-    # 6 dynamic features => (window_size, 6)
+    # 6 dynamic features
     input_shape_dyn_features = (window_size, 6)
     output_shape_pred = (pred_dim, input_dim)
 
@@ -560,13 +646,14 @@ class UpsampleTimeLayer(tf.keras.layers.Layer):
 
 class MRHIBlock_backcast(tf.keras.layers.Layer):
     """
-    Block following with MLP projection and upsampling, with added regularization.
+    This block produces ONLY a backcast of shape [B, seq_len, hidden_dim],
+    so that we can do `residual - backcast`.
     """
 
     def __init__(
         self,
-        backcast_size: Tuple[int, int],
-        n_knots: int,
+        backcast_size: Tuple[int, int],  # (seq_len, hidden_dim)
+        n_knots: int = 4,
         n_hidden: int = 256,
         n_layers: int = 2,
         kernel_size: Tuple[int] = (2, 2, 1),
@@ -576,13 +663,17 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.seq_len, self.num_features = backcast_size
+        self.seq_len, self.hidden_dim = backcast_size
         self.n_knots = n_knots
         self.n_hidden = n_hidden
         self.n_layers = n_layers
 
-        self.n_theta_backcast = self.seq_len * self.num_features
-        self.n_theta = self.n_theta_backcast
+        # produce knots dimension, then upsample back to seq_len
+        self.n_theta_backcast = self.n_knots * self.hidden_dim
+
+        self.upsample_backcast = UpsampleTimeLayer(
+            target_len=self.seq_len, method="bilinear"
+        )
 
         self.pooling_layers = []
         for k in kernel_size:
@@ -603,37 +694,44 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
             mlp_layers.append(layers.Activation(activation))
             mlp_layers.append(layers.Dropout(dropout_rate))
 
+        # (n_knots * hidden_dim)
         mlp_layers.append(
-            layers.Dense(self.n_theta, kernel_regularizer=regularizers.l2(l2_lambda))
+            layers.Dense(
+                self.n_theta_backcast, kernel_regularizer=regularizers.l2(l2_lambda)
+            )
         )
+
         self.mlp_stack = tf.keras.Sequential(mlp_layers)
 
-    def call(self, x: tf.Tensor) -> (tf.Tensor, tf.Tensor):
+    def call(self, x: tf.Tensor) -> tf.Tensor:
         """
-        Forward pass with pooling and MLP.
+        x shape: [B, seq_len, hidden_dim]
+        1) pool => shape [B, n_knots, hidden_dim]
+        2) flatten => MLP => [B, n_knots*hidden_dim]
+        3) reshape => backcast_knots => [B, n_knots, hidden_dim]
+        4) upsample => [B, seq_len, hidden_dim]
         """
         for pool_layer in self.pooling_layers:
             x = pool_layer(x)
 
         theta = self.mlp_stack(x)
-
-        backcast_flat = theta
-
-        backcast = tf.reshape(backcast_flat, [-1, self.seq_len, self.num_features])
-
+        backcast_knots = tf.reshape(theta, [-1, self.n_knots, self.hidden_dim])
+        backcast = self.upsample_backcast(backcast_knots)
         return backcast
 
 
 class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
     """
-    Block following with MLP projection and upsampling, with added regularization.
+    Produces:
+      - backcast: [B, seq_len, hidden_dim] so we can do `residual - backcast`.
+      - forecast: [B, pred_len, hidden_dim] for the future horizon.
     """
 
     def __init__(
         self,
-        backcast_size: Tuple[int, int],
-        forecast_size: Tuple[int, int],
-        n_knots: int,
+        backcast_size: Tuple[int, int],  # (seq_len, hidden_dim)
+        forecast_size: Tuple[int, int],  # (pred_len, hidden_dim)
+        n_knots: int = 4,
         n_hidden: int = 256,
         n_layers: int = 2,
         kernel_size: Tuple[int] = (2, 2, 1),
@@ -643,17 +741,22 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.seq_len, self.num_features = backcast_size
-        self.pred_len, self.num_features = forecast_size
+        self.seq_len, self.hidden_dim = backcast_size
+        self.pred_len, _ = forecast_size
+
         self.n_knots = n_knots
         self.n_hidden = n_hidden
         self.n_layers = n_layers
 
-        self.n_theta_backcast = self.seq_len * self.num_features
-        self.n_theta_forecast = self.n_knots * self.num_features
+        # produce n_knots * hidden_dim for backcast, plus n_knots*hidden_dim for forecast
+        self.n_theta_backcast = self.n_knots * self.hidden_dim
+        self.n_theta_forecast = self.n_knots * self.hidden_dim
         self.n_theta = self.n_theta_backcast + self.n_theta_forecast
 
-        self.upsample_layer = UpsampleTimeLayer(
+        self.upsample_backcast = UpsampleTimeLayer(
+            target_len=self.seq_len, method="bilinear"
+        )
+        self.upsample_forecast = UpsampleTimeLayer(
             target_len=self.pred_len, method="bilinear"
         )
 
@@ -683,7 +786,12 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
 
     def call(self, x: tf.Tensor) -> (tf.Tensor, tf.Tensor):
         """
-        Forward pass with pooling and MLP.
+        x shape: [B, seq_len, hidden_dim].
+        1) pool => shape [B, n_knots, hidden_dim]
+        2) flatten => MLP => [B, n_theta_backcast + n_theta_forecast]
+        3) slice => backcast part vs. forecast part
+        4) reshape each => [B, n_knots, hidden_dim]
+        5) upsample backcast => [B, seq_len, hidden_dim], forecast => [B, pred_len, hidden_dim]
         """
         for pool_layer in self.pooling_layers:
             x = pool_layer(x)
@@ -691,11 +799,13 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
         theta = self.mlp_stack(x)
 
         backcast_flat = theta[:, : self.n_theta_backcast]
-        knots_flat = theta[:, self.n_theta_backcast :]
+        forecast_flat = theta[:, self.n_theta_backcast :]
 
-        backcast = tf.reshape(backcast_flat, [-1, self.seq_len, self.num_features])
-        knots = tf.reshape(knots_flat, [-1, self.n_knots, self.num_features])
-        forecast = self.upsample_layer(knots)
+        backcast_knots = tf.reshape(backcast_flat, [-1, self.n_knots, self.hidden_dim])
+        forecast_knots = tf.reshape(forecast_flat, [-1, self.n_knots, self.hidden_dim])
+
+        backcast = self.upsample_backcast(backcast_knots)
+        forecast = self.upsample_forecast(forecast_knots)
 
         return backcast, forecast
 
@@ -772,9 +882,10 @@ def decoder(
     kernel_size: Tuple[int] = (2, 2, 1),
     forecasting: bool = True,
 ):
-    time_steps = output_shape[0]
+    window_size, n_features = output_shape
+    future_steps, n_features_forecast = pred_shape
 
-    latent_input = layers.Input(shape=(time_steps, latent_dim), name="latent_input")
+    latent_input = layers.Input(shape=(window_size, latent_dim), name="latent_input")
     dyn_features_input = layers.Input(
         shape=output_shape_dyn_features, name="dyn_features_input"
     )
@@ -786,7 +897,10 @@ def decoder(
     x = layers.TimeDistributed(layers.Dense(time_dist_units, activation="relu"))(x)
 
     residual = x
-    final_forecast = layers.Lambda(lambda t: tf.zeros_like(t))(x)
+
+    final_forecast = layers.Lambda(
+        lambda t: tf.zeros((tf.shape(t)[0], future_steps, n_hidden), dtype=t.dtype)
+    )(x)
     final_backcast = 0
 
     if forecasting:
@@ -819,16 +933,24 @@ def decoder(
             final_backcast = final_backcast + backcast
         final_forecast = final_backcast
 
-    final_backcast = layers.Multiply(name="masked_backcast_output")(
-        [final_backcast, mask_input]
+    backcast_out = layers.TimeDistributed(layers.Dense(n_features, activation=None))(
+        final_backcast
+    )  # => [B, window_size, n_features]
+
+    forecast_out = layers.TimeDistributed(
+        layers.Dense(n_features_forecast, activation=None)
+    )(final_forecast)
+
+    backcast_out = layers.Multiply(name="masked_backcast_output")(
+        [backcast_out, mask_input]
     )
 
-    final_forecast = layers.Multiply(name="masked_forecast_output")(
-        [final_forecast, pred_mask]
+    forecast_out = layers.Multiply(name="masked_forecast_output")(
+        [forecast_out, pred_mask]
     )
 
     return tf.keras.Model(
         inputs=[latent_input, mask_input, dyn_features_input, pred_mask],
-        outputs=[final_backcast, final_forecast],
+        outputs=[backcast_out, forecast_out],
         name="decoder",
     )
