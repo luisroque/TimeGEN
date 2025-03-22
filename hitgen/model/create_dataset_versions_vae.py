@@ -1644,9 +1644,7 @@ class HiTGenPipeline:
 
         score = val_loss
 
-        synthetic_long = self.predict_future(
-            cvae,
-        )
+        synthetic_long = self.predict_future(cvae, window_size=window_size)
 
         self.update_best_scores(
             original_data=self.original_val_long,
@@ -2354,6 +2352,7 @@ class HiTGenPipeline:
     def predict_future(
         self,
         cvae: keras.Model,
+        window_size: int = None,
     ) -> pd.DataFrame:
         """
           - For each test series, we take the last 'window_size' points as input,
@@ -2365,16 +2364,19 @@ class HiTGenPipeline:
           DataFrame [unique_id, ds, y, y_pred]
           for the final horizon steps of each series.
         """
+        if window_size is None:
+            window_size = self.best_params_forecasting["window_size"]
+
         holdout_df, dyn_feature_cols = self.build_test_holdout(
             test_long=self.original_test_long,
             horizon=self.h,
-            window_size=self.best_params_forecasting["window_size"],
+            window_size=window_size,
         )
 
         forecast_dataset, meta_list = build_forecast_dataset(
             holdout_df=holdout_df,
             unique_ids=self.test_ids,
-            lookback_window=self.best_params_forecasting["window_size"],
+            lookback_window=window_size,
             horizon=self.h,
             dyn_feature_cols=dyn_feature_cols,
         )
