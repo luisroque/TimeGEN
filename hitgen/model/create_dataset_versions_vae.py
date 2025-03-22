@@ -2388,7 +2388,7 @@ class HiTGenPipeline:
         recon_out, z_mean_out, z_log_var_out, forecast_out = pred_tuple
 
         # forecast_out => [num_series, horizon, 1]
-        forecast_out = self.scaler_test.inverse_transform(forecast_out.squeeze(-1))[
+        forecast_out = self.scaler_test.inverse_transform(forecast_out.squeeze(-1).T).T[
             :, :, None
         ]
 
