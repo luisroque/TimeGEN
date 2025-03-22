@@ -109,6 +109,10 @@ class HiTGenPipeline:
             "YS": (self._yearly_index, 1),
         }
 
+        self.best_params = {}
+        self.best_params_forecasting = {}
+        self.best_params_multivar = {}
+
         feature_dict = self._feature_engineering()
 
         # original Data
@@ -1861,7 +1865,7 @@ class HiTGenPipeline:
         try:
             with open(best_params_meta_opt_file, "r") as f:
                 best_params = json.load(f)
-                self.best_params = best_params["best_score"][0]
+                self.best_params_multivar = best_params["best_score"][0]
                 print("Best Multivar params file found. Loading...")
         except (FileNotFoundError, json.JSONDecodeError):
             print(
@@ -1874,45 +1878,45 @@ class HiTGenPipeline:
             ) as f:
                 best_params = json.load(f)
 
-            self.best_params = best_params["best_score"][0]
+            self.best_params_multivar = best_params["best_score"][0]
 
-        print(f"Best Multivar Hyperparameters: {self.best_params}")
+        print(f"Best Multivar Hyperparameters: {self.best_params_multivar}")
 
         data_mask_temporalized = build_tf_dataset_multivariate(
             data=self.original_trainval_wide_transf,
             mask=self.mask_trainval_wide,
             dyn_features=self.trainval_dyn_features,
-            window_size=self.best_params["window_size"],
-            batch_size=self.best_params["batch_size"],
-            windows_batch_size=self.best_params["windows_batch_size"],
+            window_size=self.best_params_multivar["window_size"],
+            batch_size=self.best_params_multivar["batch_size"],
+            windows_batch_size=self.best_params_multivar["windows_batch_size"],
             coverage_mode="systematic",
             stride=1,
-            prediction_mode=self.best_params["prediction_mode"],
-            future_steps=self.best_params["future_steps"],
+            prediction_mode=self.best_params_multivar["prediction_mode"],
+            future_steps=self.best_params_multivar["future_steps"],
             cache_dataset_name=self.dataset_name,
             cache_dataset_group=self.dataset_group + "_multivar",
             cache_split="trainval",
         )
 
         encoder, decoder = get_CVAE(
-            window_size=self.best_params["window_size"],
+            window_size=self.best_params_multivar["window_size"],
             input_dim=1,  # univariate series
-            latent_dim=self.best_params["latent_dim"],
-            pred_dim=self.best_params["future_steps"],
-            time_dist_units=self.best_params["time_dist_units"],
-            kernel_size=self.best_params["kernel_size"],
-            forecasting=self.best_params["forecasting"],
-            n_hidden=self.best_params["n_hidden"],
+            latent_dim=self.best_params_multivar["latent_dim"],
+            pred_dim=self.best_params_multivar["future_steps"],
+            time_dist_units=self.best_params_multivar["time_dist_units"],
+            kernel_size=self.best_params_multivar["kernel_size"],
+            forecasting=self.best_params_multivar["forecasting"],
+            n_hidden=self.best_params_multivar["n_hidden"],
         )
 
         cvae = CVAE(
             encoder,
             decoder,
-            forecasting=self.best_params["forecasting"],
+            forecasting=self.best_params_multivar["forecasting"],
         )
         cvae.compile(
             optimizer=keras.optimizers.Adam(
-                learning_rate=self.best_params["learning_rate"]
+                learning_rate=self.best_params_multivar["learning_rate"]
             ),
             metrics=[
                 cvae.total_loss_tracker,
@@ -1924,7 +1928,7 @@ class HiTGenPipeline:
         # final training with best parameters
         early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor="loss",
-            patience=self.best_params["patience"],
+            patience=self.best_params_multivar["patience"],
             mode="auto",
             restore_best_weights=True,
         )
@@ -1942,12 +1946,16 @@ class HiTGenPipeline:
         history = None
 
         dummy_input = (
-            tf.random.normal((1, self.best_params["window_size"], 1)),  # batch_data
-            tf.ones((1, self.best_params["window_size"], 1)),  # batch_mask
             tf.random.normal(
-                (1, self.best_params["window_size"], 6)
+                (1, self.best_params_multivar["window_size"], 1)
+            ),  # batch_data
+            tf.ones((1, self.best_params_multivar["window_size"], 1)),  # batch_mask
+            tf.random.normal(
+                (1, self.best_params_multivar["window_size"], 6)
             ),  # batch_dyn_features
-            tf.random.normal((1, self.best_params["future_steps"], 1)),  # pred_mask
+            tf.random.normal(
+                (1, self.best_params_multivar["future_steps"], 1)
+            ),  # pred_mask
         )
         _ = cvae(dummy_input)
 
@@ -1974,8 +1982,8 @@ class HiTGenPipeline:
 
             history = cvae.fit(
                 x=data_mask_temporalized,
-                epochs=self.best_params["epochs"],
-                batch_size=self.best_params["batch_size"],
+                epochs=self.best_params_multivar["epochs"],
+                batch_size=self.best_params_multivar["batch_size"],
                 shuffle=False,
                 callbacks=[early_stopping, mc, reduce_lr],
             )
@@ -2020,7 +2028,7 @@ class HiTGenPipeline:
         try:
             with open(best_params_meta_opt_file, "r") as f:
                 best_params = json.load(f)
-                self.best_params = best_params["best_score"][0]
+                self.best_params_forecasting = best_params["best_score"][0]
                 print("Best forecast params file found. Loading...")
         except (FileNotFoundError, json.JSONDecodeError):
             print(
@@ -2032,15 +2040,15 @@ class HiTGenPipeline:
                 best_params = json.load(f)
             self.best_params = best_params["best_score"][0]
 
-        print(f"Best Forecasting Hyperparameters: {self.best_params}")
+        print(f"Best Forecasting Hyperparameters: {self.best_params_forecasting}")
 
         data_mask_temporalized = build_tf_dataset(
             data=self.original_trainval_wide_transf,
             mask=self.mask_trainval_wide,
             dyn_features=self.trainval_dyn_features,
-            window_size=self.best_params["window_size"],
-            batch_size=self.best_params["batch_size"],
-            windows_batch_size=self.best_params["windows_batch_size"],
+            window_size=self.best_params_forecasting["window_size"],
+            batch_size=self.best_params_forecasting["batch_size"],
+            windows_batch_size=self.best_params_forecasting["windows_batch_size"],
             coverage_mode="systematic",
             stride=1,
             prediction_mode="multi_step_ahead",
@@ -2051,20 +2059,20 @@ class HiTGenPipeline:
         )
 
         encoder, decoder = get_CVAE(
-            window_size=self.best_params["window_size"],
+            window_size=self.best_params_forecasting["window_size"],
             input_dim=1,
-            latent_dim=self.best_params["latent_dim"],
-            pred_dim=self.best_params["future_steps"],
-            time_dist_units=self.best_params["time_dist_units"],
-            kernel_size=self.best_params["kernel_size"],
+            latent_dim=self.best_params_forecasting["latent_dim"],
+            pred_dim=self.best_params_forecasting["future_steps"],
+            time_dist_units=self.best_params_forecasting["time_dist_units"],
+            kernel_size=self.best_params_forecasting["kernel_size"],
             forecasting=True,
-            n_hidden=self.best_params["n_hidden"],
+            n_hidden=self.best_params_forecasting["n_hidden"],
         )
 
         cvae = CVAE(encoder, decoder, forecasting=True)
         cvae.compile(
             optimizer=keras.optimizers.Adam(
-                learning_rate=self.best_params["learning_rate"]
+                learning_rate=self.best_params_forecasting["learning_rate"]
             ),
             metrics=[
                 cvae.total_loss_tracker,
@@ -2075,7 +2083,7 @@ class HiTGenPipeline:
 
         early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor="loss",
-            patience=self.best_params["patience"],
+            patience=self.best_params_forecasting["patience"],
             mode="auto",
             restore_best_weights=True,
         )
@@ -2093,10 +2101,10 @@ class HiTGenPipeline:
         )
 
         dummy_input = (
-            tf.random.normal((1, self.best_params["window_size"], 1)),
-            tf.ones((1, self.best_params["window_size"], 1)),
-            tf.random.normal((1, self.best_params["window_size"], 6)),
-            tf.random.normal((1, self.best_params["future_steps"], 1)),
+            tf.random.normal((1, self.best_params_forecasting["window_size"], 1)),
+            tf.ones((1, self.best_params_forecasting["window_size"], 1)),
+            tf.random.normal((1, self.best_params_forecasting["window_size"], 6)),
+            tf.random.normal((1, self.best_params_forecasting["future_steps"], 1)),
         )
         _ = cvae(dummy_input)
 
@@ -2122,8 +2130,8 @@ class HiTGenPipeline:
 
             history = cvae.fit(
                 x=data_mask_temporalized,
-                epochs=self.best_params["epochs"],
-                batch_size=self.best_params["batch_size"],
+                epochs=self.best_params_forecasting["epochs"],
+                batch_size=self.best_params_forecasting["batch_size"],
                 shuffle=False,
                 callbacks=[early_stopping, mc, reduce_lr],
             )
@@ -2358,13 +2366,13 @@ class HiTGenPipeline:
         holdout_df, dyn_feature_cols = self.build_test_holdout(
             test_long=self.original_test_long,
             horizon=self.h,
-            window_size=self.best_params["window_size"],
+            window_size=self.best_params_forecasting["window_size"],
         )
 
         forecast_dataset, meta_list = build_forecast_dataset(
             holdout_df=holdout_df,
             unique_ids=self.test_ids,
-            lookback_window=self.best_params["window_size"],
+            lookback_window=self.best_params_forecasting["window_size"],
             horizon=self.h,
             dyn_feature_cols=dyn_feature_cols,
         )
