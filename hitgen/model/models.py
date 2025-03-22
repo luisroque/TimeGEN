@@ -254,6 +254,214 @@ def build_tf_dataset(
     return dataset
 
 
+def build_tf_dataset_multivariate(
+    data: pd.DataFrame,  # shape [T, N]
+    mask: pd.DataFrame,  # shape [T, N]
+    dyn_features: pd.DataFrame,  # shape [T, dyn_dim]
+    cache_split: str,
+    cache_dataset_name: str,
+    cache_dataset_group: str,
+    window_size: int = 16,
+    stride: int = None,
+    coverage_mode: str = "systematic",
+    coverage_fraction: float = 0.1,
+    prediction_mode: str = "one_step_ahead",
+    future_steps: int = 1,
+    batch_size: int = 8,
+    windows_batch_size: int = 8,
+    shuffle_buffer_size: int = 1000,
+    reshuffle_each_epoch: bool = True,
+    store_dataset: bool = True,
+) -> tf.data.Dataset:
+    """
+    Build a tf.data.Dataset for a multivariate approach, where each window
+    includes *all* series in the last dimension. i.e. x_data => shape [window_size, N].
+    """
+
+    param_str = (
+        f"multivar-win{window_size}-str{stride}-covmode{coverage_mode}-covfrac{coverage_fraction}"
+        f"-predmode{prediction_mode}-fut{future_steps}-batch{batch_size}-wbatch{windows_batch_size}"
+        f"-shufbuf{shuffle_buffer_size}-reshuff{reshuffle_each_epoch}"
+    )
+
+    data_shape_str = f"T{data.shape[0]}_N{data.shape[1]}"
+    if dyn_features is not None:
+        data_shape_str += f"_dyn{dyn_features.shape[1]}"
+    mask_shape_str = "mask" if mask is not None else "nomask"
+
+    full_param_str = f"{data_shape_str}-{mask_shape_str}-{param_str}"
+
+    import hashlib, os
+
+    hash_val = hashlib.md5(full_param_str.encode("utf-8")).hexdigest()
+    cache_dir = (
+        f"assets/tf_datasets/{cache_dataset_name}_{cache_dataset_group}_"
+        f"{cache_split}_dataset_multivar_{hash_val}"
+    )
+
+    if os.path.isdir(cache_dir) and os.listdir(cache_dir):
+        print(f"[build_tf_dataset_multivariate] Loading dataset from {cache_dir} ...")
+        dataset = tf.data.Dataset.load(cache_dir)
+        return dataset
+    else:
+        print(
+            "[build_tf_dataset_multivariate] No cached dataset found; building from scratch.\n"
+        )
+
+    if stride is None:
+        stride = window_size
+
+    T = data.shape[0]
+    N = data.shape[1]
+
+    data = tf.convert_to_tensor(data, dtype=tf.float32)
+    if mask is not None:
+        mask = tf.convert_to_tensor(mask, dtype=tf.float32)
+    if dyn_features is not None:
+        dyn_features = tf.convert_to_tensor(dyn_features, dtype=tf.float32)
+        dyn_dim = dyn_features.shape[-1]
+    else:
+        dyn_dim = 0
+
+    big_meta = []
+    n_possible = T - window_size + 1
+    for st in range(0, n_possible, stride):
+        big_meta.append(st)
+
+    big_meta = np.array(big_meta, dtype=np.int32)
+    num_windows_total = len(big_meta)
+
+    block_size = batch_size * windows_batch_size
+
+    if coverage_mode == "partial":
+        windows_needed = int(num_windows_total * coverage_fraction)
+        windows_needed = max(block_size, windows_needed)
+        sampled_indices = np.random.choice(
+            num_windows_total, size=windows_needed, replace=False
+        )
+        big_meta = big_meta[sampled_indices]
+
+    x_data_list = []
+    x_mask_list = []
+    x_dyn_list = []
+    recon_list = []
+    recon_mask_list = []
+    pred_list = []
+    pred_mask_list = []
+
+    def build_targets(st):
+        """
+        Returns recon_target, recon_mask, pred_target, pred_mask
+        for a single window start, for a multivariate approach:
+          - recon_target => shape [window_size, N]
+          - pred_target => shape [future_steps, N]
+        """
+        recon_target = data[st : st + window_size, :]  # [window_size, N]
+        if mask is not None:
+            recon_m = mask[st : st + window_size, :]
+        else:
+            recon_m = tf.ones_like(recon_target)
+
+        # forecast
+        if prediction_mode == "one_step_ahead":
+            next_idx = st + window_size
+            if next_idx < T:
+                val_data = data[next_idx, :]  # shape [N]
+                val_mask = (
+                    mask[next_idx, :] if mask is not None else tf.ones_like(val_data)
+                )
+            else:
+                val_data = tf.zeros([N], dtype=tf.float32)
+                val_mask = tf.zeros([N], dtype=tf.float32)
+            pred_target = tf.reshape(val_data, [1, N])  # => shape [1, N]
+            pred_m = tf.reshape(val_mask, [1, N])
+        else:
+            start_pred = st + window_size
+            end_pred = start_pred + future_steps
+            if start_pred >= T:
+                seg_data = tf.zeros([future_steps, N], dtype=tf.float32)
+                seg_mask = tf.zeros([future_steps, N], dtype=tf.float32)
+            else:
+                seg_data = data[start_pred : min(end_pred, T), :]  # shape [?, N]
+                if mask is not None:
+                    seg_mask = mask[start_pred : min(end_pred, T), :]
+                else:
+                    seg_mask = tf.ones_like(seg_data)
+
+                valid_len = tf.shape(seg_data)[0]
+                needed = future_steps - valid_len
+                if needed > 0:
+                    seg_data = tf.concat([seg_data, tf.zeros([needed, N])], axis=0)
+                    seg_mask = tf.concat([seg_mask, tf.zeros([needed, N])], axis=0)
+
+            pred_target = seg_data  # shape [future_steps, N]
+            pred_m = seg_mask
+
+        return recon_target, recon_m, pred_target, pred_m
+
+    # build the window
+    for st in big_meta:
+        w_data = data[st : st + window_size, :]  # => hape [window_size, N]
+        if mask is not None:
+            w_mask = mask[st : st + window_size, :]
+        else:
+            w_mask = tf.ones_like(w_data)
+
+        if dyn_dim > 0:
+            w_dyn = dyn_features[st : st + window_size, :]  # [window_size, dyn_dim]
+        else:
+            w_dyn = tf.zeros((window_size, 0), dtype=tf.float32)
+
+        recon_t, recon_m, pred_t, pred_m = build_targets(st)
+
+        x_data_list.append(w_data)  # => shape [window_size, N]
+        x_mask_list.append(w_mask)  # => shape [window_size, N]
+        x_dyn_list.append(w_dyn)  # => shape [window_size, dyn_dim]
+
+        recon_list.append(recon_t)  # shape [window_size, N]
+        recon_mask_list.append(recon_m)  # shape [window_size, N]
+        pred_list.append(pred_t)  # shape [future_steps, N] or [1, N]
+        pred_mask_list.append(pred_m)
+
+    x_data = tf.stack(x_data_list, axis=0)  # => [num_windows, window_size, N]
+    x_mask = tf.stack(x_mask_list, axis=0)  # => [num_windows, window_size, N]
+    x_dyn = tf.stack(x_dyn_list, axis=0)  # => [num_windows, window_size, dyn_dim]
+
+    recon = tf.stack(recon_list, axis=0)  # => [num_windows, window_size, N]
+    recon_m = tf.stack(recon_mask_list, axis=0)  # => [num_windows, window_size, N]
+    pred = tf.stack(
+        pred_list, axis=0
+    )  # => [num_windows, future_steps, N] or [num_windows, 1, N]
+    pred_m = tf.stack(pred_mask_list, axis=0)
+
+    big_meta = tf.convert_to_tensor(big_meta, dtype=tf.int32)
+    dataset = tf.data.Dataset.from_tensor_slices(
+        (
+            (x_data, x_mask, x_dyn, pred_m),
+            (recon, recon_m, pred, pred_m),
+            big_meta,
+        )
+    )
+
+    if coverage_mode != "systematic":
+        dataset = dataset.shuffle(
+            buffer_size=shuffle_buffer_size,
+            reshuffle_each_iteration=reshuffle_each_epoch,
+        )
+
+    block_size = batch_size * windows_batch_size
+    dataset = dataset.batch(block_size).prefetch(tf.data.AUTOTUNE)
+
+    if store_dataset:
+        import os
+
+        print(f"[build_tf_dataset_multivariate] Saving dataset to {cache_dir}")
+        os.makedirs(cache_dir, exist_ok=True)
+        dataset.save(cache_dir)
+
+    return dataset
+
+
 def build_forecast_dataset(
     holdout_df: pd.DataFrame,
     unique_ids: List[str],

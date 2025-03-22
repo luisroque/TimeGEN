@@ -18,6 +18,7 @@ from hitgen.model.models import (
     CVAE,
     build_tf_dataset,
     build_forecast_dataset,
+    build_tf_dataset_multivariate,
 )
 from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
@@ -1264,186 +1265,418 @@ class HiTGenPipeline:
             print(f"Error in trial: {e}")
             raise optuna.exceptions.TrialPruned()
 
+    def objective_multivariate(self, trial):
+        """
+        Objective function for Optuna to tune the CVAE hyperparameters,
+        evaluated using the validation set.
+        """
+        try:
+            latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
+
+            if self.freq in ["M", "MS"]:
+                window_size = trial.suggest_int("window_size", 6, 24, step=3)
+            elif self.freq in ["Q", "QS"]:
+                window_size = trial.suggest_int("window_size", 8, 16, step=2)
+            elif self.freq in ["Y", "YS"]:
+                window_size = trial.suggest_int("window_size", 4, 8, step=1)
+            else:
+                window_size = trial.suggest_int("window_size", 4, 24, step=1)
+
+            stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
+            patience = trial.suggest_int("patience", 4, 6, step=1)
+
+            n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
+            time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
+            n_blocks = trial.suggest_int("n_layers", 1, 3)
+
+            predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
+            valid_kernel_sizes = [
+                ks
+                for ks in predefined_kernel_sizes
+                if all(window_size >= k for k in ks)
+            ]
+            if not valid_kernel_sizes:
+                valid_kernel_sizes.append((1, 1, 1))
+
+            kernel_size = tuple(
+                trial.suggest_categorical("kernel_size", valid_kernel_sizes)
+            )
+
+            batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
+            windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
+            coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
+
+            prediction_mode = trial.suggest_categorical(
+                "prediction_mode", ["one_step_ahead", "multi_step_ahead"]
+            )
+            if prediction_mode == "multi_step_ahead":
+                future_steps = window_size
+            else:
+                future_steps = 1
+
+            epochs = trial.suggest_int("epochs", 100, 750, step=25)
+            learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
+
+            forecasting = True
+
+            data_mask_temporalized_train = build_tf_dataset(
+                data=self.original_train_wide_transf,
+                mask=self.mask_train_wide,
+                dyn_features=self.train_dyn_features,
+                window_size=window_size,
+                stride=stride,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="partial",
+                coverage_fraction=coverage_fraction,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                cache_dataset_name=self.dataset_name,
+                cache_dataset_group=self.dataset_group,
+                cache_split="train",
+                store_dataset=False,
+            )
+
+            data_mask_temporalized_val = build_tf_dataset(
+                data=self.original_val_wide_transf,
+                mask=self.mask_val_wide,
+                dyn_features=self.val_dyn_features,
+                window_size=window_size,
+                stride=1,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="systematic",
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                cache_dataset_name=self.dataset_name,
+                cache_dataset_group=self.dataset_group,
+                cache_split="val",
+                store_dataset=False,
+            )
+
+            encoder, decoder = get_CVAE(
+                window_size=window_size,
+                input_dim=1,  # univariate series
+                latent_dim=latent_dim,
+                pred_dim=future_steps,
+                time_dist_units=time_dist_units,
+                n_blocks=n_blocks,
+                kernel_size=kernel_size,
+                forecasting=forecasting,
+                n_hidden=n_hidden,
+            )
+
+            cvae = CVAE(
+                encoder=encoder,
+                decoder=decoder,
+                forecasting=forecasting,
+            )
+            cvae.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+                metrics=[
+                    cvae.total_loss_tracker,
+                    cvae.reconstruction_loss_tracker,
+                    cvae.kl_loss_tracker,
+                ],
+            )
+
+            kl_callback = KLScheduleCallback(
+                cvae_model=cvae,
+                kl_start=0.0,
+                kl_end=1.0,
+                warmup_epochs=int(epochs * 0.3),
+            )
+
+            es = EarlyStopping(
+                patience=patience,
+                verbose=1,
+                monitor="val_loss",
+                mode="auto",
+                restore_best_weights=True,
+            )
+            reduce_lr = ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.2,
+                patience=3,
+                min_lr=1e-6,
+                cooldown=3,
+                verbose=1,
+            )
+
+            history = cvae.fit(
+                x=data_mask_temporalized_train,
+                validation_data=data_mask_temporalized_val,
+                epochs=epochs,
+                batch_size=batch_size,
+                shuffle=False,
+                callbacks=[es, reduce_lr, kl_callback],
+                validation_freq=3,
+            )
+
+            val_loss = min(history.history["loss"])
+
+            synthetic_long = self.predict(
+                cvae,
+                gen_data=data_mask_temporalized_val,
+                scaler=self.scaler_val,
+                original_data_wide=self.original_val_wide,
+                original_data_long=self.original_val_long,
+                unique_ids=self.val_ids,
+                ds=self.ds_val,
+            )
+
+            if self.opt_score == "discriminative_score":
+                score = self.compute_mean_discriminative_score(
+                    unique_ids=synthetic_long["unique_id"].unique(),
+                    original_data=self.original_long,
+                    synthetic_data=synthetic_long,
+                    method="hitgen",
+                    freq=self.freq,
+                    dataset_name=self.dataset_name,
+                    dataset_group=self.dataset_group,
+                    loss=val_loss,
+                    generate_feature_plot=False,
+                    store_score=False,
+                    store_features_synth=False,
+                    split="hypertuning",
+                )
+            elif self.opt_score == "downstream_score":
+                score = compute_downstream_forecast(
+                    unique_ids=synthetic_long["unique_id"].unique(),
+                    original_data=self.original_long,
+                    synthetic_data=synthetic_long,
+                    method="hitgen",
+                    freq=self.freq,
+                    horizon=self.h,
+                    dataset_name=self.dataset_name,
+                    dataset_group=self.dataset_group,
+                    samples=10,
+                    split="hypertuning",
+                )
+            else:
+                score = val_loss
+
+            if score is None:
+                print("No valid scores computed. Pruning this trial.")
+                raise optuna.exceptions.TrialPruned()
+
+            self.update_best_scores(
+                original_data=self.original_val_long,
+                synthetic_data=synthetic_long,
+                score=score,
+                latent_dim=latent_dim,
+                window_size=window_size,
+                patience=patience,
+                kernel_size=kernel_size,
+                n_hidden=n_hidden,
+                time_dist_units=time_dist_units,
+                n_blocks=n_blocks,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                stride=stride,
+                coverage_fraction=coverage_fraction,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                forecasting=forecasting,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                loss=val_loss,
+                trial=trial.number,
+            )
+
+            # clean GPU memory between trials
+            del cvae, encoder, decoder
+            tf.keras.backend.clear_session()
+            gc.collect()
+
+            return score
+
+        except Exception as e:
+            print(f"Error in trial: {e}")
+            raise optuna.exceptions.TrialPruned()
+
     def objective_forecast(self, trial):
         """
         Objective function for Optuna to tune CVAE hyperparameters,
         specifically for multi-step forecasting, with future_steps=self.h.
         """
 
-        # try:
-        latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
+        try:
+            latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
 
-        if self.freq in ["M", "MS"]:
-            window_size = trial.suggest_int("window_size", 6, 24, step=3)
-        elif self.freq in ["Q", "QS"]:
-            window_size = trial.suggest_int("window_size", 8, 16, step=2)
-        elif self.freq in ["Y", "YS"]:
-            window_size = trial.suggest_int("window_size", 4, 8, step=1)
-        else:
-            window_size = trial.suggest_int("window_size", 4, 24, step=1)
+            if self.freq in ["M", "MS"]:
+                window_size = trial.suggest_int("window_size", 6, 24, step=3)
+            elif self.freq in ["Q", "QS"]:
+                window_size = trial.suggest_int("window_size", 8, 16, step=2)
+            elif self.freq in ["Y", "YS"]:
+                window_size = trial.suggest_int("window_size", 4, 8, step=1)
+            else:
+                window_size = trial.suggest_int("window_size", 4, 24, step=1)
 
-        stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
-        patience = trial.suggest_int("patience", 4, 6, step=1)
+            stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
+            patience = trial.suggest_int("patience", 4, 6, step=1)
 
-        n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
-        time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
-        n_blocks = trial.suggest_int("n_layers", 1, 3)
+            n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
+            time_dist_units = trial.suggest_int("time_dist_units", 16, 32, step=8)
+            n_blocks = trial.suggest_int("n_layers", 1, 3)
 
-        predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
-        valid_kernel_sizes = [
-            ks for ks in predefined_kernel_sizes if all(window_size >= k for k in ks)
-        ]
-        if not valid_kernel_sizes:
-            valid_kernel_sizes.append((1, 1, 1))
-        kernel_size = tuple(
-            trial.suggest_categorical("kernel_size", valid_kernel_sizes)
-        )
+            predefined_kernel_sizes = [(2, 2, 1), (1, 1, 1), (2, 1, 1), (4, 2, 1)]
+            valid_kernel_sizes = [
+                ks
+                for ks in predefined_kernel_sizes
+                if all(window_size >= k for k in ks)
+            ]
+            if not valid_kernel_sizes:
+                valid_kernel_sizes.append((1, 1, 1))
+            kernel_size = tuple(
+                trial.suggest_categorical("kernel_size", valid_kernel_sizes)
+            )
 
-        batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
-        windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
-        coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
+            batch_size = trial.suggest_int("batch_size", 8, 24, step=8)
+            windows_batch_size = trial.suggest_int("windows_batch_size", 8, 24, step=8)
+            coverage_fraction = trial.suggest_float("coverage_fraction", 0.3, 0.6)
 
-        # force multi-step
-        prediction_mode = "multi_step_ahead"
-        future_steps = self.h
+            # force multi-step
+            prediction_mode = "multi_step_ahead"
+            future_steps = self.h
 
-        epochs = trial.suggest_int("epochs", 100, 750, step=25)
-        learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
+            epochs = trial.suggest_int("epochs", 100, 750, step=25)
+            learning_rate = trial.suggest_loguniform("learning_rate", 3e-5, 3e-4)
 
-        forecasting = True
+            forecasting = True
 
-        data_mask_temporalized_train = build_tf_dataset(
-            data=self.original_train_wide_transf,
-            mask=self.mask_train_wide,
-            dyn_features=self.train_dyn_features,
-            window_size=window_size,
-            stride=stride,
-            batch_size=batch_size,
-            windows_batch_size=windows_batch_size,
-            coverage_mode="partial",
-            coverage_fraction=coverage_fraction,
-            prediction_mode=prediction_mode,
-            future_steps=future_steps,
-            cache_dataset_name=self.dataset_name,
-            cache_dataset_group=self.dataset_group + "_forecasting",
-            cache_split="train",
-            store_dataset=False,
-        )
+            data_mask_temporalized_train = build_tf_dataset(
+                data=self.original_train_wide_transf,
+                mask=self.mask_train_wide,
+                dyn_features=self.train_dyn_features,
+                window_size=window_size,
+                stride=stride,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="partial",
+                coverage_fraction=coverage_fraction,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                cache_dataset_name=self.dataset_name,
+                cache_dataset_group=self.dataset_group + "_forecasting",
+                cache_split="train",
+                store_dataset=False,
+            )
 
-        data_mask_temporalized_val = build_tf_dataset(
-            data=self.original_val_wide_transf,
-            mask=self.mask_val_wide,
-            dyn_features=self.val_dyn_features,
-            window_size=window_size,
-            stride=1,
-            batch_size=batch_size,
-            windows_batch_size=windows_batch_size,
-            coverage_mode="systematic",
-            prediction_mode=prediction_mode,
-            future_steps=future_steps,
-            cache_dataset_name=self.dataset_name,
-            cache_dataset_group=self.dataset_group + "_forecasting",
-            cache_split="val",
-            store_dataset=False,
-        )
+            data_mask_temporalized_val = build_tf_dataset(
+                data=self.original_val_wide_transf,
+                mask=self.mask_val_wide,
+                dyn_features=self.val_dyn_features,
+                window_size=window_size,
+                stride=1,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                coverage_mode="systematic",
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                cache_dataset_name=self.dataset_name,
+                cache_dataset_group=self.dataset_group + "_forecasting",
+                cache_split="val",
+                store_dataset=False,
+            )
 
-        encoder, decoder = get_CVAE(
-            window_size=window_size,
-            input_dim=1,  # univariate
-            latent_dim=latent_dim,
-            pred_dim=future_steps,
-            time_dist_units=time_dist_units,
-            n_blocks=n_blocks,
-            kernel_size=kernel_size,
-            forecasting=forecasting,
-            n_hidden=n_hidden,
-        )
+            encoder, decoder = get_CVAE(
+                window_size=window_size,
+                input_dim=1,  # univariate
+                latent_dim=latent_dim,
+                pred_dim=future_steps,
+                time_dist_units=time_dist_units,
+                n_blocks=n_blocks,
+                kernel_size=kernel_size,
+                forecasting=forecasting,
+                n_hidden=n_hidden,
+            )
 
-        cvae = CVAE(encoder, decoder, forecasting=forecasting)
-        cvae.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
-            metrics=[
-                cvae.total_loss_tracker,
-                cvae.reconstruction_loss_tracker,
-                cvae.kl_loss_tracker,
-            ],
-        )
+            cvae = CVAE(encoder, decoder, forecasting=forecasting)
+            cvae.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+                metrics=[
+                    cvae.total_loss_tracker,
+                    cvae.reconstruction_loss_tracker,
+                    cvae.kl_loss_tracker,
+                ],
+            )
 
-        kl_callback = KLScheduleCallback(
-            cvae_model=cvae,
-            kl_start=0.0,
-            kl_end=1.0,
-            warmup_epochs=int(epochs * 0.3),
-        )
+            kl_callback = KLScheduleCallback(
+                cvae_model=cvae,
+                kl_start=0.0,
+                kl_end=1.0,
+                warmup_epochs=int(epochs * 0.3),
+            )
 
-        es = EarlyStopping(
-            patience=patience,
-            verbose=1,
-            monitor="val_loss",
-            mode="auto",
-            restore_best_weights=True,
-        )
-        reduce_lr = ReduceLROnPlateau(
-            monitor="val_loss",
-            factor=0.2,
-            patience=3,
-            min_lr=1e-6,
-            cooldown=3,
-            verbose=1,
-        )
+            es = EarlyStopping(
+                patience=patience,
+                verbose=1,
+                monitor="val_loss",
+                mode="auto",
+                restore_best_weights=True,
+            )
+            reduce_lr = ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.2,
+                patience=3,
+                min_lr=1e-6,
+                cooldown=3,
+                verbose=1,
+            )
 
-        history = cvae.fit(
-            x=data_mask_temporalized_train,
-            validation_data=data_mask_temporalized_val,
-            epochs=epochs,
-            batch_size=batch_size,
-            shuffle=False,
-            callbacks=[es, reduce_lr, kl_callback],
-            validation_freq=3,
-        )
+            history = cvae.fit(
+                x=data_mask_temporalized_train,
+                validation_data=data_mask_temporalized_val,
+                epochs=epochs,
+                batch_size=batch_size,
+                shuffle=False,
+                callbacks=[es, reduce_lr, kl_callback],
+                validation_freq=3,
+            )
 
-        val_loss = min(history.history["loss"])
+            val_loss = min(history.history["loss"])
 
-        score = val_loss
+            score = val_loss
 
-        synthetic_long = self.predict_future(
-            cvae,
-        )
+            synthetic_long = self.predict_future(
+                cvae,
+            )
 
-        self.update_best_scores(
-            original_data=self.original_val_long,
-            synthetic_data=synthetic_long,
-            score=score,
-            latent_dim=latent_dim,
-            window_size=window_size,
-            patience=patience,
-            kernel_size=kernel_size,
-            n_hidden=n_hidden,
-            time_dist_units=time_dist_units,
-            n_blocks=n_blocks,
-            batch_size=batch_size,
-            windows_batch_size=windows_batch_size,
-            stride=stride,
-            coverage_fraction=coverage_fraction,
-            epochs=epochs,
-            learning_rate=learning_rate,
-            forecasting=forecasting,
-            prediction_mode=prediction_mode,
-            future_steps=future_steps,
-            loss=val_loss,
-            trial=trial.number,
-        )
+            self.update_best_scores(
+                original_data=self.original_val_long,
+                synthetic_data=synthetic_long,
+                score=score,
+                latent_dim=latent_dim,
+                window_size=window_size,
+                patience=patience,
+                kernel_size=kernel_size,
+                n_hidden=n_hidden,
+                time_dist_units=time_dist_units,
+                n_blocks=n_blocks,
+                batch_size=batch_size,
+                windows_batch_size=windows_batch_size,
+                stride=stride,
+                coverage_fraction=coverage_fraction,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                forecasting=forecasting,
+                prediction_mode=prediction_mode,
+                future_steps=future_steps,
+                loss=val_loss,
+                trial=trial.number,
+            )
 
-        # clean GPU memory
-        del cvae, encoder, decoder
-        tf.keras.backend.clear_session()
-        gc.collect()
+            # clean GPU memory
+            del cvae, encoder, decoder
+            tf.keras.backend.clear_session()
+            gc.collect()
 
-        return score
+            return score
 
-        # except Exception as e:
-        #     print(f"Error in objective_forecast trial: {e}")
-        #     raise optuna.exceptions.TrialPruned()
+        except Exception as e:
+            print(f"Error in objective_forecast trial: {e}")
+            raise optuna.exceptions.TrialPruned()
 
     def hyper_tune_and_train(self, n_trials=100):
         """
@@ -1542,9 +1775,6 @@ class HiTGenPipeline:
             monitor="loss", factor=0.2, patience=10, min_lr=1e-6, cooldown=3, verbose=1
         )
 
-        weights_folder = "assets/model_weights"
-        os.makedirs(weights_folder, exist_ok=True)
-
         weights_file = os.path.join(
             weights_folder, f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5"
         )
@@ -1603,6 +1833,163 @@ class HiTGenPipeline:
                     json.dump(history_dict, f)
 
         print("Training completed with the best hyperparameters.")
+        return cvae
+
+    def hyper_tune_and_train_multivariate(self, n_trials=100):
+        """
+        Run Optuna hyperparameter tuning for the CVAE and train the best model.
+        """
+        study_name = f"{self.dataset_name}_{self.dataset_group}_opt_vae_multivar"
+
+        storage = "sqlite:///optuna_study.db"
+
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage,
+            direction="minimize",
+            load_if_exists=True,
+        )
+
+        weights_folder = "assets/model_weights_multivar"
+        os.makedirs(weights_folder, exist_ok=True)
+
+        best_params_meta_opt_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_best_hyperparameters_opt.json",
+        )
+
+        try:
+            with open(best_params_meta_opt_file, "r") as f:
+                best_params = json.load(f)
+                self.best_params = best_params["best_score"][0]
+                print("Best Multivar params file found. Loading...")
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(
+                f"Error loading best Multivar parameters file {best_params_meta_opt_file}. Proceeding with optimization..."
+            )
+            study.optimize(self.objective_multivariate, n_trials=n_trials)
+            with open(
+                best_params_meta_opt_file,
+                "r",
+            ) as f:
+                best_params = json.load(f)
+
+            self.best_params = best_params["best_score"][0]
+
+        print(f"Best Multivar Hyperparameters: {self.best_params}")
+
+        data_mask_temporalized = build_tf_dataset_multivariate(
+            data=self.original_trainval_wide_transf,
+            mask=self.mask_trainval_wide,
+            dyn_features=self.trainval_dyn_features,
+            window_size=self.best_params["window_size"],
+            batch_size=self.best_params["batch_size"],
+            windows_batch_size=self.best_params["windows_batch_size"],
+            coverage_mode="systematic",
+            stride=1,
+            prediction_mode=self.best_params["prediction_mode"],
+            future_steps=self.best_params["future_steps"],
+            cache_dataset_name=self.dataset_name,
+            cache_dataset_group=self.dataset_group + "_multivar",
+            cache_split="trainval",
+        )
+
+        encoder, decoder = get_CVAE(
+            window_size=self.best_params["window_size"],
+            input_dim=1,  # univariate series
+            latent_dim=self.best_params["latent_dim"],
+            pred_dim=self.best_params["future_steps"],
+            time_dist_units=self.best_params["time_dist_units"],
+            kernel_size=self.best_params["kernel_size"],
+            forecasting=self.best_params["forecasting"],
+            n_hidden=self.best_params["n_hidden"],
+        )
+
+        cvae = CVAE(
+            encoder,
+            decoder,
+            forecasting=self.best_params["forecasting"],
+        )
+        cvae.compile(
+            optimizer=keras.optimizers.Adam(
+                learning_rate=self.best_params["learning_rate"]
+            ),
+            metrics=[
+                cvae.total_loss_tracker,
+                cvae.reconstruction_loss_tracker,
+                cvae.kl_loss_tracker,
+            ],
+        )
+
+        # final training with best parameters
+        early_stopping = tf.keras.callbacks.EarlyStopping(
+            monitor="loss",
+            patience=self.best_params["patience"],
+            mode="auto",
+            restore_best_weights=True,
+        )
+        reduce_lr = ReduceLROnPlateau(
+            monitor="loss", factor=0.2, patience=10, min_lr=1e-6, cooldown=3, verbose=1
+        )
+
+        weights_file = os.path.join(
+            weights_folder, f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5"
+        )
+        history_file = os.path.join(
+            weights_folder,
+            f"{self.dataset_name}_{self.dataset_group}_training_history.json",
+        )
+        history = None
+
+        dummy_input = (
+            tf.random.normal((1, self.best_params["window_size"], 1)),  # batch_data
+            tf.ones((1, self.best_params["window_size"], 1)),  # batch_mask
+            tf.random.normal(
+                (1, self.best_params["window_size"], 6)
+            ),  # batch_dyn_features
+            tf.random.normal((1, self.best_params["future_steps"], 1)),  # pred_mask
+        )
+        _ = cvae(dummy_input)
+
+        if os.path.exists(weights_file):
+            print("Loading existing Multivar weights...")
+            cvae.load_weights(weights_file)
+
+            if os.path.exists(history_file):
+                print("Loading training Multivar history...")
+                with open(history_file, "r") as f:
+                    history = json.load(f)
+            else:
+                print("No history Multivar file found. Skipping history loading.")
+        else:
+
+            mc = ModelCheckpoint(
+                weights_file,
+                save_best_only=True,
+                save_weights_only=True,
+                monitor="loss",
+                mode="auto",
+                verbose=1,
+            )
+
+            history = cvae.fit(
+                x=data_mask_temporalized,
+                epochs=self.best_params["epochs"],
+                batch_size=self.best_params["batch_size"],
+                shuffle=False,
+                callbacks=[early_stopping, mc, reduce_lr],
+            )
+
+            if history is not None:
+                history = history.history
+                history_dict = {
+                    key: [float(val) for val in values]
+                    for key, values in history.items()
+                }
+                with open(history_file, "w") as f:
+                    json.dump(history_dict, f)
+
+        print("Training Multivar completed with the best hyperparameters.")
         return cvae
 
     def hyper_tune_and_train_forecasting(self, n_trials=100):
@@ -1698,11 +2085,11 @@ class HiTGenPipeline:
 
         weights_file = os.path.join(
             weights_folder,
-            f"{self.dataset_name}_{self.dataset_group}__vae_forecasting.weights.h5",
+            f"{self.dataset_name}_{self.dataset_group}__vae.weights.h5",
         )
         history_file = os.path.join(
             weights_folder,
-            f"{self.dataset_name}_{self.dataset_group}_training_history_forecasting.json",
+            f"{self.dataset_name}_{self.dataset_group}_training_history.json",
         )
 
         dummy_input = (
