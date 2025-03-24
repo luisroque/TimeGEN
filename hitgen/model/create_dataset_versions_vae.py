@@ -1062,7 +1062,7 @@ class HiTGenPipeline:
 
             stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
             n_knots = trial.suggest_int(
-                "knots", int(window_size // 2), window_size, step=3
+                "knots", int(window_size // 2), window_size, step=1
             )
             patience = trial.suggest_int("patience", 4, 6, step=1)
 

@@ -879,12 +879,7 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
         self.n_hidden = n_hidden
         self.n_layers = n_layers
 
-        # produce knots dimension, then upsample back to seq_len
-        self.n_theta_backcast = self.n_knots * self.hidden_dim
-
-        self.upsample_backcast = UpsampleTimeLayer(
-            target_len=self.seq_len, method="bilinear"
-        )
+        self.n_theta_backcast = self.seq_len * self.hidden_dim
 
         self.pooling_layers = []
         for k in kernel_size:
@@ -926,8 +921,7 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
             x = pool_layer(x)
 
         theta = self.mlp_stack(x)
-        backcast_knots = tf.reshape(theta, [-1, self.n_knots, self.hidden_dim])
-        backcast = self.upsample_backcast(backcast_knots)
+        backcast = tf.reshape(theta, [-1, self.seq_len, self.hidden_dim])
         return backcast
 
 
@@ -959,14 +953,11 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
         self.n_hidden = n_hidden
         self.n_layers = n_layers
 
-        # produce n_knots * hidden_dim for backcast, plus n_knots*hidden_dim for forecast
-        self.n_theta_backcast = self.n_knots * self.hidden_dim
+        # n_knots*hidden_dim for forecast
+        self.n_theta_backcast = self.seq_len * self.hidden_dim
         self.n_theta_forecast = self.n_knots * self.hidden_dim
         self.n_theta = self.n_theta_backcast + self.n_theta_forecast
 
-        self.upsample_backcast = UpsampleTimeLayer(
-            target_len=self.seq_len, method="bilinear"
-        )
         self.upsample_forecast = UpsampleTimeLayer(
             target_len=self.pred_len, method="bilinear"
         )
@@ -1012,10 +1003,9 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
         backcast_flat = theta[:, : self.n_theta_backcast]
         forecast_flat = theta[:, self.n_theta_backcast :]
 
-        backcast_knots = tf.reshape(backcast_flat, [-1, self.n_knots, self.hidden_dim])
+        backcast = tf.reshape(backcast_flat, [-1, self.seq_len, self.hidden_dim])
         forecast_knots = tf.reshape(forecast_flat, [-1, self.n_knots, self.hidden_dim])
 
-        backcast = self.upsample_backcast(backcast_knots)
         forecast = self.upsample_forecast(forecast_knots)
 
         return backcast, forecast
