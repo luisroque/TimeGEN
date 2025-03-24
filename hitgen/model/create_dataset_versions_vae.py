@@ -920,6 +920,7 @@ class HiTGenPipeline:
         time_dist_units: int,
         n_blocks: int,
         batch_size: int,
+        n_knots: int,
         windows_batch_size: int,
         stride: int,
         coverage_fraction: float,
@@ -951,6 +952,7 @@ class HiTGenPipeline:
             "n_hidden": n_hidden,
             "time_dist_units": time_dist_units,
             "n_blocks": n_blocks,
+            "n_knots": n_knots,
             "batch_size": batch_size,
             "windows_batch_size": windows_batch_size,
             "stride": stride,
@@ -1059,6 +1061,9 @@ class HiTGenPipeline:
                 window_size = trial.suggest_int("window_size", 4, 24, step=1)
 
             stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
+            n_knots = trial.suggest_int(
+                "knots", int(window_size // 2), window_size, step=3
+            )
             patience = trial.suggest_int("patience", 4, 6, step=1)
 
             n_hidden = trial.suggest_int("n_hidden", 32, 256, step=32)
@@ -1136,6 +1141,7 @@ class HiTGenPipeline:
                 latent_dim=latent_dim,
                 pred_dim=future_steps,
                 time_dist_units=time_dist_units,
+                n_knots=n_knots,
                 n_blocks=n_blocks,
                 kernel_size=kernel_size,
                 forecasting=forecasting,
@@ -1250,6 +1256,7 @@ class HiTGenPipeline:
                 batch_size=batch_size,
                 windows_batch_size=windows_batch_size,
                 stride=stride,
+                n_knots=n_knots,
                 coverage_fraction=coverage_fraction,
                 epochs=epochs,
                 learning_rate=learning_rate,

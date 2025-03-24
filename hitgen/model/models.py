@@ -799,6 +799,7 @@ def get_CVAE(
     n_blocks: int = 3,
     kernel_size: Tuple[int] = (2, 2, 1),
     n_hidden: int = 256,
+    n_knots: int = 4,
     forecasting: bool = True,
 ):
     """
@@ -819,6 +820,7 @@ def get_CVAE(
         n_blocks=n_blocks,
         kernel_size=kernel_size,
         n_hidden=n_hidden,
+        n_knots=n_knots,
     )
 
     dec = decoder(
@@ -831,6 +833,7 @@ def get_CVAE(
         kernel_size=kernel_size,
         forecasting=forecasting,
         n_hidden=n_hidden,
+        n_knots=n_knots,
     )
 
     return enc, dec
@@ -1026,6 +1029,7 @@ def encoder(
     n_blocks: int = 3,
     n_hidden: int = 256,
     n_layers: int = 2,
+    n_knots: int = 4,
     kernel_size: Tuple[int] = (2, 2, 1),
 ):
     main_input = layers.Input(shape=input_shape, name="main_input")
@@ -1047,7 +1051,7 @@ def encoder(
     for i in range(n_blocks):
         mrhi_block = MRHIBlock_backcast(
             backcast_size=input_shape,
-            n_knots=4,
+            n_knots=n_knots,
             n_hidden=n_hidden,
             n_layers=n_layers,
             kernel_size=kernel_size[int(3 - n_layers) :],
@@ -1087,6 +1091,7 @@ def decoder(
     n_blocks: int = 3,
     n_hidden: int = 256,
     n_layers: int = 2,
+    n_knots: int = 4,
     kernel_size: Tuple[int] = (2, 2, 1),
     forecasting: bool = True,
 ):
@@ -1116,7 +1121,7 @@ def decoder(
             mrhi_block = MRHIBlock_backcast_forecast(
                 backcast_size=output_shape,
                 forecast_size=pred_shape,
-                n_knots=4,
+                n_knots=n_knots,
                 n_hidden=n_hidden,
                 n_layers=n_layers,
                 kernel_size=kernel_size[int(3 - n_layers) :],
@@ -1132,7 +1137,7 @@ def decoder(
             mrhi_block = MRHIBlock_backcast(
                 backcast_size=output_shape,
                 n_hidden=n_hidden,
-                n_knots=4,
+                n_knots=n_knots,
                 n_layers=n_layers,
                 kernel_size=kernel_size[int(3 - n_layers) :],
             )
