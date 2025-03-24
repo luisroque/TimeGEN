@@ -932,6 +932,7 @@ class HiTGenPipeline:
         trial: int,
         base_dir: str,
     ) -> None:
+        os.makedirs(base_dir, exist_ok=True)
         scores_path = f"{base_dir}/{self.dataset_name}_{self.dataset_group}_best_hyperparameters.jsonl"
         opt_path = f"{base_dir}/{self.dataset_name}_{self.dataset_group}_best_hyperparameters_opt.json"
 

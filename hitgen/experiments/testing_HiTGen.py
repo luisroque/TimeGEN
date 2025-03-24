@@ -100,8 +100,8 @@ if __name__ == "__main__":
 
             # hypertuning
             # model = hitgen_pipeline.hyper_tune_and_train()
-            model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
-            # model_multivariate = hitgen_pipeline.hyper_tune_and_train_multivariate()
+            # model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
+            model_multivariate = hitgen_pipeline.hyper_tune_and_train_multivariate()
 
             test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
@@ -159,31 +159,31 @@ if __name__ == "__main__":
             #         noise_scale=5,
             #     )
 
-            # for sampling_strategy in SAMPLING_STRATEGIES_MULTIVAR:
-            #     row_hitgen = evaluation_pipeline_hitgen(
-            #         dataset=DATASET,
-            #         dataset_group=DATASET_GROUP,
-            #         model=model_multivariate,
-            #         pipeline=hitgen_pipeline,
-            #         gen_data=data_mask_temporalized_test,
-            #         sampling_strategy=sampling_strategy,
-            #         freq=FREQ,
-            #         h=H,
-            #         test_unique_ids=test_unique_ids,
-            #         row_hitgen=row_hitgen,
-            #         noise_scale=5,
-            #     )
+            for sampling_strategy in SAMPLING_STRATEGIES_MULTIVAR:
+                row_hitgen = evaluation_pipeline_hitgen(
+                    dataset=DATASET,
+                    dataset_group=DATASET_GROUP,
+                    model=model_multivariate,
+                    pipeline=hitgen_pipeline,
+                    gen_data=data_mask_temporalized_test,
+                    sampling_strategy=sampling_strategy,
+                    freq=FREQ,
+                    h=H,
+                    test_unique_ids=test_unique_ids,
+                    row_hitgen=row_hitgen,
+                    noise_scale=5,
+                )
 
-            row_hitgen_forecast = {}
-            row_forecast = evaluation_pipeline_hitgen_forecast(
-                dataset=DATASET,
-                dataset_group=DATASET_GROUP,
-                model=model_forecasting,
-                pipeline=hitgen_pipeline,
-                horizon=H,
-                freq=FREQ,
-                row_forecast=row_hitgen_forecast,
-            )
+            # row_hitgen_forecast = {}
+            # row_forecast = evaluation_pipeline_hitgen_forecast(
+            #     dataset=DATASET,
+            #     dataset_group=DATASET_GROUP,
+            #     model=model_forecasting,
+            #     pipeline=hitgen_pipeline,
+            #     horizon=H,
+            #     freq=FREQ,
+            #     row_forecast=row_hitgen_forecast,
+            # )
 
             # append all hitgen results
             dataset_group_results.append(row_hitgen)
