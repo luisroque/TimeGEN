@@ -1614,7 +1614,6 @@ class HiTGenPipeline:
                 kernel_size=kernel_size,
                 forecasting=forecasting,
                 n_hidden=n_hidden,
-                n_knots=n_knots,
             )
 
             cvae = CVAE(encoder, decoder, forecasting=forecasting)
