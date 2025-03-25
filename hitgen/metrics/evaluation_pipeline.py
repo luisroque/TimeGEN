@@ -172,8 +172,6 @@ def evaluation_pipeline_hitgen(
         "std_smape_original"
     ]
 
-    return row_hitgen
-
 
 def evaluation_pipeline_hitgen_forecast(
     dataset: str,
@@ -183,16 +181,13 @@ def evaluation_pipeline_hitgen_forecast(
     horizon: int,
     freq: str,
     row_forecast: dict,
-) -> dict:
+) -> None:
     """
     Evaluate direct forecasting.
 
     - uses `pipeline.predict_future(...)` to forecast the holdout portion
     - computes an error metric
-    - stores results in row_forecast dict, which you return/update
-
-    Returns:
-      The updated row_forecast dictionary with forecast metrics.
+    - stores results in row_forecast dict, which gets updated
     """
     os.makedirs("assets/results_forecast", exist_ok=True)
     results_file = (
@@ -229,5 +224,3 @@ def evaluation_pipeline_hitgen_forecast(
     with open(results_file, "w") as f:
         json.dump(row_forecast, f)
     print(f"Results for forecast saved to '{results_file}'")
-
-    return row_forecast
