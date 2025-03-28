@@ -864,7 +864,6 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
     def __init__(
         self,
         backcast_size: Tuple[int, int],  # (seq_len, hidden_dim)
-        n_knots: int = 4,
         n_hidden: int = 256,
         n_layers: int = 2,
         kernel_size: Tuple[int] = (2, 2, 1),
@@ -875,7 +874,6 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.seq_len, self.hidden_dim = backcast_size
-        self.n_knots = n_knots
         self.n_hidden = n_hidden
         self.n_layers = n_layers
 
@@ -900,7 +898,6 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
             mlp_layers.append(layers.Activation(activation))
             mlp_layers.append(layers.Dropout(dropout_rate))
 
-        # (n_knots * hidden_dim)
         mlp_layers.append(
             layers.Dense(
                 self.n_theta_backcast, kernel_regularizer=regularizers.l2(l2_lambda)
@@ -912,10 +909,6 @@ class MRHIBlock_backcast(tf.keras.layers.Layer):
     def call(self, x: tf.Tensor) -> tf.Tensor:
         """
         x shape: [B, seq_len, hidden_dim]
-        1) pool => shape [B, n_knots, hidden_dim]
-        2) flatten => MLP => [B, n_knots*hidden_dim]
-        3) reshape => backcast_knots => [B, n_knots, hidden_dim]
-        4) upsample => [B, seq_len, hidden_dim]
         """
         for pool_layer in self.pooling_layers:
             x = pool_layer(x)
@@ -993,7 +986,7 @@ class MRHIBlock_backcast_forecast(tf.keras.layers.Layer):
         2) flatten => MLP => [B, n_theta_backcast + n_theta_forecast]
         3) slice => backcast part vs. forecast part
         4) reshape each => [B, n_knots, hidden_dim]
-        5) upsample backcast => [B, seq_len, hidden_dim], forecast => [B, pred_len, hidden_dim]
+        5) backcast => [B, seq_len, hidden_dim], upsample forecast => [B, pred_len, hidden_dim]
         """
         for pool_layer in self.pooling_layers:
             x = pool_layer(x)
@@ -1040,8 +1033,7 @@ def encoder(
 
     for i in range(n_blocks):
         mrhi_block = MRHIBlock_backcast(
-            backcast_size=input_shape,
-            n_knots=n_knots,
+            backcast_size=(input_shape[0], time_dist_units),
             n_hidden=n_hidden,
             n_layers=n_layers,
             kernel_size=kernel_size[int(3 - n_layers) :],
@@ -1109,8 +1101,8 @@ def decoder(
     if forecasting:
         for i in range(n_blocks):
             mrhi_block = MRHIBlock_backcast_forecast(
-                backcast_size=output_shape,
-                forecast_size=pred_shape,
+                backcast_size=(output_shape[0], time_dist_units),
+                forecast_size=(pred_shape[0], time_dist_units),
                 n_knots=n_knots,
                 n_hidden=n_hidden,
                 n_layers=n_layers,
@@ -1125,9 +1117,8 @@ def decoder(
     else:
         for i in range(n_blocks):
             mrhi_block = MRHIBlock_backcast(
-                backcast_size=output_shape,
+                backcast_size=(output_shape[0], time_dist_units),
                 n_hidden=n_hidden,
-                n_knots=n_knots,
                 n_layers=n_layers,
                 kernel_size=kernel_size[int(3 - n_layers) :],
             )

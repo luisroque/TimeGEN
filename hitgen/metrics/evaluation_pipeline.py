@@ -183,11 +183,8 @@ def evaluation_pipeline_hitgen_forecast(
     row_forecast: dict,
 ) -> None:
     """
-    Evaluate direct forecasting.
-
-    - uses `pipeline.predict_future(...)` to forecast the holdout portion
-    - computes an error metric
-    - stores results in row_forecast dict, which gets updated
+    Evaluate direct forecasting for the two different forecast approaches
+    forecast_df_first_window, forecast_df_autoregressive and computes SMAPE
     """
     os.makedirs("assets/results_forecast", exist_ok=True)
     results_file = (
@@ -197,29 +194,55 @@ def evaluation_pipeline_hitgen_forecast(
     print(f"\n\n=== {dataset} {dataset_group} Forecast Evaluation ===\n")
     print(f"Forecast horizon = {horizon}, freq = {freq}\n")
 
-    forecast_df = pipeline.predict_future(
-        cvae=model,
+    forecast_df_first_window, forecast_df_autoregressive = (
+        pipeline.predict_from_first_window(
+            cvae=model,
+        )
     )
 
-    if forecast_df.empty:
-        print("No forecast results found.")
-        row_forecast["Forecast SMAPE"] = None
-        return row_forecast
+    if forecast_df_first_window.empty:
+        print("[First Window] No forecast results found.")
+        row_forecast["Forecast SMAPE (first window)"] = None
+    else:
+        forecast_df_first_window = forecast_df_first_window.dropna(
+            subset=["y", "y_true"]
+        )
+        if forecast_df_first_window.empty:
+            print("[First Window] No valid y,y_true pairs. Can't compute sMAPE.")
+            row_forecast["Forecast SMAPE (first window)"] = None
+        else:
+            smape_result_fw = smape(
+                y_true=forecast_df_first_window["y_true"],
+                y_pred=forecast_df_first_window["y"],
+            )
+            print(f"\n[First Window Forecast] sMAPE = {smape_result_fw:.4f}\n")
+            row_forecast["Forecast SMAPE (first window)"] = float(
+                round(smape_result_fw, 4)
+            )
 
-    forecast_df = forecast_df.dropna(subset=["y", "y_true"])
-    if forecast_df.empty:
-        print("No valid y,y_true pairs. Can't compute sMAPE.")
-        row_forecast["Forecast SMAPE"] = None
-        return row_forecast
-
-    smape_result = smape(y_true=forecast_df["y_true"], y_pred=forecast_df["y"])
-
-    print(f"\n[Forecast] sMAPE = {smape_result:.4f}\n")
+    if forecast_df_autoregressive.empty:
+        print("[Autoregressive] No forecast results found.")
+        row_forecast["Forecast SMAPE (autoregressive)"] = None
+    else:
+        forecast_df_autoregressive = forecast_df_autoregressive.dropna(
+            subset=["y", "y_true"]
+        )
+        if forecast_df_autoregressive.empty:
+            print("[Autoregressive] No valid y,y_true pairs. Can't compute sMAPE.")
+            row_forecast["Forecast SMAPE (autoregressive)"] = None
+        else:
+            smape_result_ar = smape(
+                y_true=forecast_df_autoregressive["y_true"],
+                y_pred=forecast_df_autoregressive["y"],
+            )
+            print(f"\n[Autoregressive Forecast] sMAPE = {smape_result_ar:.4f}\n")
+            row_forecast["Forecast SMAPE (autoregressive)"] = float(
+                round(smape_result_ar, 4)
+            )
 
     row_forecast["Dataset"] = dataset
     row_forecast["Group"] = dataset_group
     row_forecast["Forecast Horizon"] = horizon
-    row_forecast["Forecast SMAPE"] = float(round(smape_result, 4))
 
     with open(results_file, "w") as f:
         json.dump(row_forecast, f)

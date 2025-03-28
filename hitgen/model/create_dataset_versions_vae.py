@@ -635,6 +635,12 @@ class HiTGenPipeline:
             index=test_wide.index,
             columns=test_wide.columns,
         )
+        self.scaler_test_dict = {}
+        for uid in test_wide.columns:
+            X_col = test_wide[uid].values.reshape(-1, 1)
+            scaler = StandardScaler().fit(X_col)
+            self.scaler_test_dict[uid] = scaler
+
         mask_test_wide = self._create_dataset_wide_form(
             data_long=mask_test_long, ids=self.test_ids, full_dates=self.ds_test
         )
@@ -2420,6 +2426,7 @@ class HiTGenPipeline:
         # each row in 'meta_list' corresponds to forecast_out[i, ...]
 
         results = []
+        fir
         for i, uid in enumerate(meta_list):
             y_pred = forecast_out[i, :, 0]  # [horizon]
 
@@ -2439,4 +2446,182 @@ class HiTGenPipeline:
             return pd.DataFrame()
 
         df_forecast = pd.concat(results, ignore_index=True)
+
+        plot_generated_vs_original(
+            synth_data=df_forecast[["unique_id", "ds", "y"]],
+            original_data=self.original_test_long,
+            score=0.0,
+            loss=0.0,
+            dataset_name="Tourism",
+            dataset_group="Monthly",
+            n_series=8,
+            suffix_name="hitgen",
+        )
         return df_forecast
+
+    def predict_from_first_window(
+        self,
+        cvae: keras.Model,
+        window_size: int = None,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Predicts the future by receiving the FIRST window of each test series.
+        Then autoregressively slides that window forward, repeatedly calling
+        the CVAE, until it rebuilds the entire test series plus H future steps.
+
+        Returns
+        -------
+        DataFrame with columns:
+          [unique_id, ds, y_true, y_pred]
+        The 'y_true' is present only for the original in-sample part (0..T-1).
+        The 'y_pred' is filled from the point we can start predicting
+        (window_size onward) all the way up to T+H-1.
+        """
+        if window_size is None:
+            window_size = self.best_params_forecasting["window_size"]
+
+        results = []
+        first_horizon_list = []
+        autoregressive_list = []
+
+        for uid in self.test_ids:
+            df_ser = self.original_test_long.loc[
+                self.original_test_long["unique_id"] == uid
+            ].copy()
+            df_ser.sort_values("ds", inplace=True)
+
+            # ff series is too short, skip
+            if len(df_ser) < window_size:
+                print(
+                    f"[predict_from_first_window] Series {uid} < window_size={window_size}. Skipping."
+                )
+                continue
+
+            # build a date range up to T+H for dynamic features
+            T = len(df_ser)
+            # T actual points and additional H beyond that
+            last_date = df_ser["ds"].iloc[-1]
+            future_dates = pd.date_range(
+                start=last_date + pd.tseries.frequencies.to_offset(self.freq),
+                periods=self.h,
+                freq=self.freq,
+            )
+            ds_full = pd.concat(
+                [df_ser["ds"], pd.Series(future_dates)], ignore_index=True
+            )
+
+            dyn_full = self.compute_fourier_features(ds_full)
+            dyn_full.reset_index(drop=True, inplace=True)
+
+            # ---------------------------
+            # 2) Prepare a buffer to hold 'y' (observed + predicted)
+            # ---------------------------
+            # ground-truth from 0..T-1 and NaN from T..T+H-1
+            y_all = np.full(shape=(T + self.h,), fill_value=np.nan, dtype=np.float32)
+            y_all[:T] = df_ser["y"].values
+
+            # predicted fill from window_size onward
+            y_hat = np.full(shape=(T + self.h,), fill_value=np.nan, dtype=np.float32)
+
+            # -- autoregressive loop --
+            # move in steps of 'horizon' until we reach T + H.
+            step = 0
+            while step + window_size < T + self.h:
+                window_end = step + window_size
+
+                # next chunk [window_end .. window_end + horizon)
+                # but clamp it so as not to exceed T + H
+                future_end = min(window_end + self.h, T + self.h)
+
+                # [window_size, 1]
+                window_data = y_all[step:window_end].copy()
+
+                local_scaler = self.scaler_test_dict[uid]
+                scaled_window = local_scaler.transform(window_data.reshape(-1, 1))
+                scaled_window = scaled_window.squeeze(-1)
+
+                hist_dyn = dyn_full.iloc[
+                    step:window_end
+                ].copy()  # shape [window_size, ...]
+                fut_dyn = dyn_full.iloc[
+                    window_end:future_end
+                ].copy()  # shape [horizon, ...]
+
+                # window_size + horizon rows
+                tmp_df = pd.DataFrame(
+                    {
+                        "unique_id": [uid] * (window_size + (future_end - window_end)),
+                        "ds": ds_full.iloc[step:future_end].values,
+                        "y": scaled_window.tolist()
+                        + [np.nan] * (future_end - window_end),
+                    }
+                )
+                tmp_dyn = pd.concat([hist_dyn, fut_dyn], axis=0).reset_index(drop=True)
+                tmp_df = pd.concat([tmp_df.reset_index(drop=True), tmp_dyn], axis=1)
+
+                single_ds, single_meta = build_forecast_dataset(
+                    holdout_df=tmp_df,
+                    unique_ids=[uid],
+                    lookback_window=window_size,
+                    horizon=(future_end - window_end),
+                    dyn_feature_cols=list(hist_dyn.columns),
+                )
+
+                if single_ds is None:
+                    break
+
+                # pred_tuple = [recon_out, z_mean_out, z_log_var_out, forecast_out]
+                pred_tuple = cvae.predict(single_ds, verbose=0)
+                _, _, _, forecast_out = pred_tuple  # shape [1, horizon, 1]
+
+                forecast_out = local_scaler.inverse_transform(
+                    forecast_out.squeeze(-1).T
+                ).T  # [1, horizon]
+
+                y_hat[window_end:future_end] = forecast_out[
+                    0, : (future_end - window_end)
+                ]
+
+                y_all[window_end:future_end] = y_hat[window_end:future_end]
+
+                # move the window forward
+                step += self.h
+
+            df_out = pd.DataFrame(
+                {
+                    "unique_id": [uid] * (T + self.h),
+                    "ds": ds_full.values,
+                    "y_true": y_all,  # original values (NaN beyond T)
+                    "y": y_hat,  # predictions (NaN up to window_size)
+                }
+            )
+
+            # first horizon data
+            first_horizon_end = min(window_size + self.h, T)
+            df_first = df_out.iloc[window_size:first_horizon_end].copy()
+
+            df_auto = df_out.iloc[window_size:T].copy()
+
+            results.append(df_out)
+            first_horizon_list.append(df_first)
+            autoregressive_list.append(df_auto)
+
+        if not results:
+            return pd.DataFrame(), pd.DataFrame()
+
+        df_res = pd.concat(results, ignore_index=True)
+        df_first_window = pd.concat(first_horizon_list, ignore_index=True)
+        df_autoregressive = pd.concat(autoregressive_list, ignore_index=True)
+
+        plot_generated_vs_original(
+            synth_data=df_res[["unique_id", "ds", "y"]],
+            original_data=self.original_test_long,
+            score=0.0,
+            loss=0.0,
+            dataset_name=self.dataset_name,
+            dataset_group=self.dataset_group,
+            n_series=8,
+            suffix_name="hitgen-initial-window",
+        )
+
+        return df_first_window, df_autoregressive

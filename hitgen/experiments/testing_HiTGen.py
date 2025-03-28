@@ -105,21 +105,21 @@ if __name__ == "__main__":
 
             test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
-            data_mask_temporalized_test = build_tf_dataset(
-                data=hitgen_pipeline.original_test_wide_transf,
-                mask=hitgen_pipeline.mask_test_wide,
-                dyn_features=hitgen_pipeline.test_dyn_features,
-                window_size=hitgen_pipeline.best_params["window_size"],
-                batch_size=hitgen_pipeline.best_params["batch_size"],
-                windows_batch_size=hitgen_pipeline.best_params["windows_batch_size"],
-                stride=1,
-                coverage_mode="systematic",
-                prediction_mode=hitgen_pipeline.best_params["prediction_mode"],
-                future_steps=hitgen_pipeline.best_params["future_steps"],
-                cache_dataset_name=DATASET,
-                cache_dataset_group=DATASET_GROUP,
-                cache_split="test",
-            )
+            # data_mask_temporalized_test = build_tf_dataset(
+            #     data=hitgen_pipeline.original_test_wide_transf,
+            #     mask=hitgen_pipeline.mask_test_wide,
+            #     dyn_features=hitgen_pipeline.test_dyn_features,
+            #     window_size=hitgen_pipeline.best_params["window_size"],
+            #     batch_size=hitgen_pipeline.best_params["batch_size"],
+            #     windows_batch_size=hitgen_pipeline.best_params["windows_batch_size"],
+            #     stride=1,
+            #     coverage_mode="systematic",
+            #     prediction_mode=hitgen_pipeline.best_params["prediction_mode"],
+            #     future_steps=hitgen_pipeline.best_params["future_steps"],
+            #     cache_dataset_name=DATASET,
+            #     cache_dataset_group=DATASET_GROUP,
+            #     cache_split="test",
+            # )
 
             # data_mask_temporalized_multivar_test = build_tf_dataset_multivariate(
             #     data=hitgen_pipeline.original_test_wide_transf,
