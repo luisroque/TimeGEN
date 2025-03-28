@@ -820,7 +820,6 @@ def get_CVAE(
         n_blocks=n_blocks,
         kernel_size=kernel_size,
         n_hidden=n_hidden,
-        n_knots=n_knots,
     )
 
     dec = decoder(
@@ -1012,7 +1011,6 @@ def encoder(
     n_blocks: int = 3,
     n_hidden: int = 256,
     n_layers: int = 2,
-    n_knots: int = 4,
     kernel_size: Tuple[int] = (2, 2, 1),
 ):
     main_input = layers.Input(shape=input_shape, name="main_input")
@@ -1094,7 +1092,9 @@ def decoder(
     residual = x
 
     final_forecast = layers.Lambda(
-        lambda t: tf.zeros((tf.shape(t)[0], future_steps, n_hidden), dtype=t.dtype)
+        lambda t: tf.zeros(
+            (tf.shape(t)[0], future_steps, time_dist_units), dtype=t.dtype
+        )
     )(x)
     final_backcast = 0
 
