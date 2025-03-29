@@ -2426,7 +2426,6 @@ class HiTGenPipeline:
         # each row in 'meta_list' corresponds to forecast_out[i, ...]
 
         results = []
-        fir
         for i, uid in enumerate(meta_list):
             y_pred = forecast_out[i, :, 0]  # [horizon]
 
