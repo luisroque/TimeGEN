@@ -2578,8 +2578,6 @@ class HiTGenPipeline:
                     0, : (horizon_length - window_end)
                 ]
 
-                y_all[window_end:horizon_length] = y_hat[window_end:horizon_length]
-
                 # move the window forward
                 step += self.h
 

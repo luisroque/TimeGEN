@@ -191,131 +191,131 @@ if __name__ == "__main__":
             # ----------------------------------------------------------------
             # Metaforecast Methods
             # ----------------------------------------------------------------
-            synthetic_metaforecast_long = workflow_metaforecast_methods(
-                df=hitgen_pipeline.original_test_long,
-                freq=FREQ,
-                dataset=DATASET,
-                dataset_group=DATASET_GROUP,
-            )
-
-            for method in METAFORECAST_METHODS:
-                synthetic_metaforecast_long_method = synthetic_metaforecast_long.loc[
-                    synthetic_metaforecast_long["method"] == method
-                ].copy()
-
-                synthetic_metaforecast_long_method = (
-                    synthetic_metaforecast_long_method.merge(
-                        hitgen_pipeline.original_test_long[["unique_id", "ds"]],
-                        on=["unique_id", "ds"],
-                        how="right",
-                    )
-                )
-                synthetic_metaforecast_long_method.fillna(0, inplace=True)
-
-                plot_generated_vs_original(
-                    synth_data=synthetic_metaforecast_long_method,
-                    original_data=hitgen_pipeline.original_test_long,
-                    score=0.0,
-                    loss=0.0,
-                    dataset_name=DATASET,
-                    dataset_group=DATASET_GROUP,
-                    n_series=4,
-                    suffix_name=f"{method}",
-                )
-
-                print(
-                    f"\nComputing discriminative score for {method} synthetic data generation..."
-                )
-
-                score_disc = compute_discriminative_score(
-                    unique_ids=test_unique_ids,
-                    original_data=hitgen_pipeline.original_test_long,
-                    synthetic_data=synthetic_metaforecast_long_method,
-                    method=method,
-                    freq=FREQ,
-                    dataset_name=DATASET,
-                    dataset_group=DATASET_GROUP,
-                    loss=0.0,
-                    samples=5,
-                    split="test",
-                )
-
-                print(f"\nComputing TSTR score for {method} synthetic data...")
-                score_tstr = tstr(
-                    unique_ids=test_unique_ids,
-                    original_data=hitgen_pipeline.original_test_long,
-                    synthetic_data=synthetic_metaforecast_long_method,
-                    method=method,
-                    freq=FREQ,
-                    horizon=H,
-                    dataset_name=DATASET,
-                    dataset_group=DATASET_GROUP,
-                    samples=5,
-                    split="test",
-                )
-
-                print(
-                    f"\nComputing downstream task forecasting score for {method} synthetic data..."
-                )
-                score_dtf = compute_downstream_forecast(
-                    unique_ids=test_unique_ids,
-                    original_data=hitgen_pipeline.original_test_long,
-                    synthetic_data=synthetic_metaforecast_long_method,
-                    method=method,
-                    freq=FREQ,
-                    horizon=H,
-                    dataset_name=DATASET,
-                    dataset_group=DATASET_GROUP,
-                    samples=10,
-                    split="test",
-                )
-
-                print(f"\n\n{DATASET}")
-                print(f"{DATASET_GROUP}")
-
-                print(
-                    f"Discriminative score for {method} synthetic data: {score_disc:.4f}"
-                )
-
-                print(
-                    f"TSTR score for {method} synthetic data: "
-                    f"TSTR {score_tstr['avg_smape_tstr']:.4f} vs TRTR "
-                    f"score {score_tstr['avg_smape_trtr']:.4f}"
-                )
-
-                print(
-                    f"Downstream task forecasting score for {method} synthetic data: "
-                    f"concat score {score_dtf['avg_smape_concat']:.4f} vs original "
-                    f"score {score_dtf['avg_smape_original']:.4f}\n\n"
-                    f"concat std score {score_dtf['std_smape_concat']:.4f} vs original "
-                    f"score {score_dtf['std_smape_original']:.4f}\n\n"
-                )
-
-                row_method = {
-                    "Dataset": DATASET,
-                    "Group": DATASET_GROUP,
-                    "Method": method,
-                    "Discriminative Score": score_disc,
-                    "TSTR (avg_smape_tstr)": score_tstr["avg_smape_tstr"],
-                    "TRTR (avg_smape_trtr)": score_tstr["avg_smape_trtr"],
-                    "DTF Concat Avg Score": score_dtf["avg_smape_concat"],
-                    "DTF Original Avg Score": score_dtf["avg_smape_original"],
-                    "DTF Concat Std Score": score_dtf["std_smape_concat"],
-                    "DTF Original Std Score": score_dtf["std_smape_original"],
-                }
-                dataset_group_results.append(row_method)
-                results.append(row_method)
-
-            dataset_group_df = pd.DataFrame(dataset_group_results).round(3)
-            os.makedirs("assets/results", exist_ok=True)
-
-            dataset_group_df_results_path = (
-                f"assets/results/{DATASET}_{DATASET_GROUP}_synthetic_data_results.csv"
-            )
-            dataset_group_df.to_csv(dataset_group_df_results_path, index=False)
-            print(
-                f"\n==> Saved results for {DATASET} {DATASET_GROUP} to {dataset_group_df_results_path}\n"
-            )
+            # synthetic_metaforecast_long = workflow_metaforecast_methods(
+            #     df=hitgen_pipeline.original_test_long,
+            #     freq=FREQ,
+            #     dataset=DATASET,
+            #     dataset_group=DATASET_GROUP,
+            # )
+            #
+            # for method in METAFORECAST_METHODS:
+            #     synthetic_metaforecast_long_method = synthetic_metaforecast_long.loc[
+            #         synthetic_metaforecast_long["method"] == method
+            #     ].copy()
+            #
+            #     synthetic_metaforecast_long_method = (
+            #         synthetic_metaforecast_long_method.merge(
+            #             hitgen_pipeline.original_test_long[["unique_id", "ds"]],
+            #             on=["unique_id", "ds"],
+            #             how="right",
+            #         )
+            #     )
+            #     synthetic_metaforecast_long_method.fillna(0, inplace=True)
+            #
+            #     plot_generated_vs_original(
+            #         synth_data=synthetic_metaforecast_long_method,
+            #         original_data=hitgen_pipeline.original_test_long,
+            #         score=0.0,
+            #         loss=0.0,
+            #         dataset_name=DATASET,
+            #         dataset_group=DATASET_GROUP,
+            #         n_series=4,
+            #         suffix_name=f"{method}",
+            #     )
+            #
+            #     print(
+            #         f"\nComputing discriminative score for {method} synthetic data generation..."
+            #     )
+            #
+            #     score_disc = compute_discriminative_score(
+            #         unique_ids=test_unique_ids,
+            #         original_data=hitgen_pipeline.original_test_long,
+            #         synthetic_data=synthetic_metaforecast_long_method,
+            #         method=method,
+            #         freq=FREQ,
+            #         dataset_name=DATASET,
+            #         dataset_group=DATASET_GROUP,
+            #         loss=0.0,
+            #         samples=5,
+            #         split="test",
+            #     )
+            #
+            #     print(f"\nComputing TSTR score for {method} synthetic data...")
+            #     score_tstr = tstr(
+            #         unique_ids=test_unique_ids,
+            #         original_data=hitgen_pipeline.original_test_long,
+            #         synthetic_data=synthetic_metaforecast_long_method,
+            #         method=method,
+            #         freq=FREQ,
+            #         horizon=H,
+            #         dataset_name=DATASET,
+            #         dataset_group=DATASET_GROUP,
+            #         samples=5,
+            #         split="test",
+            #     )
+            #
+            #     print(
+            #         f"\nComputing downstream task forecasting score for {method} synthetic data..."
+            #     )
+            #     score_dtf = compute_downstream_forecast(
+            #         unique_ids=test_unique_ids,
+            #         original_data=hitgen_pipeline.original_test_long,
+            #         synthetic_data=synthetic_metaforecast_long_method,
+            #         method=method,
+            #         freq=FREQ,
+            #         horizon=H,
+            #         dataset_name=DATASET,
+            #         dataset_group=DATASET_GROUP,
+            #         samples=10,
+            #         split="test",
+            #     )
+            #
+            #     print(f"\n\n{DATASET}")
+            #     print(f"{DATASET_GROUP}")
+            #
+            #     print(
+            #         f"Discriminative score for {method} synthetic data: {score_disc:.4f}"
+            #     )
+            #
+            #     print(
+            #         f"TSTR score for {method} synthetic data: "
+            #         f"TSTR {score_tstr['avg_smape_tstr']:.4f} vs TRTR "
+            #         f"score {score_tstr['avg_smape_trtr']:.4f}"
+            #     )
+            #
+            #     print(
+            #         f"Downstream task forecasting score for {method} synthetic data: "
+            #         f"concat score {score_dtf['avg_smape_concat']:.4f} vs original "
+            #         f"score {score_dtf['avg_smape_original']:.4f}\n\n"
+            #         f"concat std score {score_dtf['std_smape_concat']:.4f} vs original "
+            #         f"score {score_dtf['std_smape_original']:.4f}\n\n"
+            #     )
+            #
+            #     row_method = {
+            #         "Dataset": DATASET,
+            #         "Group": DATASET_GROUP,
+            #         "Method": method,
+            #         "Discriminative Score": score_disc,
+            #         "TSTR (avg_smape_tstr)": score_tstr["avg_smape_tstr"],
+            #         "TRTR (avg_smape_trtr)": score_tstr["avg_smape_trtr"],
+            #         "DTF Concat Avg Score": score_dtf["avg_smape_concat"],
+            #         "DTF Original Avg Score": score_dtf["avg_smape_original"],
+            #         "DTF Concat Std Score": score_dtf["std_smape_concat"],
+            #         "DTF Original Std Score": score_dtf["std_smape_original"],
+            #     }
+            #     dataset_group_results.append(row_method)
+            #     results.append(row_method)
+            #
+            # dataset_group_df = pd.DataFrame(dataset_group_results).round(3)
+            # os.makedirs("assets/results", exist_ok=True)
+            #
+            # dataset_group_df_results_path = (
+            #     f"assets/results/{DATASET}_{DATASET_GROUP}_synthetic_data_results.csv"
+            # )
+            # dataset_group_df.to_csv(dataset_group_df_results_path, index=False)
+            # print(
+            #     f"\n==> Saved results for {DATASET} {DATASET_GROUP} to {dataset_group_df_results_path}\n"
+            # )
 
     all_results_df = pd.DataFrame(results).round(3)
     all_results_path = "assets/results/synthetic_data_results.csv"

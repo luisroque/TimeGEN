@@ -215,8 +215,19 @@ def evaluation_pipeline_hitgen_forecast(
                 y_true=forecast_df_first_window["y_true"],
                 y_pred=forecast_df_first_window["y"],
             )
-            print(f"\n[First Window Forecast] sMAPE = {smape_result_fw:.4f}\n")
-            row_forecast["Forecast SMAPE (first window)"] = float(
+            smape_result_fw_per_series = (
+                forecast_df_first_window.dropna(subset=["y", "y_true"])
+                .groupby("unique_id")
+                .apply(lambda df: smape(df["y_true"], df["y"]))
+            )
+            print(f"\n[First Window Forecast Global] sMAPE = {smape_result_fw:.4f}\n")
+            print(
+                f"\n[First Window Forecast per Series] sMAPE = {smape_result_fw_per_series:.4f}\n"
+            )
+            row_forecast["Forecast SMAPE (first window) Global"] = float(
+                round(smape_result_fw, 4)
+            )
+            row_forecast["Forecast SMAPE (first window) Per Series"] = float(
                 round(smape_result_fw, 4)
             )
 
