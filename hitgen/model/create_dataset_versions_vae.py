@@ -2466,7 +2466,7 @@ class HiTGenPipeline:
         """
         Predicts the future by receiving the FIRST window of each test series.
         Then autoregressively slides that window forward, repeatedly calling
-        the CVAE, until it rebuilds the entire test series plus H future steps.
+        the CVAE, until it rebuilds the entire test series up to T.
 
         Returns
         -------
@@ -2474,7 +2474,7 @@ class HiTGenPipeline:
           [unique_id, ds, y_true, y_pred]
         The 'y_true' is present only for the original in-sample part (0..T-1).
         The 'y_pred' is filled from the point we can start predicting
-        (window_size onward) all the way up to T+H-1.
+        (window_size onward) all the way up to T-1.
         """
         if window_size is None:
             window_size = self.best_params_forecasting["window_size"]
@@ -2512,25 +2512,22 @@ class HiTGenPipeline:
             dyn_full = self.compute_fourier_features(ds_full)
             dyn_full.reset_index(drop=True, inplace=True)
 
-            # ---------------------------
-            # 2) Prepare a buffer to hold 'y' (observed + predicted)
-            # ---------------------------
-            # ground-truth from 0..T-1 and NaN from T..T+H-1
-            y_all = np.full(shape=(T + self.h,), fill_value=np.nan, dtype=np.float32)
+            # ground-truth from 0..T-1
+            y_all = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
             y_all[:T] = df_ser["y"].values
 
             # predicted fill from window_size onward
-            y_hat = np.full(shape=(T + self.h,), fill_value=np.nan, dtype=np.float32)
+            y_hat = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
 
             # -- autoregressive loop --
-            # move in steps of 'horizon' until we reach T + H.
+            # move in steps of 'horizon' until we reach T
             step = 0
-            while step + window_size < T + self.h:
+            while step + window_size < T:
                 window_end = step + window_size
 
                 # next chunk [window_end .. window_end + horizon)
-                # but clamp it so as not to exceed T + H
-                future_end = min(window_end + self.h, T + self.h)
+                future_end = window_end + self.h
+                horizon_length = min(future_end, T)
 
                 # [window_size, 1]
                 window_data = y_all[step:window_end].copy()
@@ -2577,20 +2574,20 @@ class HiTGenPipeline:
                     forecast_out.squeeze(-1).T
                 ).T  # [1, horizon]
 
-                y_hat[window_end:future_end] = forecast_out[
-                    0, : (future_end - window_end)
+                y_hat[window_end:horizon_length] = forecast_out[
+                    0, : (horizon_length - window_end)
                 ]
 
-                y_all[window_end:future_end] = y_hat[window_end:future_end]
+                y_all[window_end:horizon_length] = y_hat[window_end:horizon_length]
 
                 # move the window forward
                 step += self.h
 
             df_out = pd.DataFrame(
                 {
-                    "unique_id": [uid] * (T + self.h),
-                    "ds": ds_full.values,
-                    "y_true": y_all,  # original values (NaN beyond T)
+                    "unique_id": [uid] * T,
+                    "ds": ds_full[:T].values,
+                    "y_true": y_all,  # original values
                     "y": y_hat,  # predictions (NaN up to window_size)
                 }
             )
