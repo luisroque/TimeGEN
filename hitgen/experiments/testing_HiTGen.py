@@ -6,6 +6,7 @@ from hitgen.model.create_dataset_versions_vae import (
 from hitgen.metrics.evaluation_pipeline import (
     evaluation_pipeline_hitgen_forecast,
 )
+from hitgen.benchmarks.benchmark_models import BenchmarkPipeline
 from hitgen.experiments.helper import (
     extract_score,
     extract_frequency,
@@ -16,13 +17,13 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
-    "M1": {
+    "Tourism": {
         "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
     },
+    # "M1": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    # },
     # "M3": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     #     "Quarterly": {"FREQ": "Q", "H": 8},
@@ -95,6 +96,28 @@ if __name__ == "__main__":
 
             dataset_group_results.append(row_hitgen)
             results.append(row_hitgen)
+
+            ######### Benchmark #########
+
+            benchmark_pipeline = BenchmarkPipeline(hitgen_pipeline=hitgen_pipeline)
+
+            benchmark_pipeline.hyper_tune_and_train(max_evals=20)
+
+            for model_name in benchmark_pipeline.models.keys():
+                row_forecast_benchmark = {}
+
+                evaluation_pipeline_hitgen_forecast(
+                    dataset=DATASET,
+                    dataset_group=DATASET_GROUP,
+                    model=model_name,
+                    pipeline=benchmark_pipeline,
+                    horizon=H,
+                    freq=FREQ,
+                    row_forecast=row_forecast_benchmark,
+                )
+
+                dataset_group_results.append(row_forecast_benchmark)
+                results.append(row_forecast_benchmark)
 
     all_results_df = pd.DataFrame(results).round(3)
     all_results_path = "assets/results/synthetic_data_results.csv"

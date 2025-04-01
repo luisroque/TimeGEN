@@ -2460,7 +2460,7 @@ class HiTGenPipeline:
 
     def predict_from_first_window(
         self,
-        cvae: keras.Model,
+        model: keras.Model,
         window_size: int = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -2489,7 +2489,7 @@ class HiTGenPipeline:
             ].copy()
             df_ser.sort_values("ds", inplace=True)
 
-            # ff series is too short, skip
+            # if series is too short, skip
             if len(df_ser) < window_size:
                 print(
                     f"[predict_from_first_window] Series {uid} < window_size={window_size}. Skipping."
@@ -2567,7 +2567,7 @@ class HiTGenPipeline:
                     break
 
                 # pred_tuple = [recon_out, z_mean_out, z_log_var_out, forecast_out]
-                pred_tuple = cvae.predict(single_ds, verbose=0)
+                pred_tuple = model.predict(single_ds, verbose=0)
                 _, _, _, forecast_out = pred_tuple  # shape [1, horizon, 1]
 
                 forecast_out = local_scaler.inverse_transform(

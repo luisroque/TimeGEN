@@ -1,9 +1,11 @@
-from typing import List, Dict
+from typing import List, Dict, Union
 import numpy as np
 import os
 import json
 from tensorflow import keras
 import tensorflow as tf
+
+from hitgen.benchmarks.benchmark_models import BenchmarkPipeline
 from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
     compute_downstream_forecast,
@@ -176,8 +178,8 @@ def evaluation_pipeline_hitgen(
 def evaluation_pipeline_hitgen_forecast(
     dataset: str,
     dataset_group: str,
-    pipeline: HiTGenPipeline,
-    model: keras.Model,
+    pipeline: Union[HiTGenPipeline, BenchmarkPipeline],
+    model: Union[keras.Model, str],
     horizon: int,
     freq: str,
     row_forecast: dict,
@@ -196,7 +198,7 @@ def evaluation_pipeline_hitgen_forecast(
 
     forecast_df_first_window, forecast_df_autoregressive = (
         pipeline.predict_from_first_window(
-            cvae=model,
+            model=model,
         )
     )
 
@@ -211,24 +213,18 @@ def evaluation_pipeline_hitgen_forecast(
             print("[First Window] No valid y,y_true pairs. Can't compute sMAPE.")
             row_forecast["Forecast SMAPE (first window)"] = None
         else:
-            smape_result_fw = smape(
-                y_true=forecast_df_first_window["y_true"],
-                y_pred=forecast_df_first_window["y"],
-            )
             smape_result_fw_per_series = (
                 forecast_df_first_window.dropna(subset=["y", "y_true"])
                 .groupby("unique_id")
                 .apply(lambda df: smape(df["y_true"], df["y"]))
             )
-            print(f"\n[First Window Forecast Global] sMAPE = {smape_result_fw:.4f}\n")
+            smape_per_series_fw_mean = smape_result_fw_per_series.mean()
+
             print(
-                f"\n[First Window Forecast per Series] sMAPE = {smape_result_fw_per_series:.4f}\n"
-            )
-            row_forecast["Forecast SMAPE (first window) Global"] = float(
-                round(smape_result_fw, 4)
+                f"\n[First Window Forecast per Series] sMAPE = {smape_per_series_fw_mean:.4f}\n"
             )
             row_forecast["Forecast SMAPE (first window) Per Series"] = float(
-                round(smape_result_fw, 4)
+                round(smape_per_series_fw_mean, 4)
             )
 
     if forecast_df_autoregressive.empty:
@@ -242,13 +238,18 @@ def evaluation_pipeline_hitgen_forecast(
             print("[Autoregressive] No valid y,y_true pairs. Can't compute sMAPE.")
             row_forecast["Forecast SMAPE (autoregressive)"] = None
         else:
-            smape_result_ar = smape(
-                y_true=forecast_df_autoregressive["y_true"],
-                y_pred=forecast_df_autoregressive["y"],
+            smape_result_ar_per_series = (
+                forecast_df_autoregressive.dropna(subset=["y", "y_true"])
+                .groupby("unique_id")
+                .apply(lambda df: smape(df["y_true"], df["y"]))
             )
-            print(f"\n[Autoregressive Forecast] sMAPE = {smape_result_ar:.4f}\n")
+            smape_per_series_ar_mean = smape_result_ar_per_series.mean()
+
+            print(
+                f"\n[Autoregressive Forecast] sMAPE = {smape_per_series_ar_mean:.4f}\n"
+            )
             row_forecast["Forecast SMAPE (autoregressive)"] = float(
-                round(smape_result_ar, 4)
+                round(smape_per_series_ar_mean, 4)
             )
 
     row_forecast["Dataset"] = dataset
