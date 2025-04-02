@@ -10,6 +10,9 @@ from neuralforecast.auto import (
     AutoTFT,
 )
 from neuralforecast.tsdataset import TimeSeriesDataset
+from hitgen.visualization.model_visualization import (
+    plot_generated_vs_original,
+)
 
 
 class BenchmarkPipeline:
@@ -49,9 +52,9 @@ class BenchmarkPipeline:
         model_list = [
             ("AutoNHITS", AutoNHITS),
             ("AutoKAN", AutoKAN),
-            # ("AutoPatchTST", AutoPatchTST),
+            ("AutoPatchTST", AutoPatchTST),
             ("AutoiTransformer", AutoiTransformer),
-            # ("AutoTSMixer", AutoTSMixer),
+            ("AutoTSMixer", AutoTSMixer),
             ("AutoTFT", AutoTFT),
         ]
 
@@ -67,32 +70,41 @@ class BenchmarkPipeline:
 
         for name, ModelClass in model_list:
             print(f"\n=== Handling {name} ===")
+            if name in ("AutoTSMixer", "AutoiTransformer"):
+                init_kwargs = dict(
+                    h=self.h, n_series=1, num_samples=max_evals, verbose=True
+                )
+            else:
+                init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
+
             model_save_path = os.path.join(
-                weights_folder, f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}"
+                weights_folder,
+                f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}.ckpt",
             )
 
             if os.path.exists(model_save_path):
-                print(f"Found existing directory {model_save_path}. Loading {name}...")
-                model = ModelClass.load_from_folder(path=model_save_path)
+                print(
+                    f"Found saved model for {name}. Reinitializing wrapper and loading weights..."
+                )
+
+                model = ModelClass(**init_kwargs)
+
+                model.model = model.cls_model.load(path=model_save_path)
             else:
                 print(f"No saved {name} found. Training & tuning from scratch...")
-                model = ModelClass(
-                    h=self.h,
-                    num_samples=max_evals,
-                    verbose=True,
-                )
+                model = ModelClass(**init_kwargs)
                 model.fit(train_dset)
                 print(f"Saving {name} to {model_save_path} ...")
                 model.save(path=model_save_path)
 
             self.models[name] = model
 
-        print("\nAll Nixtla Auto-models have been trained/tuned or loaded from disk.\n")
+        print("\nAll Auto-models have been trained/tuned or loaded from disk.\n")
 
     def predict_from_first_window(
         self,
         model: str,
-        use_direct_forecast: bool = True,
+        window_size: int = None,
     ) -> (pd.DataFrame, pd.DataFrame):
         """
         Predicts the entire test range by taking exactly the first window_size points
@@ -122,117 +134,134 @@ class BenchmarkPipeline:
             )
 
         model = self.models[model]
+        model.set_test_size(self.hp.h)
 
-        test_long = self.test_long.copy()
-        test_long = test_long.sort_values(["unique_id", "ds"], ascending=[True, True])
+        if window_size is None:
+            window_size = self.hp.best_params_forecasting["window_size"]
 
-        results_all = []
-        results_first_horizon = []
+        results = []
+        first_horizon_list = []
+        autoregressive_list = []
 
-        for uid in test_long["unique_id"].unique():
-            df_ser = test_long[test_long["unique_id"] == uid].copy()
+        for uid in self.hp.test_ids:
+            df_ser = self.hp.original_test_long.loc[
+                self.hp.original_test_long["unique_id"] == uid
+            ].copy()
             df_ser.sort_values("ds", inplace=True)
 
-            T = len(df_ser)
-            if T < self.hp.best_params_forecasting["window_size"]:
+            # if series is too short, skip
+            if len(df_ser) < window_size:
+                print(
+                    f"[predict_from_first_window] Series {uid} < window_size={window_size}. Skipping."
+                )
                 continue
 
-            context_df = df_ser.iloc[
-                : self.hp.best_params_forecasting["window_size"]
-            ].copy()
-            context_df = context_df.reset_index(drop=True)
+            # build a date range up to T+H for dynamic features
+            T = len(df_ser)
+            # T actual points and additional H beyond that
+            last_date = df_ser["ds"].iloc[-1]
+            future_dates = pd.date_range(
+                start=last_date + pd.tseries.frequencies.to_offset(self.freq),
+                periods=self.h,
+                freq=self.freq,
+            )
+            ds_full = pd.concat(
+                [df_ser["ds"], pd.Series(future_dates)], ignore_index=True
+            )
 
-            future_needed = (
-                T - self.hp.best_params_forecasting["window_size"]
-            )  # how many test steps remain after the initial window
-            df_ser["y_true"] = df_ser["y"]
-            df_ser["y"] = np.nan  # fill forecast column with NaN initially
+            # ground-truth from 0..T-1
+            y_all = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
+            y_all[:T] = df_ser["y"].values
+            y_context = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
+            y_context[:window_size] = df_ser["y"][:window_size].values
 
-            if use_direct_forecast:
-                # direct multi-step forecast for the entire remainder
-                df_context = context_df[["unique_id", "ds", "y"]].copy()
+            # predicted fill from window_size onward
+            y_hat = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
 
-                if future_needed > 0:
-                    context_dset, *_ = TimeSeriesDataset.from_df(
-                        df=df_context,
-                        id_col="unique_id",
-                        time_col="ds",
-                        target_col="y",
-                    )
-                    fcst = model.predict(dataset=context_dset, steps=future_needed)
+            # -- autoregressive loop --
+            # move in steps of horizon until we reach T
+            step = 0
+            while step + window_size < T:
+                window_end = step + window_size
 
-                    df_merge = df_ser.merge(fcst, on=["unique_id", "ds"], how="left")
-                    df_merge = df_merge.rename(columns={"y_pred": "y"})
+                # next chunk [window_end .. window_end + horizon)
+                future_end = window_end + self.h
+                horizon_length = min(future_end, T)
 
-                    df_ser = df_merge[["unique_id", "ds", "y_true", "y"]]
+                # growing window of context
+                window_data = y_context[:window_end].copy()
 
-                first_horizon_end = min(
-                    self.hp.best_params_forecasting["window_size"] + self.h, T
+                # window_size + horizon rows
+                tmp_df = pd.DataFrame(
+                    {
+                        "unique_id": [str(uid)] * horizon_length,
+                        "ds": ds_full.iloc[:horizon_length].values,
+                        "y": window_data.tolist()
+                        + [np.nan] * (horizon_length - window_end),
+                    }
                 )
-                first_chunk = df_ser.iloc[
-                    self.hp.best_params_forecasting["window_size"] : first_horizon_end
-                ].copy()
 
-            else:
-                # autoregressive => Move forward in increments of self.h
-                pointer = 0
-                current_history = context_df[["unique_id", "ds", "y"]].copy()
+                tmp_df.dropna(subset=["unique_id"], inplace=True)
+                tmp_df = tmp_df[["unique_id", "ds", "y"]]
 
-                current_history_dset, *_ = TimeSeriesDataset.from_df(
-                    df=current_history,
+                single_ds, *_ = TimeSeriesDataset.from_df(
+                    df=tmp_df,
                     id_col="unique_id",
                     time_col="ds",
                     target_col="y",
                 )
 
-                while pointer < future_needed:
-                    steps_to_forecast = min(self.h, future_needed - pointer)
+                if single_ds is None:
+                    break
 
-                    fcst = model.predict(
-                        df=current_history_dset, steps=steps_to_forecast
-                    )
+                forecast_out = model.predict(dataset=single_ds)
 
-                    start_idx = self.hp.best_params_forecasting["window_size"] + pointer
-                    end_idx = (
-                        self.hp.best_params_forecasting["window_size"]
-                        + pointer
-                        + steps_to_forecast
-                    )
-                    slice_df = df_ser.iloc[start_idx:end_idx].copy()
+                y_hat[window_end:horizon_length] = forecast_out[
+                    0, : (horizon_length - window_end)
+                ]
 
-                    slice_df = slice_df.merge(fcst, on=["unique_id", "ds"], how="left")
-                    slice_df = slice_df.rename(columns={"y_pred": "y"})
+                y_context[window_end:horizon_length] = forecast_out[
+                    0, : (horizon_length - window_end)
+                ]
 
-                    df_ser.iloc[start_idx:end_idx, df_ser.columns.get_loc("y")] = (
-                        slice_df["y"].values
-                    )
+                # move the window forward
+                step += self.h
 
-                    # treat as newly observed for the next iteration
-                    new_history = slice_df[["unique_id", "ds", "y"]].copy()
-                    current_history = pd.concat(
-                        [current_history, new_history], ignore_index=True
-                    )
-                    current_history.sort_values("ds", inplace=True)
+            df_out = pd.DataFrame(
+                {
+                    "unique_id": [str(uid)] * T,
+                    "ds": ds_full[:T].values,
+                    "y_true": y_all,  # original values
+                    "y": y_hat,  # predictions (NaN up to window_size)
+                }
+            )
 
-                    pointer += steps_to_forecast
+            # first horizon data
+            first_horizon_end = min(window_size + self.h, T)
+            df_first = df_out.iloc[window_size:first_horizon_end].copy()
 
-                first_horizon_end = min(
-                    self.hp.best_params_forecasting["window_size"] + self.h, T
-                )
-                first_chunk = df_ser.iloc[
-                    self.hp.best_params_forecasting["window_size"] : first_horizon_end
-                ].copy()
+            df_auto = df_out.iloc[window_size:T].copy()
 
-            results_all.append(df_ser)
-            results_first_horizon.append(first_chunk)
+            results.append(df_out)
+            first_horizon_list.append(df_first)
+            autoregressive_list.append(df_auto)
 
-        if not results_all:
+        if not results:
             return pd.DataFrame(), pd.DataFrame()
 
-        df_autoregressive = pd.concat(results_all, ignore_index=True)
-        df_first_window = pd.concat(results_first_horizon, ignore_index=True)
+        df_res = pd.concat(results, ignore_index=True)
+        df_first_window = pd.concat(first_horizon_list, ignore_index=True)
+        df_autoregressive = pd.concat(autoregressive_list, ignore_index=True)
 
-        df_autoregressive = df_autoregressive[["unique_id", "ds", "y_true", "y"]]
-        df_first_window = df_first_window[["unique_id", "ds", "y_true", "y"]]
+        plot_generated_vs_original(
+            synth_data=df_res[["unique_id", "ds", "y"]],
+            original_data=self.hp.original_test_long,
+            score=0.0,
+            loss=0.0,
+            dataset_name=self.hp.dataset_name,
+            dataset_group=self.hp.dataset_group,
+            n_series=8,
+            suffix_name=f"{model}-initial-window",
+        )
 
         return df_first_window, df_autoregressive

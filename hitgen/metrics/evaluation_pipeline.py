@@ -189,8 +189,12 @@ def evaluation_pipeline_hitgen_forecast(
     forecast_df_first_window, forecast_df_autoregressive and computes SMAPE
     """
     os.makedirs("assets/results_forecast", exist_ok=True)
+    if isinstance(model, keras.Model):
+        model_name = "hitgen"
+    else:
+        model_name = model
     results_file = (
-        f"assets/results_forecast/{dataset}_{dataset_group}_forecast_{horizon}.json"
+        f"assets/results_forecast/{dataset}_{dataset_group}_{model_name}_{horizon}.json"
     )
 
     print(f"\n\n=== {dataset} {dataset_group} Forecast Evaluation ===\n")
@@ -218,13 +222,13 @@ def evaluation_pipeline_hitgen_forecast(
                 .groupby("unique_id")
                 .apply(lambda df: smape(df["y_true"], df["y"]))
             )
-            smape_per_series_fw_mean = smape_result_fw_per_series.mean()
+            smape_per_series_fw_median = smape_result_fw_per_series.median()
 
             print(
-                f"\n[First Window Forecast per Series] sMAPE = {smape_per_series_fw_mean:.4f}\n"
+                f"\n[First Window Forecast per Series] sMAPE = {smape_per_series_fw_median:.4f}\n"
             )
             row_forecast["Forecast SMAPE (first window) Per Series"] = float(
-                round(smape_per_series_fw_mean, 4)
+                round(smape_per_series_fw_median, 4)
             )
 
     if forecast_df_autoregressive.empty:
@@ -243,13 +247,13 @@ def evaluation_pipeline_hitgen_forecast(
                 .groupby("unique_id")
                 .apply(lambda df: smape(df["y_true"], df["y"]))
             )
-            smape_per_series_ar_mean = smape_result_ar_per_series.mean()
+            smape_per_series_ar_median = smape_result_ar_per_series.median()
 
             print(
-                f"\n[Autoregressive Forecast] sMAPE = {smape_per_series_ar_mean:.4f}\n"
+                f"\n[Autoregressive Forecast] sMAPE = {smape_per_series_ar_median:.4f}\n"
             )
             row_forecast["Forecast SMAPE (autoregressive)"] = float(
-                round(smape_per_series_ar_mean, 4)
+                round(smape_per_series_ar_median, 4)
             )
 
     row_forecast["Dataset"] = dataset

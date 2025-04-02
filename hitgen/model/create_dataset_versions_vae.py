@@ -2515,12 +2515,14 @@ class HiTGenPipeline:
             # ground-truth from 0..T-1
             y_all = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
             y_all[:T] = df_ser["y"].values
+            y_context = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
+            y_context[:window_size] = df_ser["y"][:window_size].values
 
             # predicted fill from window_size onward
             y_hat = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
 
             # -- autoregressive loop --
-            # move in steps of 'horizon' until we reach T
+            # move in steps of horizon until we reach T
             step = 0
             while step + window_size < T:
                 window_end = step + window_size
@@ -2529,16 +2531,14 @@ class HiTGenPipeline:
                 future_end = window_end + self.h
                 horizon_length = min(future_end, T)
 
-                # [window_size, 1]
-                window_data = y_all[step:window_end].copy()
+                # growing window of context
+                window_data = y_context[:window_end].copy()
 
                 local_scaler = self.scaler_test_dict[uid]
                 scaled_window = local_scaler.transform(window_data.reshape(-1, 1))
                 scaled_window = scaled_window.squeeze(-1)
 
-                hist_dyn = dyn_full.iloc[
-                    step:window_end
-                ].copy()  # shape [window_size, ...]
+                hist_dyn = dyn_full.iloc[:window_end].copy()  # shape [window_size, ...]
                 fut_dyn = dyn_full.iloc[
                     window_end:future_end
                 ].copy()  # shape [horizon, ...]
@@ -2546,14 +2546,16 @@ class HiTGenPipeline:
                 # window_size + horizon rows
                 tmp_df = pd.DataFrame(
                     {
-                        "unique_id": [uid] * (window_size + (future_end - window_end)),
-                        "ds": ds_full.iloc[step:future_end].values,
+                        "unique_id": [str(uid)] * horizon_length,
+                        "ds": ds_full.iloc[:horizon_length].values,
                         "y": scaled_window.tolist()
-                        + [np.nan] * (future_end - window_end),
+                        + [np.nan] * (horizon_length - window_end),
                     }
                 )
                 tmp_dyn = pd.concat([hist_dyn, fut_dyn], axis=0).reset_index(drop=True)
                 tmp_df = pd.concat([tmp_df.reset_index(drop=True), tmp_dyn], axis=1)
+
+                tmp_df.dropna(subset=["unique_id"], inplace=True)
 
                 single_ds, single_meta = build_forecast_dataset(
                     holdout_df=tmp_df,
@@ -2578,12 +2580,16 @@ class HiTGenPipeline:
                     0, : (horizon_length - window_end)
                 ]
 
+                y_context[window_end:horizon_length] = forecast_out[
+                    0, : (horizon_length - window_end)
+                ]
+
                 # move the window forward
                 step += self.h
 
             df_out = pd.DataFrame(
                 {
-                    "unique_id": [uid] * T,
+                    "unique_id": [str(uid)] * T,
                     "ds": ds_full[:T].values,
                     "y_true": y_all,  # original values
                     "y": y_hat,  # predictions (NaN up to window_size)

@@ -489,7 +489,7 @@ def build_forecast_dataset(
     for uid in unique_ids:
         df_ser = holdout_df[holdout_df["unique_id"] == uid].sort_values("ds")
 
-        # extract the lookback_window from the "history"
+        # extract the lookback_window
         hist_part = (
             df_ser.iloc[-(lookback_window + horizon) : -horizon]
             if horizon > 0
