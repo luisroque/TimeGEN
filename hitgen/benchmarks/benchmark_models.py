@@ -49,9 +49,9 @@ class BenchmarkPipeline:
         model_list = [
             ("AutoNHITS", AutoNHITS),
             ("AutoKAN", AutoKAN),
-            ("AutoPatchTST", AutoPatchTST),
+            # ("AutoPatchTST", AutoPatchTST),
             ("AutoiTransformer", AutoiTransformer),
-            ("AutoTSMixer", AutoTSMixer),
+            # ("AutoTSMixer", AutoTSMixer),
             ("AutoTFT", AutoTFT),
         ]
 
@@ -62,18 +62,32 @@ class BenchmarkPipeline:
             target_col="y",
         )
 
+        weights_folder = "assets/model_weights_benchmarks"
+        os.makedirs(weights_folder, exist_ok=True)
+
         for name, ModelClass in model_list:
-            print(f"\n=== Training & tuning {name} ===")
-            model = ModelClass(
-                h=self.h,
-                num_samples=max_evals,
-                verbose=True,
+            print(f"\n=== Handling {name} ===")
+            model_save_path = os.path.join(
+                weights_folder, f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}"
             )
-            # fit on train+val (internal cross-validation for best hyperparams)
-            model.fit(train_dset)
+
+            if os.path.exists(model_save_path):
+                print(f"Found existing directory {model_save_path}. Loading {name}...")
+                model = ModelClass.load_from_folder(path=model_save_path)
+            else:
+                print(f"No saved {name} found. Training & tuning from scratch...")
+                model = ModelClass(
+                    h=self.h,
+                    num_samples=max_evals,
+                    verbose=True,
+                )
+                model.fit(train_dset)
+                print(f"Saving {name} to {model_save_path} ...")
+                model.save(path=model_save_path)
+
             self.models[name] = model
 
-        print("\nAll Nixtla Auto-models have been trained and tuned.\n")
+        print("\nAll Nixtla Auto-models have been trained/tuned or loaded from disk.\n")
 
     def predict_from_first_window(
         self,
