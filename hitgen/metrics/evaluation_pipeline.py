@@ -197,6 +197,10 @@ def evaluation_pipeline_hitgen_forecast(
         f"assets/results_forecast/{dataset}_{dataset_group}_{model_name}_{horizon}.json"
     )
 
+    if os.path.exists(results_file):
+        print(f"[SKIP] Results file '{results_file}' already exists. Skipping compute.")
+        return
+
     print(f"\n\n=== {dataset} {dataset_group} Forecast Evaluation ===\n")
     print(f"Forecast horizon = {horizon}, freq = {freq}\n")
 

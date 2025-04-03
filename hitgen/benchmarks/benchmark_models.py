@@ -68,14 +68,25 @@ class BenchmarkPipeline:
         weights_folder = "assets/model_weights_benchmarks"
         os.makedirs(weights_folder, exist_ok=True)
 
+        model_config = AutoNHITS.get_default_config(h=self.hp.h, backend="ray")
+
+        # input_size_multiplier to 1 since we have small windows of context data
+        model_config["input_size_multiplier"] = [1]
+
         for name, ModelClass in model_list:
             print(f"\n=== Handling {name} ===")
             if name in ("AutoTSMixer", "AutoiTransformer"):
                 init_kwargs = dict(
-                    h=self.h, n_series=1, num_samples=max_evals, verbose=True
+                    h=self.h,
+                    config=model_config,
+                    n_series=1,
+                    num_samples=max_evals,
+                    verbose=True,
                 )
             else:
-                init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
+                init_kwargs = dict(
+                    h=self.h, config=model_config, num_samples=max_evals, verbose=True
+                )
 
             model_save_path = os.path.join(
                 weights_folder,
@@ -133,6 +144,7 @@ class BenchmarkPipeline:
                 f"Available keys: {list(self.models.keys())}"
             )
 
+        model_name = model
         model = self.models[model]
         model.set_test_size(self.hp.h)
 
@@ -191,13 +203,42 @@ class BenchmarkPipeline:
                 # growing window of context
                 window_data = y_context[:window_end].copy()
 
-                # window_size + horizon rows
+                # models that have fixed input size
+                if model_name in ("AutoiTransformer", "AutoTSMixer"):
+                    min_input_size = model.model.hparams["input_size"]
+                    needed_pad = min_input_size - len(window_data)
+
+                    if needed_pad > 0:
+                        first_real_date = ds_full.iloc[0]
+                        ds_padding = pd.date_range(
+                            end=first_real_date
+                            - pd.tseries.frequencies.to_offset(self.freq),
+                            periods=needed_pad,
+                            freq=self.freq,
+                        )
+
+                        pad_array = np.zeros(needed_pad, dtype=window_data.dtype)
+
+                        window_data = np.concatenate([pad_array, window_data])
+
+                        padded_dates = pd.Index(ds_padding).append(
+                            pd.Index(ds_full.iloc[:horizon_length].values)
+                        )
+
+                        ds_array = padded_dates.values
+
+                        horizon_length += needed_pad
+                    else:
+                        ds_array = ds_full.iloc[:horizon_length].values
+                else:
+                    ds_array = ds_full.iloc[:horizon_length].values
+
                 tmp_df = pd.DataFrame(
                     {
                         "unique_id": [str(uid)] * horizon_length,
-                        "ds": ds_full.iloc[:horizon_length].values,
+                        "ds": ds_array,
                         "y": window_data.tolist()
-                        + [np.nan] * (horizon_length - window_end),
+                        + [np.nan] * (horizon_length - window_data.shape[0]),
                     }
                 )
 
