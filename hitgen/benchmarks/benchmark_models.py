@@ -68,25 +68,17 @@ class BenchmarkPipeline:
         weights_folder = "assets/model_weights_benchmarks"
         os.makedirs(weights_folder, exist_ok=True)
 
-        model_config = AutoNHITS.get_default_config(h=self.hp.h, backend="ray")
-
-        # input_size_multiplier to 1 since we have small windows of context data
-        model_config["input_size"] = self.hp.h
-
         for name, ModelClass in model_list:
             print(f"\n=== Handling {name} ===")
             if name in ("AutoTSMixer", "AutoiTransformer"):
                 init_kwargs = dict(
                     h=self.h,
-                    config=model_config,
                     n_series=1,
                     num_samples=max_evals,
                     verbose=True,
                 )
             else:
-                init_kwargs = dict(
-                    h=self.h, config=model_config, num_samples=max_evals, verbose=True
-                )
+                init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
 
             model_save_path = os.path.join(
                 weights_folder,
