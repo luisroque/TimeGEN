@@ -183,6 +183,7 @@ def evaluation_pipeline_hitgen_forecast(
     horizon: int,
     freq: str,
     row_forecast: dict,
+    window_size: int = None,
 ) -> None:
     """
     Evaluate direct forecasting for the two different forecast approaches
@@ -205,9 +206,7 @@ def evaluation_pipeline_hitgen_forecast(
     print(f"Forecast horizon = {horizon}, freq = {freq}\n")
 
     forecast_df_first_window, forecast_df_autoregressive = (
-        pipeline.predict_from_first_window(
-            model=model,
-        )
+        pipeline.predict_from_first_window(model=model, window_size=window_size)
     )
 
     if forecast_df_first_window.empty:

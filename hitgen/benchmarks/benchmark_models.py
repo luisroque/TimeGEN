@@ -71,7 +71,7 @@ class BenchmarkPipeline:
         model_config = AutoNHITS.get_default_config(h=self.hp.h, backend="ray")
 
         # input_size_multiplier to 1 since we have small windows of context data
-        model_config["input_size_multiplier"] = [1]
+        model_config["input_size"] = self.hp.h
 
         for name, ModelClass in model_list:
             print(f"\n=== Handling {name} ===")

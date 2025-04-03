@@ -2476,8 +2476,7 @@ class HiTGenPipeline:
         The 'y_pred' is filled from the point we can start predicting
         (window_size onward) all the way up to T-1.
         """
-        if window_size is None:
-            window_size = self.best_params_forecasting["window_size"]
+        window_size = self.best_params_forecasting["window_size"]
 
         results = []
         first_horizon_list = []
@@ -2525,6 +2524,7 @@ class HiTGenPipeline:
             # move in steps of horizon until we reach T
             step = 0
             while step + window_size < T:
+
                 window_end = step + window_size
 
                 # next chunk [window_end .. window_end + horizon)
