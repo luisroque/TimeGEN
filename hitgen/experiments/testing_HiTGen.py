@@ -17,16 +17,16 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    "Tourism": {
-        "Monthly": {"FREQ": "M", "H": 24},
-    },
-    "M1": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        # "Quarterly": {"FREQ": "Q", "H": 8},
-    },
+    # "Tourism": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # },
+    # "M1": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     # "Quarterly": {"FREQ": "Q", "H": 8},
+    # },
     "M3": {
         "Monthly": {"FREQ": "M", "H": 24},
-        # "Quarterly": {"FREQ": "Q", "H": 8},
+        "Quarterly": {"FREQ": "Q", "H": 8},
         # "Yearly": {"FREQ": "Y", "H": 4},
     },
 }
@@ -198,9 +198,7 @@ if __name__ == "__main__":
                                 row_forecast=row_forecast_benchmark_tl,
                                 dataset_source=DATASET_TL,
                                 prediction_mode="out_domain",
-                                window_size=hitgen_pipeline_transfer_learning.best_params_forecasting[
-                                    "window_size"
-                                ],
+                                window_size=H,
                             )
 
                             dataset_group_results.append(row_forecast_benchmark_tl)
