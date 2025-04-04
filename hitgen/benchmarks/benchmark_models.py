@@ -373,7 +373,7 @@ class BenchmarkPipeline:
 
             tmp_df = pd.DataFrame(
                 {
-                    "unique_id": [str(uid)] * last_window_end,
+                    "unique_id": [str(uid)] * horizon_length,
                     "ds": ds_array,
                     "y": list(window_data) + [np.nan] * self.hp.h,
                 }
