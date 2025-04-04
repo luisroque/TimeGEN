@@ -17,18 +17,18 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
     "M1": {
         "Monthly": {"FREQ": "M", "H": 24},
         # "Quarterly": {"FREQ": "Q", "H": 8},
     },
-    # "M3": {
-    # "Monthly": {"FREQ": "M", "H": 24},
-    # "Quarterly": {"FREQ": "Q", "H": 8},
-    # "Yearly": {"FREQ": "Y", "H": 4},
-    # },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        # "Quarterly": {"FREQ": "Q", "H": 8},
+        # "Yearly": {"FREQ": "Y", "H": 4},
+    },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
@@ -178,6 +178,10 @@ if __name__ == "__main__":
                             hitgen_pipeline=hitgen_pipeline_transfer_learning
                         )
 
+                        benchmark_pipeline_transfer_learning.hyper_tune_and_train(
+                            max_evals=20
+                        )
+
                         for (
                             model_name,
                             model,
@@ -194,13 +198,10 @@ if __name__ == "__main__":
                                 row_forecast=row_forecast_benchmark_tl,
                                 dataset_source=DATASET_TL,
                                 prediction_mode="out_domain",
+                                window_size=hitgen_pipeline_transfer_learning.best_params_forecasting[
+                                    "window_size"
+                                ],
                             )
 
                             dataset_group_results.append(row_forecast_benchmark_tl)
                             results.append(row_forecast_benchmark_tl)
-
-    # all_results_df = pd.DataFrame(results).round(3)
-    # all_results_path = "assets/results/synthetic_data_results.csv"
-    # all_results_df.to_csv(all_results_path, index=False)
-    #
-    # print(f"==> Saved consolidated results to {all_results_path}")
