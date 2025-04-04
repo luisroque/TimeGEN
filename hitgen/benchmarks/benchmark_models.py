@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from typing import Tuple, Union
 import pandas as pd
 from neuralforecast.auto import (
     AutoNHITS,
@@ -13,6 +14,15 @@ from neuralforecast.tsdataset import TimeSeriesDataset
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
+
+AutoModelType = Union[
+    AutoNHITS,
+    AutoKAN,
+    AutoPatchTST,
+    AutoiTransformer,
+    AutoTSMixer,
+    AutoTFT,
+]
 
 
 class BenchmarkPipeline:
@@ -51,11 +61,11 @@ class BenchmarkPipeline:
         """
         model_list = [
             ("AutoNHITS", AutoNHITS),
-            ("AutoKAN", AutoKAN),
-            ("AutoPatchTST", AutoPatchTST),
-            ("AutoiTransformer", AutoiTransformer),
-            ("AutoTSMixer", AutoTSMixer),
-            ("AutoTFT", AutoTFT),
+            # ("AutoKAN", AutoKAN),
+            # ("AutoPatchTST", AutoPatchTST),
+            # ("AutoiTransformer", AutoiTransformer),
+            # ("AutoTSMixer", AutoTSMixer),
+            # ("AutoTFT", AutoTFT),
         ]
 
         train_dset, *_ = TimeSeriesDataset.from_df(
@@ -106,8 +116,9 @@ class BenchmarkPipeline:
 
     def predict_from_first_window(
         self,
-        model: str,
+        model: AutoModelType,
         window_size: int = None,
+        prediction_mode: str = "in_domain",
     ) -> (pd.DataFrame, pd.DataFrame):
         """
         Predicts the entire test range by taking exactly the first window_size points
@@ -130,14 +141,7 @@ class BenchmarkPipeline:
             - In the *direct* forecast scenario, both DataFrames end up basically the same
               (the difference is in how we slice out the first horizon chunk).
         """
-        if model not in self.models:
-            raise ValueError(
-                f"Model '{model}' not found in self.models. "
-                f"Available keys: {list(self.models.keys())}"
-            )
-
-        model_name = model
-        model = self.models[model]
+        model_name = model.__class__.__name__
         model.set_test_size(self.hp.h)
 
         if window_size is None:
@@ -294,7 +298,138 @@ class BenchmarkPipeline:
             dataset_name=self.hp.dataset_name,
             dataset_group=self.hp.dataset_group,
             n_series=8,
-            suffix_name=f"{model}-initial-window",
+            suffix_name=f"{model}-initial-window-{prediction_mode}",
         )
 
         return df_first_window, df_autoregressive
+
+    def predict_from_last_window(
+        self,
+        model: AutoModelType,
+        window_size: int = None,
+        prediction_mode: str = None,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Predicts a horizon of H points by taking exactly the LAST window_size points
+        from each test series (ending at T-H) and forecasting the next H points
+        (from T-H .. T-1).
+        """
+        model_name = model.__class__.__name__
+        model.set_test_size(self.hp.h)
+
+        if window_size is None:
+            window_size = self.hp.best_params_forecasting["window_size"]
+
+        results_all = []
+        results_horizon = []
+
+        for uid in self.hp.test_ids:
+            df_ser = self.hp.original_test_long.loc[
+                self.hp.original_test_long["unique_id"] == uid
+            ].copy()
+            df_ser.sort_values("ds", inplace=True)
+
+            T = len(df_ser)
+
+            if T < window_size + self.hp.h:
+                print(
+                    f"[predict_from_last_window] Series {uid} length={T} "
+                    f"< window_size + H={window_size + self.hp.h}. Skipping."
+                )
+                continue
+
+            ds_full = df_ser["ds"].values  # shape (T,)
+
+            y_true = df_ser["y"].values.astype(np.float32)
+            y_pred = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
+
+            last_window_start = T - self.hp.h - window_size
+            last_window_end = T - self.hp.h  # exclusive index
+            window_data = y_true[last_window_start:last_window_end]
+
+            horizon_length = window_size + self.hp.h
+            ds_array = ds_full[last_window_start : (last_window_end + self.hp.h)]
+
+            if model_name in ("AutoiTransformer", "AutoTSMixer"):
+                min_input_size = model.model.hparams["input_size"]
+                needed_pad = min_input_size - len(window_data)
+
+                if needed_pad > 0:
+                    first_real_date = ds_array[0]
+
+                    ds_padding = pd.date_range(
+                        end=first_real_date
+                        - pd.tseries.frequencies.to_offset(self.freq),
+                        periods=needed_pad,
+                        freq=self.freq,
+                    )
+                    pad_array = np.zeros(needed_pad, dtype=window_data.dtype)
+
+                    window_data = np.concatenate([pad_array, window_data])
+                    padded_dates = pd.Index(ds_padding).append(pd.Index(ds_array))
+                    ds_array = padded_dates.values
+
+                    horizon_length += needed_pad
+
+            tmp_df = pd.DataFrame(
+                {
+                    "unique_id": [str(uid)] * last_window_end,
+                    "ds": ds_array,
+                    "y": list(window_data) + [np.nan] * self.hp.h,
+                }
+            )
+
+            tmp_df.dropna(subset=["unique_id"], inplace=True)
+            tmp_df = tmp_df[["unique_id", "ds", "y"]]
+
+            single_ds, *_ = TimeSeriesDataset.from_df(
+                df=tmp_df,
+                id_col="unique_id",
+                time_col="ds",
+                target_col="y",
+            )
+
+            if single_ds is None:
+                print(
+                    f"[predict_from_last_window] Could not build dataset for {uid}. Skipping."
+                )
+                continue
+
+            forecast_out = model.predict(dataset=single_ds)
+
+            y_pred[last_window_end : last_window_end + self.hp.h] = forecast_out[
+                0, : self.hp.h
+            ]
+
+            df_all = pd.DataFrame(
+                {
+                    "unique_id": [str(uid)] * T,
+                    "ds": ds_full,
+                    "y_true": y_true,  # entire ground truth
+                    "y": y_pred,  # forecast in last H
+                }
+            )
+
+            df_hor = df_all.iloc[last_window_end : last_window_end + self.hp.h].copy()
+
+            results_all.append(df_all)
+            results_horizon.append(df_hor)
+
+        if not results_all:
+            return pd.DataFrame(), pd.DataFrame()
+
+        df_all_final = pd.concat(results_all, ignore_index=True)
+        df_horizon_final = pd.concat(results_horizon, ignore_index=True)
+
+        plot_generated_vs_original(
+            synth_data=df_all_final[["unique_id", "ds", "y"]],
+            original_data=self.hp.original_test_long,
+            score=0.0,
+            loss=0.0,
+            dataset_name=self.hp.dataset_name,
+            dataset_group=self.hp.dataset_group,
+            n_series=8,
+            suffix_name=f"{model_name}-last-window_{prediction_mode}",
+        )
+
+        return df_horizon_final, df_all_final

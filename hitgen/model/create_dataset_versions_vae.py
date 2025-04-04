@@ -39,16 +39,6 @@ class HiTGenPipeline:
     Class for creating transformed versions of the dataset using a Conditional Variational Autoencoder (CVAE).
     """
 
-    _instance = None
-
-    def __new__(cls, *args, **kwargs) -> "HiTGenPipeline":
-        """
-        Override the __new__ method to implement the Singleton design pattern.
-        """
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(
         self,
         dataset_name: str,
@@ -1669,7 +1659,9 @@ class HiTGenPipeline:
 
             score = val_loss
 
-            synthetic_long = self.predict_future(cvae, window_size=window_size)
+            _, synthetic_long = self.predict_from_first_window(
+                cvae,
+            )
 
             self.update_best_scores(
                 original_data=self.original_val_long,
@@ -1708,7 +1700,7 @@ class HiTGenPipeline:
             print(f"Error in objective_forecast trial: {e}")
             raise optuna.exceptions.TrialPruned()
 
-    def hyper_tune_and_train(self, n_trials=100):
+    def hyper_tune_and_train(self, n_trials=30):
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
@@ -1866,7 +1858,7 @@ class HiTGenPipeline:
         print("Training completed with the best hyperparameters.")
         return cvae
 
-    def hyper_tune_and_train_multivariate(self, n_trials=100):
+    def hyper_tune_and_train_multivariate(self, n_trials=30):
         """
         Run Optuna hyperparameter tuning for the CVAE and train the best model.
         """
@@ -2028,7 +2020,7 @@ class HiTGenPipeline:
         print("Training Multivar completed with the best hyperparameters.")
         return cvae
 
-    def hyper_tune_and_train_forecasting(self, n_trials=100):
+    def hyper_tune_and_train_forecasting(self, n_trials=30):
         """
         Run Optuna hyperparameter tuning for the CVAE purely for multi-step forecasting,
         then train the best model.
@@ -2462,6 +2454,7 @@ class HiTGenPipeline:
         self,
         model: keras.Model,
         window_size: int = None,
+        prediction_mode: str = "in_domain",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Predicts the future by receiving the FIRST window of each test series.
@@ -2476,11 +2469,14 @@ class HiTGenPipeline:
         The 'y_pred' is filled from the point we can start predicting
         (window_size onward) all the way up to T-1.
         """
-        window_size = self.best_params_forecasting["window_size"]
+        if not window_size:
+            window_size = self.best_params_forecasting["window_size"]
 
         results = []
         first_horizon_list = []
         autoregressive_list = []
+
+        local_scaler = {}
 
         for uid in self.test_ids:
             df_ser = self.original_test_long.loc[
@@ -2520,6 +2516,13 @@ class HiTGenPipeline:
             # predicted fill from window_size onward
             y_hat = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
 
+            # skip any series that don't have at least window_size + self.h points
+            if T < window_size + self.h:
+                print(
+                    f"[predict_from_first_window] Series {uid} cannot fit window_size + horizon. Skipping."
+                )
+                continue
+
             # -- autoregressive loop --
             # move in steps of horizon until we reach T
             step = 0
@@ -2534,8 +2537,17 @@ class HiTGenPipeline:
                 # growing window of context
                 window_data = y_context[:window_end].copy()
 
-                local_scaler = self.scaler_test_dict[uid]
-                scaled_window = local_scaler.transform(window_data.reshape(-1, 1))
+                # local_scaler = self.scaler_test_dict[uid]
+                if step == 0:
+                    local_scaler[uid] = StandardScaler()
+                    scaled_window = local_scaler[uid].fit_transform(
+                        window_data.reshape(-1, 1)
+                    )
+                else:
+                    scaled_window = local_scaler[uid].transform(
+                        window_data.reshape(-1, 1)
+                    )
+
                 scaled_window = scaled_window.squeeze(-1)
 
                 hist_dyn = dyn_full.iloc[:window_end].copy()  # shape [window_size, ...]
@@ -2572,9 +2584,9 @@ class HiTGenPipeline:
                 pred_tuple = model.predict(single_ds, verbose=0)
                 _, _, _, forecast_out = pred_tuple  # shape [1, horizon, 1]
 
-                forecast_out = local_scaler.inverse_transform(
-                    forecast_out.squeeze(-1).T
-                ).T  # [1, horizon]
+                forecast_out = (
+                    local_scaler[uid].inverse_transform(forecast_out.squeeze(-1).T).T
+                )  # [1, horizon]
 
                 y_hat[window_end:horizon_length] = forecast_out[
                     0, : (horizon_length - window_end)
@@ -2615,13 +2627,148 @@ class HiTGenPipeline:
 
         plot_generated_vs_original(
             synth_data=df_res[["unique_id", "ds", "y"]],
-            original_data=self.original_test_long,
+            original_data=df_res[["unique_id", "ds", "y_true"]].rename(
+                columns={"y_true": "y"}
+            ),
             score=0.0,
             loss=0.0,
             dataset_name=self.dataset_name,
             dataset_group=self.dataset_group,
             n_series=8,
-            suffix_name="hitgen-initial-window",
+            suffix_name=f"hitgen-initial-window-{prediction_mode}",
         )
 
         return df_first_window, df_autoregressive
+
+    def predict_from_last_window(
+        self,
+        model: keras.Model,
+        window_size: int = None,
+        prediction_mode: str = "in_domain",
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Predicts a horizon of H points by receiving the LAST window of length
+        'window_size' from each test series (ending at T-H) and predicting the
+        next H steps (from T-H up to T-1).
+        """
+        if not window_size:
+            window_size = self.best_params_forecasting["window_size"]
+
+        results_all = []
+        results_horizon = []
+
+        local_scaler = {}
+
+        for uid in self.test_ids:
+            df_ser = self.original_test_long.loc[
+                self.original_test_long["unique_id"] == uid
+            ].copy()
+            df_ser.sort_values("ds", inplace=True)
+
+            T = len(df_ser)
+            if T < window_size + self.h:
+                print(
+                    f"[predict_from_last_window] Series {uid} length={T} < window_size+H={window_size + self.h}. Skipping."
+                )
+                continue
+
+            last_window_start = T - self.h - window_size
+            last_window_end = T - self.h
+
+            ds_full = df_ser["ds"].copy()  # length T
+
+            dyn_full = self.compute_fourier_features(ds_full)
+            dyn_full.reset_index(drop=True, inplace=True)
+
+            y_true = df_ser["y"].values.astype(np.float32)
+
+            # which will be filled only in [T-H .. T-1].
+            y_pred = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
+
+            window_data = y_true[
+                last_window_start:last_window_end
+            ]  # length = window_size
+
+            local_scaler[uid] = StandardScaler()
+            scaled_window = (
+                local_scaler[uid].fit_transform(window_data.reshape(-1, 1)).squeeze(-1)
+            )
+
+            hist_dyn = dyn_full.iloc[
+                last_window_start:last_window_end
+            ].copy()  # window_size
+            fut_dyn = dyn_full.iloc[
+                last_window_end : (last_window_end + self.h)
+            ].copy()  # h
+
+            tmp_df = pd.DataFrame(
+                {
+                    "unique_id": [str(uid)] * (window_size + self.h),
+                    "ds": ds_full.iloc[
+                        last_window_start : (last_window_end + self.h)
+                    ].values,
+                    "y": list(scaled_window) + [np.nan] * self.h,
+                }
+            )
+            tmp_dyn = pd.concat([hist_dyn, fut_dyn], axis=0).reset_index(drop=True)
+            tmp_df = pd.concat([tmp_df.reset_index(drop=True), tmp_dyn], axis=1)
+
+            single_ds, single_meta = build_forecast_dataset(
+                holdout_df=tmp_df,
+                unique_ids=[uid],
+                lookback_window=window_size,
+                horizon=self.h,
+                dyn_feature_cols=list(hist_dyn.columns),
+            )
+
+            if single_ds is None:
+                print(
+                    f"[predict_from_last_window] Could not build dataset for {uid}. Skipping."
+                )
+                continue
+
+            pred_tuple = model.predict(single_ds, verbose=0)
+            _, _, _, forecast_out = pred_tuple
+
+            forecast_out = (
+                local_scaler[uid]
+                .inverse_transform(forecast_out.squeeze(-1).reshape(-1, 1))
+                .squeeze(-1)
+            )
+
+            y_pred[last_window_end : last_window_end + self.h] = forecast_out
+
+            df_out = pd.DataFrame(
+                {
+                    "unique_id": [str(uid)] * T,
+                    "ds": ds_full.values,
+                    "y_true": y_true,  # original y
+                    "y": y_pred,  # forecast in [T-H .. T-1], NaN before
+                }
+            )
+
+            df_hor = df_out.iloc[last_window_end : last_window_end + self.h].copy()
+
+            results_all.append(df_out)
+            results_horizon.append(df_hor)
+
+        if not results_all:
+            return pd.DataFrame(), pd.DataFrame()
+
+        df_all = pd.concat(results_all, ignore_index=True)
+        df_horizon = pd.concat(results_horizon, ignore_index=True)
+
+        plot_generated_vs_original(
+            synth_data=df_all[["unique_id", "ds", "y"]],
+            original_data=df_all[["unique_id", "ds", "y_true"]].rename(
+                columns={"y_true": "y"}
+            ),
+            score=0.0,
+            loss=0.0,
+            dataset_name=self.dataset_name,
+            dataset_group=self.dataset_group,
+            n_series=8,
+            suffix_name=f"hitgen-last-window-{prediction_mode}",
+        )
+
+        return df_horizon, df_all

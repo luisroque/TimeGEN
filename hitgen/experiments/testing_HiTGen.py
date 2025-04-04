@@ -22,13 +22,17 @@ DATASET_GROUP_FREQ = {
     # },
     "M1": {
         "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
+        # "Quarterly": {"FREQ": "Q", "H": 8},
     },
     # "M3": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    #     "Yearly": {"FREQ": "Y", "H": 4},
+    # "Monthly": {"FREQ": "M", "H": 24},
+    # "Quarterly": {"FREQ": "Q", "H": 8},
+    # "Yearly": {"FREQ": "Y", "H": 4},
     # },
+}
+
+SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
+    "Tourism": {"Monthly": {"FREQ": "M", "H": 24}}
 }
 
 
@@ -78,49 +82,125 @@ if __name__ == "__main__":
                 opt_score=args.opt_score,
             )
 
-            model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
-
-            test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
-
-            row_hitgen = {}
-
-            evaluation_pipeline_hitgen_forecast(
-                dataset=DATASET,
-                dataset_group=DATASET_GROUP,
-                model=model_forecasting,
-                pipeline=hitgen_pipeline,
-                horizon=H,
-                freq=FREQ,
-                row_forecast=row_hitgen,
-            )
-
-            dataset_group_results.append(row_hitgen)
-            results.append(row_hitgen)
-
-            ######### Benchmark #########
-
             benchmark_pipeline = BenchmarkPipeline(hitgen_pipeline=hitgen_pipeline)
 
-            benchmark_pipeline.hyper_tune_and_train(max_evals=20)
+            if not args.transfer_learning:
+                model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
 
-            for model_name in benchmark_pipeline.models.keys():
-                row_forecast_benchmark = {}
+                test_unique_ids = hitgen_pipeline.original_test_long[
+                    "unique_id"
+                ].unique()
+
+                row_hitgen = {}
 
                 evaluation_pipeline_hitgen_forecast(
                     dataset=DATASET,
                     dataset_group=DATASET_GROUP,
-                    model=model_name,
-                    pipeline=benchmark_pipeline,
+                    model=model_forecasting,
+                    pipeline=hitgen_pipeline,
                     horizon=H,
                     freq=FREQ,
-                    row_forecast=row_forecast_benchmark,
+                    row_forecast=row_hitgen,
                 )
 
-                dataset_group_results.append(row_forecast_benchmark)
-                results.append(row_forecast_benchmark)
+                dataset_group_results.append(row_hitgen)
+                results.append(row_hitgen)
 
-    all_results_df = pd.DataFrame(results).round(3)
-    all_results_path = "assets/results/synthetic_data_results.csv"
-    all_results_df.to_csv(all_results_path, index=False)
+                ######### Benchmark #########
 
-    print(f"==> Saved consolidated results to {all_results_path}")
+                benchmark_pipeline.hyper_tune_and_train(max_evals=20)
+
+                for model_name, model in benchmark_pipeline.models.items():
+                    row_forecast_benchmark = {}
+
+                    evaluation_pipeline_hitgen_forecast(
+                        dataset=DATASET,
+                        dataset_group=DATASET_GROUP,
+                        model=model,
+                        pipeline=benchmark_pipeline,
+                        horizon=H,
+                        freq=FREQ,
+                        row_forecast=row_forecast_benchmark,
+                    )
+
+                    dataset_group_results.append(row_forecast_benchmark)
+                    results.append(row_forecast_benchmark)
+
+            else:
+                for (
+                    DATASET_TL,
+                    SUBGROUPS_TL,
+                ) in SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING.items():
+                    for subgroup_tl in SUBGROUPS_TL.items():
+                        FREQ_TL = extract_frequency(subgroup_tl)
+                        H_TL = extract_horizon(subgroup_tl)
+                        DATASET_GROUP_TL = subgroup_tl[0]
+
+                        hitgen_pipeline_transfer_learning = HiTGenPipeline(
+                            dataset_name=DATASET_TL,
+                            dataset_group=DATASET_GROUP_TL,
+                            freq=FREQ_TL,
+                            horizon=H_TL,
+                            opt_score=args.opt_score,
+                        )
+
+                        model_forecasting_tl = (
+                            hitgen_pipeline_transfer_learning.hyper_tune_and_train_forecasting()
+                        )
+
+                        test_unique_ids = hitgen_pipeline.original_test_long[
+                            "unique_id"
+                        ].unique()
+
+                        row_hitgen_tl = {}
+
+                        evaluation_pipeline_hitgen_forecast(
+                            dataset=DATASET,
+                            dataset_group=DATASET_GROUP,
+                            model=model_forecasting_tl,
+                            pipeline=hitgen_pipeline,
+                            horizon=H,
+                            freq=FREQ,
+                            row_forecast=row_hitgen_tl,
+                            dataset_source=DATASET_TL,
+                            window_size=hitgen_pipeline_transfer_learning.best_params_forecasting[
+                                "window_size"
+                            ],
+                            prediction_mode="out_domain",
+                        )
+
+                        dataset_group_results.append(row_hitgen_tl)
+                        results.append(row_hitgen_tl)
+
+                        ######### Benchmark #########
+
+                        benchmark_pipeline_transfer_learning = BenchmarkPipeline(
+                            hitgen_pipeline=hitgen_pipeline_transfer_learning
+                        )
+
+                        for (
+                            model_name,
+                            model,
+                        ) in benchmark_pipeline_transfer_learning.models.items():
+                            row_forecast_benchmark_tl = {}
+
+                            evaluation_pipeline_hitgen_forecast(
+                                dataset=DATASET,
+                                dataset_group=DATASET_GROUP,
+                                model=model,
+                                pipeline=benchmark_pipeline,
+                                horizon=H,
+                                freq=FREQ,
+                                row_forecast=row_forecast_benchmark_tl,
+                                dataset_source=DATASET_TL,
+                                prediction_mode="out_domain",
+                            )
+
+                            dataset_group_results.append(row_forecast_benchmark_tl)
+                            results.append(row_forecast_benchmark_tl)
+
+    # all_results_df = pd.DataFrame(results).round(3)
+    # all_results_path = "assets/results/synthetic_data_results.csv"
+    # all_results_df.to_csv(all_results_path, index=False)
+    #
+    # print(f"==> Saved consolidated results to {all_results_path}")
