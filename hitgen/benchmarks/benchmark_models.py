@@ -61,11 +61,11 @@ class BenchmarkPipeline:
         """
         model_list = [
             ("AutoNHITS", AutoNHITS),
-            # ("AutoKAN", AutoKAN),
-            # ("AutoPatchTST", AutoPatchTST),
-            # ("AutoiTransformer", AutoiTransformer),
-            # ("AutoTSMixer", AutoTSMixer),
-            # ("AutoTFT", AutoTFT),
+            ("AutoKAN", AutoKAN),
+            ("AutoPatchTST", AutoPatchTST),
+            ("AutoiTransformer", AutoiTransformer),
+            ("AutoTSMixer", AutoTSMixer),
+            ("AutoTFT", AutoTFT),
         ]
 
         train_dset, *_ = TimeSeriesDataset.from_df(
