@@ -121,6 +121,7 @@ if __name__ == "__main__":
                         horizon=H,
                         freq=FREQ,
                         row_forecast=row_forecast_benchmark,
+                        window_size=H,
                     )
 
                     dataset_group_results.append(row_forecast_benchmark)
