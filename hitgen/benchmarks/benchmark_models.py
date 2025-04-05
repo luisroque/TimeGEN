@@ -11,6 +11,8 @@ from neuralforecast.auto import (
     AutoTFT,
 )
 from neuralforecast.tsdataset import TimeSeriesDataset
+from sklearn.preprocessing import StandardScaler
+
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
@@ -43,9 +45,15 @@ class BenchmarkPipeline:
         self.freq = self.hp.freq
         self.h = self.hp.h
 
-        self.train_long = self.hp.original_train_long[["unique_id", "ds", "y"]].copy()
-        self.val_long = self.hp.original_val_long[["unique_id", "ds", "y"]].copy()
-        self.test_long = self.hp.original_test_long[["unique_id", "ds", "y"]].copy()
+        self.train_long = self.hp.original_train_long_transf[
+            ["unique_id", "ds", "y"]
+        ].copy()
+        self.val_long = self.hp.original_val_long_transf[
+            ["unique_id", "ds", "y"]
+        ].copy()
+        self.test_long = self.hp.original_test_long_transf[
+            ["unique_id", "ds", "y"]
+        ].copy()
 
         self.trainval_long = pd.concat(
             [self.train_long, self.val_long], ignore_index=True
@@ -94,6 +102,10 @@ class BenchmarkPipeline:
                 weights_folder,
                 f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}.ckpt",
             )
+
+            base_config = ModelClass.get_default_config(h=self.h, backend="ray")
+            base_config["scaler_type"] = None
+            init_kwargs["config"] = base_config
 
             if os.path.exists(model_save_path):
                 print(
@@ -151,6 +163,8 @@ class BenchmarkPipeline:
         first_horizon_list = []
         autoregressive_list = []
 
+        local_scaler = {}
+
         for uid in self.hp.test_ids:
             df_ser = self.hp.original_test_long.loc[
                 self.hp.original_test_long["unique_id"] == uid
@@ -199,10 +213,22 @@ class BenchmarkPipeline:
                 # growing window of context
                 window_data = y_context[:window_end].copy()
 
+                if step == 0:
+                    local_scaler[uid] = StandardScaler()
+                    scaled_window = local_scaler[uid].fit_transform(
+                        window_data.reshape(-1, 1)
+                    )
+                else:
+                    scaled_window = local_scaler[uid].transform(
+                        window_data.reshape(-1, 1)
+                    )
+
+                scaled_window = scaled_window.squeeze(-1)
+
                 # models that have fixed input size
                 if model_name in ("AutoiTransformer", "AutoTSMixer"):
                     min_input_size = model.model.hparams["input_size"]
-                    needed_pad = min_input_size - len(window_data)
+                    needed_pad = min_input_size - len(scaled_window)
 
                     if needed_pad > 0:
                         first_real_date = ds_full.iloc[0]
@@ -213,9 +239,9 @@ class BenchmarkPipeline:
                             freq=self.freq,
                         )
 
-                        pad_array = np.zeros(needed_pad, dtype=window_data.dtype)
+                        pad_array = np.zeros(needed_pad, dtype=scaled_window.dtype)
 
-                        window_data = np.concatenate([pad_array, window_data])
+                        scaled_window = np.concatenate([pad_array, scaled_window])
 
                         padded_dates = pd.Index(ds_padding).append(
                             pd.Index(ds_full.iloc[:horizon_length].values)
@@ -233,8 +259,8 @@ class BenchmarkPipeline:
                     {
                         "unique_id": [str(uid)] * horizon_length,
                         "ds": ds_array,
-                        "y": window_data.tolist()
-                        + [np.nan] * (horizon_length - window_data.shape[0]),
+                        "y": scaled_window.tolist()
+                        + [np.nan] * (horizon_length - scaled_window.shape[0]),
                     }
                 )
 
@@ -252,6 +278,10 @@ class BenchmarkPipeline:
                     break
 
                 forecast_out = model.predict(dataset=single_ds)
+
+                forecast_out = (
+                    local_scaler[uid].inverse_transform(forecast_out.squeeze(-1).T).T
+                )
 
                 y_hat[window_end:horizon_length] = forecast_out[
                     0, : (horizon_length - window_end)
@@ -323,6 +353,8 @@ class BenchmarkPipeline:
         results_all = []
         results_horizon = []
 
+        local_scaler = {}
+
         for uid in self.hp.test_ids:
             df_ser = self.hp.original_test_long.loc[
                 self.hp.original_test_long["unique_id"] == uid
@@ -347,12 +379,17 @@ class BenchmarkPipeline:
             last_window_end = T - self.hp.h  # exclusive index
             window_data = y_true[last_window_start:last_window_end]
 
+            local_scaler[uid] = StandardScaler()
+            scaled_window = (
+                local_scaler[uid].fit_transform(window_data.reshape(-1, 1)).squeeze(-1)
+            )
+
             horizon_length = window_size + self.hp.h
             ds_array = ds_full[last_window_start : (last_window_end + self.hp.h)]
 
             if model_name in ("AutoiTransformer", "AutoTSMixer"):
                 min_input_size = model.model.hparams["input_size"]
-                needed_pad = min_input_size - len(window_data)
+                needed_pad = min_input_size - len(scaled_window)
 
                 if needed_pad > 0:
                     first_real_date = ds_array[0]
@@ -363,9 +400,9 @@ class BenchmarkPipeline:
                         periods=needed_pad,
                         freq=self.freq,
                     )
-                    pad_array = np.zeros(needed_pad, dtype=window_data.dtype)
+                    pad_array = np.zeros(needed_pad, dtype=scaled_window.dtype)
 
-                    window_data = np.concatenate([pad_array, window_data])
+                    scaled_window = np.concatenate([pad_array, scaled_window])
                     padded_dates = pd.Index(ds_padding).append(pd.Index(ds_array))
                     ds_array = padded_dates.values
 
@@ -375,7 +412,7 @@ class BenchmarkPipeline:
                 {
                     "unique_id": [str(uid)] * horizon_length,
                     "ds": ds_array,
-                    "y": list(window_data) + [np.nan] * self.hp.h,
+                    "y": list(scaled_window) + [np.nan] * self.hp.h,
                 }
             )
 
@@ -397,9 +434,13 @@ class BenchmarkPipeline:
 
             forecast_out = model.predict(dataset=single_ds)
 
-            y_pred[last_window_end : last_window_end + self.hp.h] = forecast_out[
-                0, : self.hp.h
-            ]
+            forecast_out = (
+                local_scaler[uid]
+                .inverse_transform(forecast_out.squeeze(-1).reshape(-1, 1))
+                .squeeze(-1)
+            )
+
+            y_pred[last_window_end : last_window_end + self.hp.h] = forecast_out
 
             df_all = pd.DataFrame(
                 {

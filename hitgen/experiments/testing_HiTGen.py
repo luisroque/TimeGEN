@@ -17,17 +17,17 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     # "Quarterly": {"FREQ": "Q", "H": 8},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
     "M3": {
         "Monthly": {"FREQ": "M", "H": 24},
         "Quarterly": {"FREQ": "Q", "H": 8},
-        # "Yearly": {"FREQ": "Y", "H": 4},
+        "Yearly": {"FREQ": "Y", "H": 4},
     },
 }
 
@@ -84,12 +84,10 @@ if __name__ == "__main__":
 
             benchmark_pipeline = BenchmarkPipeline(hitgen_pipeline=hitgen_pipeline)
 
+            test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
+
             if not args.transfer_learning:
                 model_forecasting = hitgen_pipeline.hyper_tune_and_train_forecasting()
-
-                test_unique_ids = hitgen_pipeline.original_test_long[
-                    "unique_id"
-                ].unique()
 
                 row_hitgen = {}
 
@@ -148,10 +146,6 @@ if __name__ == "__main__":
                         model_forecasting_tl = (
                             hitgen_pipeline_transfer_learning.hyper_tune_and_train_forecasting()
                         )
-
-                        test_unique_ids = hitgen_pipeline.original_test_long[
-                            "unique_id"
-                        ].unique()
 
                         row_hitgen_tl = {}
 
