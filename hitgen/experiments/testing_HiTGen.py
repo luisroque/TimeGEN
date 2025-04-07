@@ -6,7 +6,7 @@ from hitgen.model.create_dataset_versions_vae import (
 from hitgen.metrics.evaluation_pipeline import (
     evaluation_pipeline_hitgen_forecast,
 )
-from hitgen.benchmarks.benchmark_models import BenchmarkPipeline
+from hitgen.benchmarks.model_pipeline import BenchmarkPipeline
 from hitgen.experiments.helper import (
     extract_score,
     extract_frequency,
@@ -20,15 +20,15 @@ DATASET_GROUP_FREQ = {
     "Tourism": {
         "Monthly": {"FREQ": "M", "H": 24},
     },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    # },
-    # "M3": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    #     "Yearly": {"FREQ": "Y", "H": 4},
-    # },
+    "M1": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
+    },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {

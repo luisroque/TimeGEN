@@ -5,7 +5,7 @@ import json
 from tensorflow import keras
 import tensorflow as tf
 
-from hitgen.benchmarks.benchmark_models import BenchmarkPipeline, AutoModelType
+from hitgen.benchmarks.model_pipeline import BenchmarkPipeline, AutoModelType
 from hitgen.metrics.evaluation_metrics import (
     compute_discriminative_score,
     compute_downstream_forecast,

@@ -10,6 +10,13 @@ from neuralforecast.auto import (
     AutoTSMixer,
     AutoTFT,
 )
+from hitgen.benchmarks.auto.AutoModels import (
+    AutoHiTGen,
+    AutoHiTGenFlow,
+    AutoHiTGenAttn,
+    AutoHiTGenHier,
+    AutoHiTGenTCN,
+)
 from neuralforecast.tsdataset import TimeSeriesDataset
 from sklearn.preprocessing import StandardScaler
 
@@ -24,6 +31,11 @@ AutoModelType = Union[
     AutoiTransformer,
     AutoTSMixer,
     AutoTFT,
+    AutoHiTGen,
+    AutoHiTGenFlow,
+    AutoHiTGenAttn,
+    AutoHiTGenHier,
+    AutoHiTGenTCN,
 ]
 
 
@@ -68,15 +80,20 @@ class BenchmarkPipeline:
         Each model does internal time-series cross-validation to select its best hyperparameters.
         """
         model_list = [
+            ("AutoHiTGen", AutoHiTGen),
+            ("AutoHiTGenFlow", AutoHiTGenFlow),
+            ("AutoHiTGenAttn", AutoHiTGenAttn),
+            ("AutoHiTGenHier", AutoHiTGenHier),
+            ("AutoHiTGenTCN", AutoHiTGenTCN),
             ("AutoNHITS", AutoNHITS),
             ("AutoKAN", AutoKAN),
             ("AutoPatchTST", AutoPatchTST),
             ("AutoiTransformer", AutoiTransformer),
-            # ("AutoTSMixer", AutoTSMixer),
-            # ("AutoTFT", AutoTFT),
+            ("AutoTSMixer", AutoTSMixer),
+            ("AutoTFT", AutoTFT),
         ]
 
-        train_dset, *_ = TimeSeriesDataset.from_df(
+        trainval_dset, *_ = TimeSeriesDataset.from_df(
             df=self.trainval_long,
             id_col="unique_id",
             time_col="ds",
@@ -100,11 +117,12 @@ class BenchmarkPipeline:
                     backend="ray",
                     n_series=1,
                 )
-                base_config["input_size"] = self.h
-
             else:
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
                 base_config = ModelClass.get_default_config(h=self.h, backend="ray")
+
+            base_config["input_size"] = self.h
+            base_config["start_padding_enabled"] = True
 
             model_save_path = os.path.join(
                 weights_folder,
@@ -125,7 +143,7 @@ class BenchmarkPipeline:
             else:
                 print(f"No saved {name} found. Training & tuning from scratch...")
                 model = ModelClass(**init_kwargs)
-                model.fit(train_dset)
+                model.fit(dataset=trainval_dset)
                 print(f"Saving {name} to {model_save_path} ...")
                 model.save(path=model_save_path)
 
@@ -232,42 +250,14 @@ class BenchmarkPipeline:
 
                 scaled_window = scaled_window.squeeze(-1)
 
-                # models that have fixed input size
-                if model_name in ("AutoiTransformer", "AutoTSMixer"):
-                    min_input_size = model.model.hparams["input_size"]
-                    needed_pad = min_input_size - len(scaled_window)
-
-                    if needed_pad > 0:
-                        first_real_date = ds_full.iloc[0]
-                        ds_padding = pd.date_range(
-                            end=first_real_date
-                            - pd.tseries.frequencies.to_offset(self.freq),
-                            periods=needed_pad,
-                            freq=self.freq,
-                        )
-
-                        pad_array = np.zeros(needed_pad, dtype=scaled_window.dtype)
-
-                        scaled_window = np.concatenate([pad_array, scaled_window])
-
-                        padded_dates = pd.Index(ds_padding).append(
-                            pd.Index(ds_full.iloc[:horizon_length].values)
-                        )
-
-                        ds_array = padded_dates.values
-
-                        horizon_length += needed_pad
-                    else:
-                        ds_array = ds_full.iloc[:horizon_length].values
-                else:
-                    ds_array = ds_full.iloc[:horizon_length].values
+                ds_array = ds_full.iloc[:future_end].values
 
                 tmp_df = pd.DataFrame(
                     {
-                        "unique_id": [str(uid)] * horizon_length,
+                        "unique_id": [str(uid)] * future_end,
                         "ds": ds_array,
                         "y": scaled_window.tolist()
-                        + [np.nan] * (horizon_length - scaled_window.shape[0]),
+                        + [np.nan] * (future_end - scaled_window.shape[0]),
                     }
                 )
 
