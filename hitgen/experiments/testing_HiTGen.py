@@ -20,15 +20,15 @@ DATASET_GROUP_FREQ = {
     "Tourism": {
         "Monthly": {"FREQ": "M", "H": 24},
     },
-    "M1": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-    },
-    "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-        "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M1": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    # },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    #     "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {

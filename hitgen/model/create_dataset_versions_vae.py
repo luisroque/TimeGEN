@@ -1520,14 +1520,7 @@ class HiTGenPipeline:
         try:
             latent_dim = trial.suggest_int("latent_dim", 8, 96, step=8)
 
-            if self.freq in ["M", "MS"]:
-                window_size = trial.suggest_int("window_size", 6, 24, step=3)
-            elif self.freq in ["Q", "QS"]:
-                window_size = trial.suggest_int("window_size", 8, 16, step=2)
-            elif self.freq in ["Y", "YS"]:
-                window_size = trial.suggest_int("window_size", 4, 8, step=1)
-            else:
-                window_size = trial.suggest_int("window_size", 4, 24, step=1)
+            window_size = self.h
 
             stride = trial.suggest_int("stride", 1, window_size // 2, step=1)
             patience = trial.suggest_int("patience", 4, 6, step=1)

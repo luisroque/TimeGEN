@@ -72,8 +72,8 @@ class BenchmarkPipeline:
             ("AutoKAN", AutoKAN),
             ("AutoPatchTST", AutoPatchTST),
             ("AutoiTransformer", AutoiTransformer),
-            ("AutoTSMixer", AutoTSMixer),
-            ("AutoTFT", AutoTFT),
+            # ("AutoTSMixer", AutoTSMixer),
+            # ("AutoTFT", AutoTFT),
         ]
 
         train_dset, *_ = TimeSeriesDataset.from_df(
@@ -95,15 +95,22 @@ class BenchmarkPipeline:
                     num_samples=max_evals,
                     verbose=True,
                 )
+                base_config = ModelClass.get_default_config(
+                    h=self.h,
+                    backend="ray",
+                    n_series=1,
+                )
+                base_config["input_size"] = self.h
+
             else:
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
+                base_config = ModelClass.get_default_config(h=self.h, backend="ray")
 
             model_save_path = os.path.join(
                 weights_folder,
                 f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}.ckpt",
             )
 
-            base_config = ModelClass.get_default_config(h=self.h, backend="ray")
             base_config["scaler_type"] = None
             init_kwargs["config"] = base_config
 
@@ -279,9 +286,7 @@ class BenchmarkPipeline:
 
                 forecast_out = model.predict(dataset=single_ds)
 
-                forecast_out = (
-                    local_scaler[uid].inverse_transform(forecast_out.squeeze(-1).T).T
-                )
+                forecast_out = local_scaler[uid].inverse_transform(forecast_out).T
 
                 y_hat[window_end:horizon_length] = forecast_out[
                     0, : (horizon_length - window_end)

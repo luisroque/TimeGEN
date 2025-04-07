@@ -238,12 +238,21 @@ def evaluation_pipeline_hitgen_forecast(
             smape_result_fw_per_series = forecast_df_first_window.groupby(
                 "unique_id"
             ).apply(lambda df: smape(df["y_true"], df["y"]))
+
             smape_per_series_fw_median = smape_result_fw_per_series.median()
             print(
-                f"\n[First Window Forecast per Series] sMAPE = {smape_per_series_fw_median:.4f}\n"
+                f"\n[First Window Forecast per Series] sMAPE MEDIAN = {smape_per_series_fw_median:.4f}\n"
             )
-            row_forecast["Forecast SMAPE (first window) Per Series"] = float(
+            row_forecast["Forecast SMAPE MEDIAN (first window) Per Series"] = float(
                 round(smape_per_series_fw_median, 4)
+            )
+
+            smape_per_series_fw_mean = smape_result_fw_per_series.mean()
+            print(
+                f"\n[First Window Forecast per Series] sMAPE MEAN = {smape_per_series_fw_mean:.4f}\n"
+            )
+            row_forecast["Forecast SMAPE MEAN (first window) Per Series"] = float(
+                round(smape_per_series_fw_mean, 4)
             )
 
     if forecast_df_autoregressive.empty:
@@ -262,10 +271,18 @@ def evaluation_pipeline_hitgen_forecast(
             ).apply(lambda df: smape(df["y_true"], df["y"]))
             smape_per_series_ar_median = smape_result_ar_per_series.median()
             print(
-                f"\n[Autoregressive Forecast per Series] sMAPE = {smape_per_series_ar_median:.4f}\n"
+                f"\n[Autoregressive Forecast per Series] sMAPE MEDIAN = {smape_per_series_ar_median:.4f}\n"
             )
-            row_forecast["Forecast SMAPE (autoregressive)"] = float(
+            row_forecast["Forecast SMAPE (autoregressive) MEDIAN"] = float(
                 round(smape_per_series_ar_median, 4)
+            )
+
+            smape_per_series_ar_mean = smape_result_ar_per_series.mean()
+            print(
+                f"\n[Autoregressive Forecast per Series] sMAPE MEAN = {smape_per_series_ar_mean:.4f}\n"
+            )
+            row_forecast["Forecast SMAPE MEAN (autoregressive)"] = float(
+                round(smape_per_series_ar_mean, 4)
             )
 
     forecast_df_last_window_horizon, forecast_df_last_window_all = (
@@ -290,10 +307,18 @@ def evaluation_pipeline_hitgen_forecast(
             ).apply(lambda df: smape(df["y_true"], df["y"]))
             smape_per_series_lw_median = smape_result_lw_per_series.median()
             print(
-                f"\n[Last Window Forecast per Series] sMAPE = {smape_per_series_lw_median:.4f}\n"
+                f"\n[Last Window Forecast per Series] sMAPE MEDIAN = {smape_per_series_lw_median:.4f}\n"
             )
-            row_forecast["Forecast SMAPE (last window) Per Series"] = float(
+            row_forecast["Forecast SMAPE MEDIAN (last window) Per Series"] = float(
                 round(smape_per_series_lw_median, 4)
+            )
+
+            smape_per_series_lw_mean = smape_result_lw_per_series.mean()
+            print(
+                f"\n[Last Window Forecast per Series] sMAPE MEAN = {smape_per_series_lw_mean:.4f}\n"
+            )
+            row_forecast["Forecast SMAPE MEAN (last window) Per Series"] = float(
+                round(smape_per_series_lw_mean, 4)
             )
 
     row_forecast["Dataset"] = dataset
