@@ -37,8 +37,7 @@ def plot_loss(history_dict):
 def plot_generated_vs_original(
     synth_data: pd.DataFrame,
     original_data: pd.DataFrame,
-    score: float,
-    loss: float,
+    model_name: str,
     dataset_name: str,
     dataset_group: str,
     n_series: int = 8,
@@ -82,8 +81,8 @@ def plot_generated_vs_original(
 
     axes[-1].legend(loc="lower right")
     fig.suptitle(
-        f"VAE Generated vs. Original\n"
-        f"Dataset: {dataset_name} | Group: {dataset_group} | Score: {score:.2f}",
+        f"Predicted vs. Original\n"
+        f"Dataset: {dataset_name} | Group: {dataset_group} | Model: {model_name}",
         fontsize=14,
         fontweight="bold",
     )
@@ -93,8 +92,7 @@ def plot_generated_vs_original(
     plt.savefig(
         f"assets/plots/"
         f"{current_datetime}_vae_generated_vs_original_{suffix_name}_"
-        f"{dataset_name}_{dataset_group}_"
-        f"{round(score, 2)}_{round(loss, 2)}.pdf",
+        f"{dataset_name}_{dataset_group}.pdf",
         format="pdf",
         bbox_inches="tight",
     )

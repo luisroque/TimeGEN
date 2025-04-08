@@ -1,17 +1,16 @@
 import multiprocessing
 import pandas as pd
+import os
 from hitgen.model.create_dataset_versions_vae import (
     HiTGenPipeline,
 )
 from hitgen.metrics.evaluation_pipeline import (
     evaluation_pipeline_hitgen_forecast,
 )
-from hitgen.benchmarks.model_pipeline import BenchmarkPipeline
+from hitgen.benchmarks.model_pipeline import ModelPipeline
 from hitgen.experiments.helper import (
-    extract_score,
     extract_frequency,
     extract_horizon,
-    has_final_score_in_tuple,
     cmd_parser,
 )
 
@@ -22,13 +21,13 @@ DATASET_GROUP_FREQ = {
     },
     "M1": {
         "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
+        #     # "Quarterly": {"FREQ": "Q", "H": 8},
     },
-    "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-        "Yearly": {"FREQ": "Y", "H": 4},
-    },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    #     "Yearly": {"FREQ": "Y", "H": 4},
+    # },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
@@ -63,7 +62,7 @@ if __name__ == "__main__":
                 opt_score=args.opt_score,
             )
 
-            benchmark_pipeline = BenchmarkPipeline(hitgen_pipeline=hitgen_pipeline)
+            benchmark_pipeline = ModelPipeline(hitgen_pipeline=hitgen_pipeline)
 
             test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
@@ -72,7 +71,7 @@ if __name__ == "__main__":
                 benchmark_pipeline.hyper_tune_and_train(max_evals=20)
 
                 for model_name, model in benchmark_pipeline.models.items():
-                    row_forecast_benchmark = {}
+                    row_forecast = {}
 
                     evaluation_pipeline_hitgen_forecast(
                         dataset=DATASET,
@@ -81,12 +80,12 @@ if __name__ == "__main__":
                         pipeline=benchmark_pipeline,
                         horizon=H,
                         freq=FREQ,
-                        row_forecast=row_forecast_benchmark,
+                        row_forecast=row_forecast,
                         window_size=H,
                     )
 
-                    dataset_group_results.append(row_forecast_benchmark)
-                    results.append(row_forecast_benchmark)
+                    dataset_group_results.append(row_forecast)
+                    results.append(row_forecast)
 
             else:
                 for (
@@ -106,7 +105,7 @@ if __name__ == "__main__":
                             opt_score=args.opt_score,
                         )
 
-                        benchmark_pipeline_transfer_learning = BenchmarkPipeline(
+                        benchmark_pipeline_transfer_learning = ModelPipeline(
                             hitgen_pipeline=hitgen_pipeline_transfer_learning
                         )
 
@@ -118,7 +117,7 @@ if __name__ == "__main__":
                             model_name,
                             model,
                         ) in benchmark_pipeline_transfer_learning.models.items():
-                            row_forecast_benchmark_tl = {}
+                            row_forecast_tl = {}
 
                             evaluation_pipeline_hitgen_forecast(
                                 dataset=DATASET,
@@ -127,11 +126,18 @@ if __name__ == "__main__":
                                 pipeline=benchmark_pipeline,
                                 horizon=H,
                                 freq=FREQ,
-                                row_forecast=row_forecast_benchmark_tl,
+                                row_forecast=row_forecast_tl,
                                 dataset_source=DATASET_TL,
                                 prediction_mode="out_domain",
                                 window_size=H,
                             )
 
-                            dataset_group_results.append(row_forecast_benchmark_tl)
-                            results.append(row_forecast_benchmark_tl)
+                            dataset_group_results.append(row_forecast_tl)
+                            results.append(row_forecast_tl)
+
+    df_results = pd.DataFrame(results)
+
+    os.makedirs("assets", exist_ok=True)
+    df_results.to_csv("assets/results_forecast/final_results.csv", index=False)
+
+    print("Final forecast results saved to assets/results_forecast/final_results.csv")
