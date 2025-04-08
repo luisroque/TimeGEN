@@ -38,9 +38,9 @@ DATASET_GROUP_FREQ = {
     #     "Daily": {"FREQ": "D", "H": 30},
     # },
     "M4": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        #     "Quarterly": {"FREQ": "Q", "H": 8},
-        #     "Yearly": {"FREQ": "Y", "H": 4},
+        #     "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
     },
 }
 
