@@ -120,9 +120,9 @@ class BenchmarkPipeline:
             else:
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
                 base_config = ModelClass.get_default_config(h=self.h, backend="ray")
+                base_config["start_padding_enabled"] = True
 
             base_config["input_size"] = self.h
-            base_config["start_padding_enabled"] = True
 
             model_save_path = os.path.join(
                 weights_folder,
@@ -154,7 +154,7 @@ class BenchmarkPipeline:
     def predict_from_first_window(
         self,
         model: AutoModelType,
-        window_size: int = None,
+        window_size: int,
         prediction_mode: str = "in_domain",
     ) -> (pd.DataFrame, pd.DataFrame):
         """
@@ -180,9 +180,6 @@ class BenchmarkPipeline:
         """
         model_name = model.__class__.__name__
         model.set_test_size(self.hp.h)
-
-        if window_size is None:
-            window_size = self.hp.best_params_forecasting["window_size"]
 
         results = []
         first_horizon_list = []
@@ -331,7 +328,7 @@ class BenchmarkPipeline:
     def predict_from_last_window(
         self,
         model: AutoModelType,
-        window_size: int = None,
+        window_size: int,
         prediction_mode: str = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -341,9 +338,6 @@ class BenchmarkPipeline:
         """
         model_name = model.__class__.__name__
         model.set_test_size(self.hp.h)
-
-        if window_size is None:
-            window_size = self.hp.best_params_forecasting["window_size"]
 
         results_all = []
         results_horizon = []
@@ -466,6 +460,175 @@ class BenchmarkPipeline:
             dataset_group=self.hp.dataset_group,
             n_series=8,
             suffix_name=f"{model_name}-last-window_{prediction_mode}",
+        )
+
+        return df_horizon_final, df_all_final
+
+    def predict_from_last_window_one_pass(
+        self,
+        model: AutoModelType,
+        window_size: int,
+        prediction_mode: str = None,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Predicts exactly the last horizon h points for each test series in a single pass.
+
+          1. For each test series, take the last `window_size` points ending at T-h
+             as context, then produce h NaNs after that window.
+          2. Concatenate all these 'context+future' segments into one DataFrame.
+          3. Create a single TimeSeriesDataset and pass it once to `model.predict()`.
+          4. Inverse-transform each group's predictions using local scaling,
+             then assemble the final horizon and full test predictions.
+        """
+        model_name = model.__class__.__name__
+        model.set_test_size(self.h)
+
+        # context+NaN windows
+        df_for_inference = []
+        # keep track of per-series info to help unscale and re-inject predictions
+        series_scalers = {}
+        series_lengths = {}
+        skip_count = 0
+
+        test_dict = {}
+        for uid in self.hp.test_ids:
+            df_ser = self.hp.original_test_long.loc[
+                self.hp.original_test_long["unique_id"] == uid
+            ].copy()
+            df_ser.sort_values("ds", inplace=True)
+
+            T = len(df_ser)
+            if T < window_size + self.h:
+                print(
+                    f"[predict_from_last_window_one_pass] Skipping uid={uid}, "
+                    f"series length={T} < window_size + h={window_size + self.h}"
+                )
+                skip_count += 1
+                continue
+
+            test_dict[uid] = df_ser.copy()
+
+            last_window_start = T - self.h - window_size
+            last_window_end = T - self.h
+
+            y_true = df_ser["y"].values.astype(np.float32)
+            window_data = y_true[last_window_start:last_window_end]
+
+            local_scaler = StandardScaler()
+            scaled_window = local_scaler.fit_transform(
+                window_data.reshape(-1, 1)
+            ).squeeze(-1)
+
+            # last window + h future placeholders
+            ds_slice = df_ser["ds"].values[
+                last_window_start : (last_window_end + self.h)
+            ]
+
+            # scaled_window for context, then NaNs for h future steps
+            y_context_plus_future = list(scaled_window) + [np.nan] * self.h
+
+            tmp_df = pd.DataFrame(
+                {
+                    "unique_id": [str(uid)] * (window_size + self.h),
+                    "ds": ds_slice,
+                    "y": y_context_plus_future,
+                }
+            )
+
+            df_for_inference.append(tmp_df)
+            series_scalers[uid] = local_scaler
+            series_lengths[uid] = T
+
+        if skip_count > 0:
+            print(
+                f"Skipped {skip_count} short series that couldn't fit window_size + h."
+            )
+
+        if not df_for_inference:
+            print("No valid series for inference. Returning empty DataFrames.")
+            return pd.DataFrame(), pd.DataFrame()
+
+        df_in_big = pd.concat(df_for_inference, ignore_index=True)
+        df_in_big.sort_values(["unique_id", "ds"], inplace=True)
+
+        dataset_test, *_ = TimeSeriesDataset.from_df(
+            df=df_in_big,
+            id_col="unique_id",
+            time_col="ds",
+            target_col="y",
+        )
+
+        forecast_big = model.predict(dataset=dataset_test)
+        forecast_big = forecast_big.detach().cpu().numpy()  # (N, h)
+
+        grouped = df_in_big.groupby("unique_id", sort=False)
+        unique_ids_ordered = list(grouped.groups.keys())
+
+        df_predictions_list = []
+        row_idx = 0
+
+        for i, uid in enumerate(unique_ids_ordered):
+            group_idx = grouped.groups[uid]
+            group_df = df_in_big.loc[group_idx].copy()
+
+            local_scaler = series_scalers[uid]
+            inv_preds = local_scaler.inverse_transform(
+                forecast_big[i, :].reshape(-1, 1)
+            ).squeeze(-1)
+
+            group_df.loc[group_df.tail(self.h).index, "y"] = inv_preds
+
+            df_predictions_list.append(group_df)
+
+        # each group last h steps have predicted y, the rest are context
+        df_pred_all = pd.concat(df_predictions_list, ignore_index=True)
+
+        horizon_frames = []
+        all_frames = []
+
+        for uid in unique_ids_ordered:
+            sub_pred = df_pred_all[df_pred_all["unique_id"] == uid].copy()
+            sub_pred.sort_values("ds", inplace=True)
+
+            T = series_lengths[uid]
+            df_ser = test_dict[uid]
+
+            y_true = df_ser["y"].values.astype(np.float32)
+            ds_full = df_ser["ds"].values
+
+            y_hat = np.full(shape=(T,), fill_value=np.nan, dtype=np.float32)
+
+            # predictions correspond to T-h..T-1
+            last_window_end = T - self.h
+            predicted_values = sub_pred["y"].tail(self.h).to_numpy(dtype=np.float32)
+            y_hat[last_window_end : last_window_end + self.h] = predicted_values
+
+            df_all = pd.DataFrame(
+                {
+                    "unique_id": [uid] * T,
+                    "ds": ds_full,
+                    "y_true": y_true,
+                    "y": y_hat,
+                }
+            )
+
+            df_horizon = df_all.iloc[last_window_end : last_window_end + self.h].copy()
+
+            horizon_frames.append(df_horizon)
+            all_frames.append(df_all)
+
+        df_horizon_final = pd.concat(horizon_frames, ignore_index=True)
+        df_all_final = pd.concat(all_frames, ignore_index=True)
+
+        plot_generated_vs_original(
+            synth_data=df_all_final[["unique_id", "ds", "y"]],
+            original_data=self.hp.original_test_long,
+            score=0.0,
+            loss=0.0,
+            dataset_name=self.hp.dataset_name,
+            dataset_group=self.hp.dataset_group,
+            n_series=8,
+            suffix_name=f"{model_name}-last-window-one-pass_{prediction_mode}",
         )
 
         return df_horizon_final, df_all_final

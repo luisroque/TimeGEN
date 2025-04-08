@@ -47,8 +47,6 @@ if __name__ == "__main__":
         for subgroup in SUBGROUPS.items():
             dataset_group_results = []
 
-            SAMPLING_STRATEGIES = ["MR", "IR", "NP"]
-            SAMPLING_STRATEGIES_MULTIVAR = ["MR_Multivar", "IR_Multivar", "NP_Multivar"]
             FREQ = extract_frequency(subgroup)
             H = extract_horizon(subgroup)
             DATASET_GROUP = subgroup[0]

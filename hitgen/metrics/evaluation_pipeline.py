@@ -178,8 +178,8 @@ def evaluation_pipeline_hitgen(
 def evaluation_pipeline_hitgen_forecast(
     dataset: str,
     dataset_group: str,
-    pipeline: Union[HiTGenPipeline, BenchmarkPipeline],
-    model: Union[keras.Model, AutoModelType],
+    pipeline: BenchmarkPipeline,
+    model: AutoModelType,
     horizon: int,
     freq: str,
     row_forecast: dict,
@@ -197,9 +197,7 @@ def evaluation_pipeline_hitgen_forecast(
     os.makedirs("assets/results_forecast", exist_ok=True)
     os.makedirs("assets/results_forecast_tl", exist_ok=True)
 
-    if isinstance(model, keras.Model):
-        model_name = "hitgen"
-    elif isinstance(model, AutoModelType):
+    if isinstance(model, AutoModelType):
         model_name = model.__class__.__name__
     else:
         raise TypeError(
@@ -218,75 +216,8 @@ def evaluation_pipeline_hitgen_forecast(
     print(f"\n\n=== {dataset} {dataset_group} Forecast Evaluation ===\n")
     print(f"Forecast horizon = {horizon}, freq = {freq}\n")
 
-    forecast_df_first_window, forecast_df_autoregressive = (
-        pipeline.predict_from_first_window(
-            model=model, window_size=window_size, prediction_mode=prediction_mode
-        )
-    )
-
-    if forecast_df_first_window.empty:
-        print("[First Window] No forecast results found.")
-        row_forecast["Forecast SMAPE (first window) Per Series"] = None
-    else:
-        forecast_df_first_window = forecast_df_first_window.dropna(
-            subset=["y", "y_true"]
-        )
-        if forecast_df_first_window.empty:
-            print("[First Window] No valid y,y_true pairs. Can't compute sMAPE.")
-            row_forecast["Forecast SMAPE (first window) Per Series"] = None
-        else:
-            smape_result_fw_per_series = forecast_df_first_window.groupby(
-                "unique_id"
-            ).apply(lambda df: smape(df["y_true"], df["y"]))
-
-            smape_per_series_fw_median = smape_result_fw_per_series.median()
-            print(
-                f"\n[First Window Forecast per Series] sMAPE MEDIAN = {smape_per_series_fw_median:.4f}\n"
-            )
-            row_forecast["Forecast SMAPE MEDIAN (first window) Per Series"] = float(
-                round(smape_per_series_fw_median, 4)
-            )
-
-            smape_per_series_fw_mean = smape_result_fw_per_series.mean()
-            print(
-                f"\n[First Window Forecast per Series] sMAPE MEAN = {smape_per_series_fw_mean:.4f}\n"
-            )
-            row_forecast["Forecast SMAPE MEAN (first window) Per Series"] = float(
-                round(smape_per_series_fw_mean, 4)
-            )
-
-    if forecast_df_autoregressive.empty:
-        print("[Autoregressive] No forecast results found.")
-        row_forecast["Forecast SMAPE (autoregressive)"] = None
-    else:
-        forecast_df_autoregressive = forecast_df_autoregressive.dropna(
-            subset=["y", "y_true"]
-        )
-        if forecast_df_autoregressive.empty:
-            print("[Autoregressive] No valid y,y_true pairs. Can't compute sMAPE.")
-            row_forecast["Forecast SMAPE (autoregressive)"] = None
-        else:
-            smape_result_ar_per_series = forecast_df_autoregressive.groupby(
-                "unique_id"
-            ).apply(lambda df: smape(df["y_true"], df["y"]))
-            smape_per_series_ar_median = smape_result_ar_per_series.median()
-            print(
-                f"\n[Autoregressive Forecast per Series] sMAPE MEDIAN = {smape_per_series_ar_median:.4f}\n"
-            )
-            row_forecast["Forecast SMAPE (autoregressive) MEDIAN"] = float(
-                round(smape_per_series_ar_median, 4)
-            )
-
-            smape_per_series_ar_mean = smape_result_ar_per_series.mean()
-            print(
-                f"\n[Autoregressive Forecast per Series] sMAPE MEAN = {smape_per_series_ar_mean:.4f}\n"
-            )
-            row_forecast["Forecast SMAPE MEAN (autoregressive)"] = float(
-                round(smape_per_series_ar_mean, 4)
-            )
-
     forecast_df_last_window_horizon, forecast_df_last_window_all = (
-        pipeline.predict_from_last_window(
+        pipeline.predict_from_last_window_one_pass(
             model=model, window_size=window_size, prediction_mode=prediction_mode
         )
     )
