@@ -1,7 +1,8 @@
 import os
 import json
 
-from hitgen.benchmarks.model_pipeline import ModelPipeline, AutoModelType
+from hitgen.benchmarks.model_pipeline import ModelPipeline
+from hitgen.benchmarks.core.core_extension import CustomNeuralForecast
 from hitgen.metrics.evaluation_metrics import smape
 
 
@@ -9,7 +10,7 @@ def evaluation_pipeline_hitgen_forecast(
     dataset: str,
     dataset_group: str,
     pipeline: ModelPipeline,
-    model: AutoModelType,
+    model: CustomNeuralForecast,
     horizon: int,
     freq: str,
     row_forecast: dict,
@@ -27,13 +28,7 @@ def evaluation_pipeline_hitgen_forecast(
     os.makedirs("assets/results_forecast", exist_ok=True)
     os.makedirs("assets/results_forecast_tl", exist_ok=True)
 
-    if isinstance(model, AutoModelType):
-        model_name = model.__class__.__name__
-    else:
-        raise TypeError(
-            f"Unsupported model type: {type(model).__name__}. "
-            "Expected a Keras model or an AutoModelType instance."
-        )
+    model_name = str(model.models[0])
 
     if dataset_source:
         results_file = f"assets/results_forecast_tl/{dataset}_{dataset_group}_{model_name}_{horizon}_TL_trained_on_{dataset_source}.json"
@@ -59,10 +54,8 @@ def evaluation_pipeline_hitgen_forecast(
     row_forecast["Forecast Horizon"] = horizon
     row_forecast["Method"] = model_name
 
-    forecast_df_last_window_horizon, forecast_df_last_window_all = (
-        pipeline.predict_from_last_window_one_pass(
-            model=model, window_size=window_size, prediction_mode=prediction_mode
-        )
+    forecast_df_last_window_horizon = pipeline.predict_from_last_window_one_pass(
+        model=model, window_size=window_size, prediction_mode=prediction_mode
     )
 
     if forecast_df_last_window_horizon.empty:
