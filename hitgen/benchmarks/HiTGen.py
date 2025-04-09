@@ -3,15 +3,9 @@ from typing import Tuple, Optional
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from neuralforecast.losses.pytorch import MAE
-from neuralforecast.common._base_windows import BaseWindows
 from neuralforecast.models.nhits import (
-    ACTIVATIONS,
-    POOLING,
-    _IdentityBasis,
-    NHITSBlock,
     NHITS,
 )
 
@@ -289,7 +283,6 @@ class HiTGen(NHITS):
         sum_of_backcasts = initial_flip - residuals
         backcast_reconstruction = sum_of_backcasts.flip(dims=(-1,))
 
-        # Adapting output's domain
         backcast_reconstruction = self.loss.domain_map(backcast_reconstruction)
         forecast = self.loss.domain_map(forecast)
 

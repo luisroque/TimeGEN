@@ -10,11 +10,7 @@ from neuralforecast.auto import (
     AutoTSMixer,
     AutoTFT,
 )
-from hitgen.benchmarks.auto.AutoModels import (
-    AutoHiTGen,
-)
-from neuralforecast.tsdataset import TimeSeriesDataset
-
+from hitgen.benchmarks.auto.AutoModels import AutoHiTGen, AutoHiTGenDeep
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
@@ -28,6 +24,7 @@ AutoModelType = Union[
     AutoTSMixer,
     AutoTFT,
     AutoHiTGen,
+    AutoHiTGenDeep,
 ]
 
 
@@ -67,20 +64,14 @@ class ModelPipeline:
         """
         model_list = [
             ("AutoHiTGen", AutoHiTGen),
+            ("AutoHiTGenDeep", AutoHiTGenDeep),
             ("AutoNHITS", AutoNHITS),
-            # ("AutoKAN", AutoKAN),
-            # ("AutoPatchTST", AutoPatchTST),
-            # ("AutoiTransformer", AutoiTransformer),
-            # ("AutoTSMixer", AutoTSMixer),
-            # ("AutoTFT", AutoTFT),
+            ("AutoKAN", AutoKAN),
+            ("AutoPatchTST", AutoPatchTST),
+            ("AutoiTransformer", AutoiTransformer),
+            ("AutoTSMixer", AutoTSMixer),
+            ("AutoTFT", AutoTFT),
         ]
-
-        trainval_dset, *_ = TimeSeriesDataset.from_df(
-            df=self.trainval_long,
-            id_col="unique_id",
-            time_col="ds",
-            target_col="y",
-        )
 
         weights_folder = "assets/model_weights"
         os.makedirs(weights_folder, exist_ok=True)
