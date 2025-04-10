@@ -19,29 +19,29 @@ DATASET_GROUP_FREQ = {
     # "Tourism": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     # },
-    "M1": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        # "Quarterly": {"FREQ": "Q", "H": 8},
-    },
-    "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        # "Quarterly": {"FREQ": "Q", "H": 8},
-        # "Yearly": {"FREQ": "Y", "H": 4},
-    },
-    "Labour": {
-        "Monthly": {"FREQ": "M", "H": 24},
-    },
+    # "M1": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # "Quarterly": {"FREQ": "Q", "H": 8},
+    # },
+    # "M3": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # "Quarterly": {"FREQ": "Q", "H": 8},
+    # "Yearly": {"FREQ": "Y", "H": 4},
+    # },
+    # "Labour": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # },
     # "Traffic": {
     #     "Daily": {"FREQ": "D", "H": 30},
     # },
     # "ETTh1": {
     #     "Daily": {"FREQ": "D", "H": 30},
     # },
-    # "M4": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    #     "Yearly": {"FREQ": "Y", "H": 4},
-    # },
+    "M4": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        #     "Quarterly": {"FREQ": "Q", "H": 8},
+        #     "Yearly": {"FREQ": "Y", "H": 4},
+    },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
@@ -80,28 +80,7 @@ if __name__ == "__main__":
 
             test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
 
-            if not args.transfer_learning:
-
-                benchmark_pipeline.hyper_tune_and_train(max_evals=20)
-
-                for model_name, model in benchmark_pipeline.models.items():
-                    row_forecast = {}
-
-                    evaluation_pipeline_hitgen_forecast(
-                        dataset=DATASET,
-                        dataset_group=DATASET_GROUP,
-                        model=model,
-                        pipeline=benchmark_pipeline,
-                        horizon=H,
-                        freq=FREQ,
-                        row_forecast=row_forecast,
-                        window_size=H,
-                    )
-
-                    dataset_group_results.append(row_forecast)
-                    results.append(row_forecast)
-
-            else:
+            if args.transfer_learning:
                 for (
                     DATASET_TL,
                     SUBGROUPS_TL,
@@ -124,7 +103,7 @@ if __name__ == "__main__":
                         )
 
                         benchmark_pipeline_transfer_learning.hyper_tune_and_train(
-                            max_evals=20
+                            max_evals=20, mode="out_domain"
                         )
 
                         for (
@@ -142,12 +121,54 @@ if __name__ == "__main__":
                                 freq=FREQ,
                                 row_forecast=row_forecast_tl,
                                 dataset_source=DATASET_TL,
-                                prediction_mode="out_domain",
+                                mode="out_domain",
                                 window_size=H,
                             )
 
                             dataset_group_results.append(row_forecast_tl)
                             results.append(row_forecast_tl)
+            elif args.basic_forecasting:
+                benchmark_pipeline.hyper_tune_and_train(
+                    max_evals=20, mode="basic_forecasting"
+                )
+
+                for model_name, model in benchmark_pipeline.models.items():
+                    row_forecast = {}
+
+                    evaluation_pipeline_hitgen_forecast(
+                        dataset=DATASET,
+                        dataset_group=DATASET_GROUP,
+                        model=model,
+                        pipeline=benchmark_pipeline,
+                        horizon=H,
+                        freq=FREQ,
+                        row_forecast=row_forecast,
+                        window_size=H,
+                        mode="basic_forecasting",
+                    )
+
+                    dataset_group_results.append(row_forecast)
+                    results.append(row_forecast)
+            else:
+                benchmark_pipeline.hyper_tune_and_train(max_evals=20, mode="in_domain")
+
+                for model_name, model in benchmark_pipeline.models.items():
+                    row_forecast = {}
+
+                    evaluation_pipeline_hitgen_forecast(
+                        dataset=DATASET,
+                        dataset_group=DATASET_GROUP,
+                        model=model,
+                        pipeline=benchmark_pipeline,
+                        horizon=H,
+                        freq=FREQ,
+                        row_forecast=row_forecast,
+                        window_size=H,
+                        mode="in_domain",
+                    )
+
+                    dataset_group_results.append(row_forecast)
+                    results.append(row_forecast)
 
     df_results = pd.DataFrame(results)
 

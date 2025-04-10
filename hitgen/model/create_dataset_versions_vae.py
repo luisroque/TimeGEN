@@ -103,6 +103,7 @@ class HiTGenPipeline:
         self.best_params_forecasting = {}
         self.best_params_multivar = {}
 
+        self._feature_engineering_basic_forecast()
         feature_dict = self._feature_engineering()
 
         # original Data
@@ -701,6 +702,64 @@ class HiTGenPipeline:
             "fourier_features_trainval": fourier_features_trainval,
             "fourier_features_test": fourier_features_test,
             "fourier_features_original": fourier_features_original,
+        }
+
+    def _feature_engineering_basic_forecast(self) -> Dict[str, pd.DataFrame]:
+        """
+        Split each time series chronologically into:
+          - Train (all but last 2*h observations)
+          - Validation (the h observations before the test segment)
+          - Train+Validation (everything except the last h observations)
+          - Test (the last h observations)
+        """
+        self.df = self.df.sort_values(by=["unique_id", "ds"])
+
+        train_list = []
+        val_list = []
+        test_list = []
+        trainval_list = []
+
+        unique_ids = self.df["unique_id"].unique()
+
+        for uid in unique_ids:
+            ts_data = self.df[self.df["unique_id"] == uid].copy()
+            ts_data = ts_data.sort_values(by="ds")
+
+            n = len(ts_data)
+
+            # skipping series too short
+            if n < 2 * self.h:
+                continue
+
+            test_start_idx = n - self.h
+            val_start_idx = n - 2 * self.h
+
+            train_part = ts_data.iloc[:val_start_idx]
+            val_part = ts_data.iloc[val_start_idx:test_start_idx]
+            test_part = ts_data.iloc[test_start_idx:]
+
+            trainval_part = ts_data.iloc[:test_start_idx]
+
+            train_list.append(train_part)
+            val_list.append(val_part)
+            test_list.append(test_part)
+            trainval_list.append(trainval_part)
+
+        train_long = pd.concat(train_list, ignore_index=True)
+        val_long = pd.concat(val_list, ignore_index=True)
+        test_long = pd.concat(test_list, ignore_index=True)
+        trainval_long = pd.concat(trainval_list, ignore_index=True)
+
+        self.original_train_long_basic_forecast = train_long
+        self.original_val_long_basic_forecast = val_long
+        self.original_test_long_basic_forecast = test_long
+        self.original_trainval_long_basic_forecast = trainval_long
+
+        return {
+            "train_long": train_long,
+            "val_long": val_long,
+            "trainval_long": trainval_long,
+            "test_long": test_long,
         }
 
     def build_test_holdout(

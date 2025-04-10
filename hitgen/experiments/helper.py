@@ -50,11 +50,15 @@ def cmd_parser():
         help="Select the score for the hyperparameter tuning optimization. Choices: "
         "'discriminative_score', 'downstream_score' or 'val_loss' (default: 'val_loss').",
     )
-
     parser.add_argument(
         "--transfer-learning",
         action="store_true",
         help="Perform transfer learning (TL).",
+    )
+    parser.add_argument(
+        "--basic-forecasting",
+        action="store_true",
+        help="Perform basic forecasting.",
     )
     args = parser.parse_args()
 
