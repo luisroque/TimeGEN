@@ -1,8 +1,8 @@
 import fsspec
 import pickle
-from typing import Dict, Optional
 
 from hitgen.benchmarks.HiTGen import HiTGen
+from hitgen.benchmarks.HiTGenDeep import HiTGenDeep
 
 
 from neuralforecast import NeuralForecast
@@ -11,6 +11,7 @@ from neuralforecast import core as nf_core
 nf_core.MODEL_FILENAME_DICT.update(
     {
         "autohitgen": HiTGen,
+        "autohitgendeep": HiTGenDeep,
     }
 )
 
