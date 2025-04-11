@@ -221,8 +221,6 @@ class HiTGen(NHITS):
         )
         self.blocks = nn.ModuleList(blocks)
 
-        # To think: we can incorporate z deeper
-        # into the blocks later
         self.latent_to_insample = nn.Linear(latent_dim, input_size)
 
     def _reparameterize(self, mu, logvar):

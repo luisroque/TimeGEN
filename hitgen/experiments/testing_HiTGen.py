@@ -17,7 +17,6 @@ from hitgen.model_pipeline.model_pipeline import ModelPipeline
 from hitgen.experiments.helper import (
     extract_frequency,
     extract_horizon,
-    cmd_parser,
 )
 
 
@@ -51,7 +50,7 @@ DATASET_GROUP_FREQ = {
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
-    "Tourism": {"Monthly": {"FREQ": "M", "H": 24}}
+    "M1": {"Monthly": {"FREQ": "M", "H": 24}}
 }
 
 
