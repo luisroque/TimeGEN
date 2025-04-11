@@ -172,57 +172,30 @@ class ModelPipeline:
 
         print("\nAll Auto-models have been trained/tuned or loaded from disk.\n")
 
-    def _preprocess_context(self, window_size: int):
-        df_for_inference = []
-        skip_count = 0
+    def _mark_context_rows(
+        self, group: pd.DataFrame, window_size: int, horizon: int
+    ) -> pd.DataFrame:
+        """
+        Given rows for a single unique_id (already sorted by ds),
+        slice off the last horizon points so we only keep the context portion.
+        Return an empty DataFrame if not enough data.
+        """
+        n = len(group)
+        if n < window_size + horizon:
+            return pd.DataFrame(columns=group.columns)
 
-        for uid in self.hp.test_ids:
-            df_ser = self.hp.original_test_long.loc[
-                self.hp.original_test_long["unique_id"] == uid
-            ].copy()
-            df_ser.sort_values("ds", inplace=True)
+        last_window_end = n - horizon
+        return group.iloc[:last_window_end].copy()
 
-            T = len(df_ser)
-            if T < window_size + self.h:
-                print(
-                    f"[predict_from_last_window_one_pass] Skipping uid={uid}, "
-                    f"series length={T} < window_size + h={window_size + self.h}"
-                )
-                skip_count += 1
-                continue
+    def _preprocess_context(self, window_size: int) -> pd.DataFrame:
+        df_test = self.hp.original_test_long.sort_values(["unique_id", "ds"])
 
-            last_window_end = T - self.h
+        df_context = df_test.groupby(
+            "unique_id", group_keys=True, as_index=False
+        ).apply(lambda g: self._mark_context_rows(g, window_size, self.h))
+        df_context = df_context.reset_index(drop=True)
 
-            y_true = df_ser["y"].values.astype(np.float32)
-            window_data = y_true[:last_window_end]
-
-            ds_slice = df_ser["ds"].values[:last_window_end]
-
-            y_context = list(window_data)
-
-            tmp_df = pd.DataFrame(
-                {
-                    "unique_id": [str(uid)] * last_window_end,
-                    "ds": ds_slice,
-                    "y": y_context,
-                }
-            )
-
-            df_for_inference.append(tmp_df)
-
-        if skip_count > 0:
-            print(
-                f"Skipped {skip_count} short series that couldn't fit window_size + h."
-            )
-
-        if not df_for_inference:
-            print("No valid series for inference. Returning empty DataFrames.")
-            return pd.DataFrame()
-
-        df_y = pd.concat(df_for_inference, ignore_index=True)
-        df_y.sort_values(["unique_id", "ds"], inplace=True)
-
-        return df_y
+        return df_context[["unique_id", "ds", "y"]].sort_values(["unique_id", "ds"])
 
     def predict_from_last_window_one_pass(
         self,
