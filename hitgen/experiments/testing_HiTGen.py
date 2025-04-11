@@ -39,8 +39,22 @@ DATASET_GROUP_FREQ = {
     # },
     "M4": {
         "Monthly": {"FREQ": "M", "H": 24},
-        #     "Quarterly": {"FREQ": "Q", "H": 8},
-        #     "Yearly": {"FREQ": "Y", "H": 4},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        # "Quarterly": {"FREQ": "Q", "H": 8},
+        # "Yearly": {"FREQ": "Y", "H": 4},
+    },
+    "Labour": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
+    "Traffic": {
+        "Daily": {"FREQ": "D", "H": 30},
+    },
+    "ETTh1": {
+        "Daily": {"FREQ": "D", "H": 30},
     },
 }
 

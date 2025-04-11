@@ -704,63 +704,44 @@ class HiTGenPipeline:
             "fourier_features_original": fourier_features_original,
         }
 
-    def _feature_engineering_basic_forecast(self) -> Dict[str, pd.DataFrame]:
+    def mark_train_val_test(self, group, horizon):
         """
-        Split each time series chronologically into:
-          - Train (all but last 2*h observations)
-          - Validation (the h observations before the test segment)
-          - Train+Validation (everything except the last h observations)
-          - Test (the last h observations)
+        Given one group of rows for a single unique_id,
+        return a Series of labels: 'train', 'val', 'test', or 'skip'.
         """
-        self.df = self.df.sort_values(by=["unique_id", "ds"])
+        group = group.sort_values(by="ds")
+        n = len(group)
+        if n < 2 * horizon:
+            # mark as skip for all rows in this group
+            return pd.Series(["skip"] * n, index=group.index)
 
-        train_list = []
-        val_list = []
-        test_list = []
-        trainval_list = []
+        test_start_idx = n - horizon
+        val_start_idx = n - 2 * horizon
 
-        unique_ids = self.df["unique_id"].unique()
+        labels = np.array(["train"] * n)  # default
+        labels[val_start_idx:test_start_idx] = "val"
+        labels[test_start_idx:] = "test"
+        return pd.Series(labels, index=group.index)
 
-        for uid in unique_ids:
-            ts_data = self.df[self.df["unique_id"] == uid].copy()
-            ts_data = ts_data.sort_values(by="ds")
+    def _feature_engineering_basic_forecast_faster(self):
+        df = self.df.sort_values(by=["unique_id", "ds"]).copy()
 
-            n = len(ts_data)
+        # mark each row with its fold (train, val, test, or skip)
+        df["fold"] = df.groupby("unique_id", group_keys=False).apply(
+            lambda g: self.mark_train_val_test(g, self.h)
+        )
 
-            # skipping series too short
-            if n < 2 * self.h:
-                continue
+        df = df[df["fold"] != "skip"]
 
-            test_start_idx = n - self.h
-            val_start_idx = n - 2 * self.h
-
-            train_part = ts_data.iloc[:val_start_idx]
-            val_part = ts_data.iloc[val_start_idx:test_start_idx]
-            test_part = ts_data.iloc[test_start_idx:]
-
-            trainval_part = ts_data.iloc[:test_start_idx]
-
-            train_list.append(train_part)
-            val_list.append(val_part)
-            test_list.append(test_part)
-            trainval_list.append(trainval_part)
-
-        train_long = pd.concat(train_list, ignore_index=True)
-        val_long = pd.concat(val_list, ignore_index=True)
-        test_long = pd.concat(test_list, ignore_index=True)
-        trainval_long = pd.concat(trainval_list, ignore_index=True)
+        train_long = df[df["fold"] == "train"]
+        val_long = df[df["fold"] == "val"]
+        test_long = df[df["fold"] == "test"]
+        trainval_long = df[df["fold"] != "test"]
 
         self.original_train_long_basic_forecast = train_long
         self.original_val_long_basic_forecast = val_long
         self.original_test_long_basic_forecast = test_long
         self.original_trainval_long_basic_forecast = trainval_long
-
-        return {
-            "train_long": train_long,
-            "val_long": val_long,
-            "trainval_long": trainval_long,
-            "test_long": test_long,
-        }
 
     def build_test_holdout(
         self,
