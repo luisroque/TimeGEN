@@ -32,6 +32,7 @@ def set_device(use_gpu: bool):
     if not use_gpu:
         print("Forcing CPU usage (GPU disabled by user).")
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+        os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     else:
         print("Using GPU if available (no override of CUDA_VISIBLE_DEVICES).")
 
