@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from neuralforecast.losses.pytorch import MAE
-from hitgen.benchmarks.HiTGen import HiTGen, HiTGenEncoder
+from hitgen.model_pipeline.HiTGen import HiTGen, HiTGenEncoder
 from neuralforecast.models.nhits import ACTIVATIONS, POOLING, _IdentityBasis
 
 
@@ -126,7 +126,7 @@ class NHITSBlockLatent(nn.Module):
 
 class HiTGenDeep(HiTGen):
     """
-    A VAE-like model that encodes the time-series input into a latent space,
+    A VAE-like data_pipeline that encodes the time-series input into a latent space,
     then decodes it (via NHITS blocks) to reconstruct the in-sample portion (backcast)
     and forecast future values.
 

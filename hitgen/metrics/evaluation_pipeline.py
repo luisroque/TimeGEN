@@ -1,8 +1,8 @@
 import os
 import json
 
-from hitgen.benchmarks.model_pipeline import ModelPipeline
-from hitgen.benchmarks.core.core_extension import CustomNeuralForecast
+from hitgen.model_pipeline.model_pipeline import ModelPipeline
+from hitgen.model_pipeline.core.core_extension import CustomNeuralForecast
 from hitgen.metrics.evaluation_metrics import smape
 
 

@@ -23,18 +23,17 @@ The main features of this repository include:
 The code below demonstrates how to generate new versions of a sample time series dataset by applying L-GTA's latent space transformations. For a more detailed script for experiments please see the `testing_benchmark_vs_hitgen.py` file in `hitgen/experiments/`.
 
 ```python
-from hitgen.model.create_dataset_versions_vae import (
-    CreateTransformedVersionsCVAE,
+from hitgen.data_pipeline.data_pipeline_setup import (
+   CreateTransformedVersionsCVAE,
 )
 from hitgen.feature_engineering.feature_transformations import detemporalize
 from hitgen.e2e.e2e_processing import e2e_transformation
-
 
 dataset = "tourism"
 freq = "M"
 
 create_dataset_vae = CreateTransformedVersionsCVAE(
-    dataset_name=dataset, freq=freq
+   dataset_name=dataset, freq=freq
 )
 model, _, _ = create_dataset_vae.fit()
 dynamic_feat, X_inp, static_feat = create_dataset_vae.features_input
@@ -56,39 +55,39 @@ X_hat_orig = X_hat
 ########################################################################################
 
 transformations = [
-    {
-        "transformation": "jitter",
-        "params": [0.9],
-        "parameters_benchmark": {
-            "jitter": 0.375,
-            "scaling": 0.1,
-            "magnitude_warp": 0.1,
-            "time_warp": 0.05,
-        },
-        "version": 5,
-    },
-    {
-        "transformation": "scaling",
-        "params": [0.3],
-        "parameters_benchmark": {
-            "jitter": 0.375,
-            "scaling": 0.1,
-            "magnitude_warp": 0.1,
-            "time_warp": 0.05,
-        },
-        "version": 4,
-    },
-    {
-        "transformation": "magnitude_warp",
-        "params": [0.4],
-        "parameters_benchmark": {
-            "jitter": 0.375,
-            "scaling": 0.1,
-            "magnitude_warp": 0.1,
-            "time_warp": 0.05,
-        },
-        "version": 4,
-    },
+   {
+      "transformation": "jitter",
+      "params": [0.9],
+      "parameters_benchmark": {
+         "jitter": 0.375,
+         "scaling": 0.1,
+         "magnitude_warp": 0.1,
+         "time_warp": 0.05,
+      },
+      "version": 5,
+   },
+   {
+      "transformation": "scaling",
+      "params": [0.3],
+      "parameters_benchmark": {
+         "jitter": 0.375,
+         "scaling": 0.1,
+         "magnitude_warp": 0.1,
+         "time_warp": 0.05,
+      },
+      "version": 4,
+   },
+   {
+      "transformation": "magnitude_warp",
+      "params": [0.4],
+      "parameters_benchmark": {
+         "jitter": 0.375,
+         "scaling": 0.1,
+         "magnitude_warp": 0.1,
+         "time_warp": 0.05,
+      },
+      "version": 4,
+   },
 ]
 
 ########################################################################################
@@ -97,21 +96,21 @@ transformations = [
 
 results = {}
 for transformation in transformations:
-    results[transformation["transformation"]] = e2e_transformation(
-        dataset,
-        freq,
-        model,
-        z,
-        dynamic_feat,
-        static_feat,
-        create_dataset_vae,
-        transformation["transformation"],
-        transformation["params"],
-        transformation["parameters_benchmark"],
-        transformation["version"],
-        X_orig,
-        X_hat,
-    )
+   results[transformation["transformation"]] = e2e_transformation(
+      dataset,
+      freq,
+      model,
+      z,
+      dynamic_feat,
+      static_feat,
+      create_dataset_vae,
+      transformation["transformation"],
+      transformation["params"],
+      transformation["parameters_benchmark"],
+      transformation["version"],
+      X_orig,
+      X_hat,
+   )
 ```
 
 ## Experimental Results

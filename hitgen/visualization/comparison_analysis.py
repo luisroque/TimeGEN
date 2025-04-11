@@ -206,8 +206,8 @@ def plot_transformations_with_generate_datasets(
     Parameters:
     - generate_datasets: Function to generate datasets with applied transformations.
     - X_orig: Original series data before any transformations.
-    - model, z, dynamic_feat, static_feat: Parameters for the data generation model.
-    - create_dataset_vae: Object containing dataset and VAE model information.
+    - data_pipeline, z, dynamic_feat, static_feat: Parameters for the data generation data_pipeline.
+    - create_dataset_vae: Object containing dataset and VAE data_pipeline information.
     - transformations: List of dictionaries with transformation details.
     - num_series: Number of time series to plot.
     """

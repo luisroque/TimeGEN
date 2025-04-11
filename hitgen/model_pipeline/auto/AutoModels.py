@@ -3,8 +3,8 @@ import torch
 
 from ray import tune
 
-from hitgen.benchmarks.HiTGen import HiTGen
-from hitgen.benchmarks.HiTGenDeep import HiTGenDeep
+from hitgen.model_pipeline.HiTGen import HiTGen
+from hitgen.model_pipeline.HiTGenDeep import HiTGenDeep
 
 from ray.tune.search.basic_variant import BasicVariantGenerator
 from neuralforecast.losses.pytorch import MAE, MSE

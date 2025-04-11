@@ -10,11 +10,11 @@ from neuralforecast.auto import (
     AutoTSMixer,
     AutoTFT,
 )
-from hitgen.benchmarks.auto.AutoModels import AutoHiTGen, AutoHiTGenDeep
+from hitgen.model_pipeline.auto.AutoModels import AutoHiTGen, AutoHiTGenDeep
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
-from hitgen.benchmarks.core.core_extension import CustomNeuralForecast
+from hitgen.model_pipeline.core.core_extension import CustomNeuralForecast
 
 AutoModelType = Union[
     AutoNHITS,
@@ -31,18 +31,18 @@ AutoModelType = Union[
 class ModelPipeline:
     """
     pipeline that:
-      - Re-uses an existing HiTGenPipeline instance for data splits/freq/horizon.
+      - Re-uses an existing DataPipeline instance for data splits/freq/horizon.
       - Hyper-tunes and trains models
       - Predict functions for different strategies
     """
 
-    def __init__(self, hitgen_pipeline):
+    def __init__(self, data_pipeline):
         """
-        hitgen_pipeline : HiTGenPipeline
-            A fully initialized instance of existing HiTGenPipeline,
+        data_pipeline : DataPipeline
+            A fully initialized instance of existing DataPipeline,
             used to retrieve train/val/test splits, freq, horizon, etc
         """
-        self.hp = hitgen_pipeline
+        self.hp = data_pipeline
         self.freq = self.hp.freq
         self.h = self.hp.h
 
@@ -85,7 +85,7 @@ class ModelPipeline:
     def hyper_tune_and_train(self, max_evals=20, mode="in_domain"):
         """
         Trains and hyper-tunes all six models.
-        Each model does internal time-series cross-validation to select its best hyperparameters.
+        Each data_pipeline does internal time-series cross-validation to select its best hyperparameters.
         """
         if mode in ("in_domain", "out_domain"):
             trainval_long = self.trainval_long
@@ -144,7 +144,7 @@ class ModelPipeline:
 
             if os.path.exists(nf_save_path):
                 print(
-                    f"Found saved model for {name}. Reinitializing wrapper and loading weights..."
+                    f"Found saved data_pipeline for {name}. Reinitializing wrapper and loading weights..."
                 )
 
                 auto_model = ModelClass(**init_kwargs)

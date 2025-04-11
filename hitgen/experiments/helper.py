@@ -25,13 +25,15 @@ def has_final_score_in_tuple(tpl):
     return isinstance(tpl[1], dict) and "final_score" in tpl[1]
 
 
-def set_device(
-    use_gpu: bool,
-):
-    """Configures TensorFlow to use GPU or CPU."""
+def set_device(use_gpu: bool):
+    """
+    Configures whether PyTorch can see the GPU.
+    """
     if not use_gpu:
-        print("Using CPU as specified by the user.")
+        print("Forcing CPU usage (GPU disabled by user).")
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    else:
+        print("Using GPU if available (no override of CUDA_VISIBLE_DEVICES).")
 
 
 def cmd_parser():
@@ -42,13 +44,6 @@ def cmd_parser():
         "--use-gpu",
         action="store_true",
         help="Use GPU if available (default: False, meaning it runs on CPU).",
-    )
-    parser.add_argument(
-        "--opt-score",
-        choices=["discriminative_score", "downstream_score", "val_loss"],
-        default="val_loss",
-        help="Select the score for the hyperparameter tuning optimization. Choices: "
-        "'discriminative_score', 'downstream_score' or 'val_loss' (default: 'val_loss').",
     )
     parser.add_argument(
         "--transfer-learning",

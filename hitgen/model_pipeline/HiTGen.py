@@ -96,7 +96,7 @@ class HiTGenEncoder(nn.Module):
 
 class HiTGen(NHITS):
     """
-    A VAE-like model that encodes the time-series input into a latent space,
+    A VAE-like data_pipeline that encodes the time-series input into a latent space,
     then decodes it (via NHITS blocks) to reconstruct the in-sample portion (backcast)
     and forecast future values.
 

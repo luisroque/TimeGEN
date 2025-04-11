@@ -1,13 +1,13 @@
 import multiprocessing
 import pandas as pd
 import os
-from hitgen.model.create_dataset_versions_vae import (
-    HiTGenPipeline,
+from hitgen.data_pipeline.data_pipeline_setup import (
+    DataPipeline,
 )
 from hitgen.metrics.evaluation_pipeline import (
     evaluation_pipeline_hitgen_forecast,
 )
-from hitgen.benchmarks.model_pipeline import ModelPipeline
+from hitgen.model_pipeline.model_pipeline import ModelPipeline
 from hitgen.experiments.helper import (
     extract_frequency,
     extract_horizon,
@@ -68,17 +68,17 @@ if __name__ == "__main__":
                 f"Dataset: {DATASET}, Dataset-group: {DATASET_GROUP}, Frequency: {FREQ}"
             )
 
-            hitgen_pipeline = HiTGenPipeline(
+            data_pipeline = DataPipeline(
                 dataset_name=DATASET,
                 dataset_group=DATASET_GROUP,
                 freq=FREQ,
                 horizon=H,
-                opt_score=args.opt_score,
+                window_size=H,
             )
 
-            benchmark_pipeline = ModelPipeline(hitgen_pipeline=hitgen_pipeline)
+            benchmark_pipeline = ModelPipeline(data_pipeline=data_pipeline)
 
-            test_unique_ids = hitgen_pipeline.original_test_long["unique_id"].unique()
+            test_unique_ids = data_pipeline.original_test_long["unique_id"].unique()
 
             if args.transfer_learning:
                 for (
@@ -90,16 +90,15 @@ if __name__ == "__main__":
                         H_TL = extract_horizon(subgroup_tl)
                         DATASET_GROUP_TL = subgroup_tl[0]
 
-                        hitgen_pipeline_transfer_learning = HiTGenPipeline(
+                        data_pipeline_transfer_learning = DataPipeline(
                             dataset_name=DATASET_TL,
                             dataset_group=DATASET_GROUP_TL,
                             freq=FREQ_TL,
                             horizon=H_TL,
-                            opt_score=args.opt_score,
                         )
 
                         benchmark_pipeline_transfer_learning = ModelPipeline(
-                            hitgen_pipeline=hitgen_pipeline_transfer_learning
+                            data_pipeline=data_pipeline_transfer_learning
                         )
 
                         benchmark_pipeline_transfer_learning.hyper_tune_and_train(
