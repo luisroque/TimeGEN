@@ -172,8 +172,9 @@ class ModelPipeline:
 
         print("\nAll Auto-models have been trained/tuned or loaded from disk.\n")
 
+    @staticmethod
     def _mark_context_rows(
-        self, group: pd.DataFrame, window_size: int, horizon: int
+        group: pd.DataFrame, window_size: int, horizon: int
     ) -> pd.DataFrame:
         """
         Given rows for a single unique_id (already sorted by ds),
@@ -192,7 +193,11 @@ class ModelPipeline:
 
         df_context = df_test.groupby(
             "unique_id", group_keys=True, as_index=False
-        ).apply(lambda g: self._mark_context_rows(g, window_size, self.h))
+        ).apply(
+            lambda g: self._mark_context_rows(
+                group=g, window_size=window_size, horizon=self.h
+            )
+        )
         df_context = df_context.reset_index(drop=True)
 
         return df_context[["unique_id", "ds", "y"]].sort_values(["unique_id", "ds"])
