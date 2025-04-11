@@ -2,6 +2,7 @@ import os
 import numpy as np
 from typing import Tuple, Union
 import pandas as pd
+from ray import tune
 from neuralforecast.auto import (
     AutoNHITS,
     AutoKAN,
@@ -135,6 +136,8 @@ class ModelPipeline:
                 base_config["start_padding_enabled"] = True
 
             base_config["input_size"] = self.h
+            base_config["scaler_type"] = tune.choice([None, "standard"])
+
             init_kwargs["config"] = base_config
 
             nf_save_path = os.path.join(
