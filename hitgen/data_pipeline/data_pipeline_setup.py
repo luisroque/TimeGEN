@@ -76,10 +76,6 @@ class DataPipeline:
             "YS": (self._yearly_index, 1),
         }
 
-        self.best_params = {}
-        self.best_params_forecasting = {}
-        self.best_params_multivar = {}
-
         self._feature_engineering_basic_forecast()
         feature_dict = self._feature_engineering()
 
@@ -116,13 +112,6 @@ class DataPipeline:
         self.original_test_long = feature_dict["test_long"]
         self.original_test_long_transf = feature_dict["original_test_long_transf"]
         self.original_test_wide_transf = feature_dict["original_test_wide_transf"]
-
-        # fourier features
-        self.original_dyn_features = feature_dict["fourier_features_original"]
-        self.train_dyn_features = feature_dict["fourier_features_train"]
-        self.val_dyn_features = feature_dict["fourier_features_val"]
-        self.trainval_dyn_features = feature_dict["fourier_features_trainval"]
-        self.test_dyn_features = feature_dict["fourier_features_test"]
 
     @staticmethod
     def load_data(dataset_name: str, group: str) -> Tuple[pd.DataFrame, int, str]:
@@ -419,33 +408,6 @@ class DataPipeline:
         # dividing days by 7 => fractional weeks
         return (dates - d0).days / 7.0
 
-    def compute_fourier_features(self, dates, order=3) -> pd.DataFrame:
-        """
-        Compute sinusoidal (Fourier) terms for a given frequency.
-        """
-        dates = pd.to_datetime(dates)
-        if not isinstance(dates, pd.DatetimeIndex):
-            dates = pd.DatetimeIndex(dates)
-
-        try:
-            index_func, period = self.freq_map[self.freq]
-        except KeyError:
-            # for weekly, we might have something like "W-THU", so let's handle that generically
-            if self.freq.startswith("W-"):
-                index_func, period = self._weekly_index, 52.18
-            else:
-                raise ValueError(f"Unsupported freq: {self.freq}")
-
-        t = index_func(dates).astype(float)
-
-        features = {}
-        for k in range(1, order + 1):
-            arg = 2.0 * np.pi * k * t / period
-            features[f"sin_{self.freq}_{k}"] = np.sin(arg)
-            features[f"cos_{self.freq}_{k}"] = np.cos(arg)
-
-        return pd.DataFrame(features, index=dates)
-
     @staticmethod
     def _skip_short_series(df_long: pd.DataFrame, min_length: int) -> pd.DataFrame:
         """
@@ -596,13 +558,6 @@ class DataPipeline:
             test_wide_transf, self.df, unique_ids=self.test_ids, ds=self.ds_test
         )
 
-        # compute Fourier features
-        fourier_features_train = self.compute_fourier_features(train_wide.index)
-        fourier_features_val = self.compute_fourier_features(val_wide.index)
-        fourier_features_trainval = self.compute_fourier_features(trainval_wide.index)
-        fourier_features_test = self.compute_fourier_features(test_wide.index)
-        fourier_features_original = self.compute_fourier_features(original_wide.index)
-
         return {
             # wide Data
             "original_wide": original_wide,
@@ -628,12 +583,6 @@ class DataPipeline:
             "original_val_wide_transf": val_wide_transf,
             "original_trainval_wide_transf": trainval_wide_transf,
             "original_test_wide_transf": test_wide_transf,
-            # fourier Features
-            "fourier_features_train": fourier_features_train,
-            "fourier_features_val": fourier_features_val,
-            "fourier_features_trainval": fourier_features_trainval,
-            "fourier_features_test": fourier_features_test,
-            "fourier_features_original": fourier_features_original,
         }
 
     @staticmethod

@@ -51,21 +51,5 @@ DATASETS_FREQ = {
     # "Weather": ["10M"],
 }
 
-REFERENCE_MODELS = [
-    "ETS",
-    "Theta",
-    "SES",
-    "Croston",
-    "ARIMA",
-    "RWD",
-    "SNaive",
-    "TiDE",
-    "TCN",
-    "DeepAR",
-    "Informer",
-    "NHITS",
-    "RNN",
-]
-
 N = [1, 2, 3, 4, 5, 6]
 SAMPLE_COUNT = 50
