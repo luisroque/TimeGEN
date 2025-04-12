@@ -11,7 +11,11 @@ from neuralforecast.auto import (
     AutoTSMixer,
     AutoTFT,
 )
-from hitgen.model_pipeline.auto.AutoModels import AutoHiTGen, AutoHiTGenDeep
+from hitgen.model_pipeline.auto.AutoModels import (
+    AutoHiTGen,
+    AutoHiTGenDeep,
+    AutoHiTGenMixture,
+)
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
 )
@@ -26,6 +30,7 @@ AutoModelType = Union[
     AutoTFT,
     AutoHiTGen,
     AutoHiTGenDeep,
+    AutoHiTGenMixture,
 ]
 
 
@@ -102,6 +107,7 @@ class ModelPipeline:
         model_list = [
             ("AutoHiTGen", AutoHiTGen),
             ("AutoHiTGenDeep", AutoHiTGenDeep),
+            ("AutoHiTGenMixture", AutoHiTGenMixture),
             ("AutoNHITS", AutoNHITS),
             ("AutoKAN", AutoKAN),
             ("AutoPatchTST", AutoPatchTST),
