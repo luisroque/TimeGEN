@@ -1,6 +1,7 @@
 from typing import Tuple, Optional
 
 import numpy as np
+import torch
 import torch.nn as nn
 
 from neuralforecast.losses.pytorch import MAE
@@ -37,11 +38,11 @@ class HiTGenMixture(HiTGen):
         n_harmonics: int = 2,
         n_polynomials: int = 2,
         stack_types: list = ["identity", "trend", "seasonality"],
-        n_beats_nblocks_stack_1: int = 3,
-        n_beats_nblocks_stack_2: int = 3,
-        n_beats_nblocks_stack_3: int = 3,
+        n_beats_nblocks_stack_1: int = 1,
+        n_beats_nblocks_stack_2: int = 1,
+        n_beats_nblocks_stack_3: int = 1,
         # general
-        nblocks_stack: list = [3, 3, 3],
+        nblocks_stack: list = [1, 1, 1],
         mlp_units: list = 3 * [[512, 512]],
         # NHITS specific
         n_pool_kernel_size: list = [2, 2, 1],
@@ -132,7 +133,7 @@ class HiTGenMixture(HiTGen):
             h=self.h,
         )
 
-        blocks = self.create_universal_stack(
+        blocks = self._create_universal_stack(
             h=h,
             input_size=input_size,
             stack_types=stack_types,
@@ -153,7 +154,7 @@ class HiTGenMixture(HiTGen):
 
         self.latent_to_insample = nn.Linear(latent_dim, input_size)
 
-    def create_universal_stack(
+    def _create_universal_stack(
         self,
         h,
         input_size,
@@ -257,3 +258,47 @@ class HiTGenMixture(HiTGen):
                 blocks.append(nhits_block)
 
         return blocks
+
+    def forward(self, windows_batch):
+        insample_y = windows_batch["insample_y"]  # [B, L]
+        insample_mask = windows_batch["insample_mask"]  # [B, L]
+        futr_exog = windows_batch["futr_exog"]  # [B, L+h, F] or [B, L+H, F]
+        hist_exog = windows_batch["hist_exog"]  # [B, L, X]
+        stat_exog = windows_batch["stat_exog"]  # [B, S]
+
+        mu, logvar = self.encoder(insample_y, futr_exog, hist_exog, stat_exog)
+        z = self._reparameterize(mu, logvar)
+
+        # add the latent embedding to the in-sample
+        # keep it in [-1, 1]
+        z_insample = torch.tanh(self.latent_to_insample(z))  # shape [B, L]
+
+        insample_y_cond = insample_y + z_insample  # shape [B, L]
+        initial_flip = insample_y_cond.flip(dims=(-1,))
+
+        residuals = insample_y_cond.flip(dims=(-1,))
+        insample_mask = insample_mask.flip(dims=(-1,))
+
+        forecast = insample_y[:, -1:, None]  # shape [B, 1, 1]
+
+        for i, block in enumerate(self.blocks):
+            if isinstance(block, NHITSBlock):
+                backcast, block_forecast = block(
+                    insample_y=residuals,
+                    futr_exog=windows_batch["futr_exog"],
+                    hist_exog=windows_batch["hist_exog"],
+                    stat_exog=windows_batch["stat_exog"],
+                )
+            else:
+                # NBEATSBlock => only pass insample_y
+                backcast, block_forecast = block(insample_y=residuals)
+            residuals = (residuals - backcast) * insample_mask
+            forecast = forecast + block_forecast
+
+        sum_of_backcasts = initial_flip - residuals
+        backcast_reconstruction = sum_of_backcasts.flip(dims=(-1,))
+
+        backcast_reconstruction = self.loss.domain_map(backcast_reconstruction)
+        forecast = self.loss.domain_map(forecast)
+
+        return backcast_reconstruction, forecast, mu, logvar

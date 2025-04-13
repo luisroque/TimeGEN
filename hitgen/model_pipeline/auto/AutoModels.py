@@ -182,9 +182,9 @@ class AutoHiTGenMixture(BaseAuto):
 
     default_config = {
         # mixture params
-        "n_beats_nblocks_stack_1": tune.choice([0, 1, 2, 3]),
-        "n_beats_nblocks_stack_2": tune.choice([0, 1, 2, 3]),
-        "n_beats_nblocks_stack_3": tune.choice([0, 1, 2, 3]),
+        "n_beats_nblocks_stack_1": tune.choice([0, 1]),
+        "n_beats_nblocks_stack_2": tune.choice([0, 1]),
+        "n_beats_nblocks_stack_3": tune.choice([0, 1]),
         # VAE params
         "latent_dim": tune.choice([16, 32, 64, 128, 256]),
         "encoder_hidden_dims": tune.choice(
