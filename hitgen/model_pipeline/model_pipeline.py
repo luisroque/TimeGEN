@@ -243,7 +243,7 @@ class ModelPipeline:
 
         plot_generated_vs_original(
             synth_data=df_y_hat[["unique_id", "ds", "y"]],
-            original_data=self.hp.original_test_long,
+            original_data=df_y[["unique_id", "ds", "y"]],
             dataset_name=self.hp.dataset_name,
             dataset_group=self.hp.dataset_group,
             model_name=model_name,
