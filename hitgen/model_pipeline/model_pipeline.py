@@ -15,6 +15,7 @@ from hitgen.model_pipeline.auto.AutoModels import (
     AutoHiTGen,
     AutoHiTGenDeep,
     AutoHiTGenMixture,
+    AutoHiTGenDeepMixture,
 )
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
@@ -31,6 +32,7 @@ AutoModelType = Union[
     AutoHiTGen,
     AutoHiTGenDeep,
     AutoHiTGenMixture,
+    AutoHiTGenDeepMixture,
 ]
 
 
@@ -108,6 +110,7 @@ class ModelPipeline:
             ("AutoHiTGen", AutoHiTGen),
             ("AutoHiTGenDeep", AutoHiTGenDeep),
             ("AutoHiTGenMixture", AutoHiTGenMixture),
+            ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
             ("AutoNHITS", AutoNHITS),
             ("AutoKAN", AutoKAN),
             ("AutoPatchTST", AutoPatchTST),
