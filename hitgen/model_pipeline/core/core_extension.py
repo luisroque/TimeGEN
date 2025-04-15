@@ -3,7 +3,7 @@ import pickle
 
 from hitgen.model_pipeline.HiTGen import HiTGen
 from hitgen.model_pipeline.HiTGenDeep import HiTGenDeep
-
+from hitgen.model_pipeline.HiTGenMixture import HiTGenMixture
 
 from neuralforecast import NeuralForecast
 from neuralforecast import core as nf_core
@@ -12,6 +12,7 @@ nf_core.MODEL_FILENAME_DICT.update(
     {
         "autohitgen": HiTGen,
         "autohitgendeep": HiTGenDeep,
+        "autohitgenmixture": HiTGenMixture,
     }
 )
 
