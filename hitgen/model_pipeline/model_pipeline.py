@@ -244,6 +244,9 @@ class ModelPipeline:
         df_y_hat.rename(columns={model_name: "y"}, inplace=True)
         df_y_hat = df_y_hat.groupby("unique_id", group_keys=False).tail(self.hp.h)
 
+        if "y_true" in df_y.columns:
+            df_y = df_y.rename(columns={"y_true": "y"})
+
         plot_generated_vs_original(
             synth_data=df_y_hat[["unique_id", "ds", "y"]],
             original_data=df_y[["unique_id", "ds", "y"]],
