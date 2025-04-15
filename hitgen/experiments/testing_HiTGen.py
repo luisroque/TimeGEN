@@ -21,24 +21,24 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    # "Tourism": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    # "Quarterly": {"FREQ": "Q", "H": 8},
-    # },
-    # "M3": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    #     "Yearly": {"FREQ": "Y", "H": 4},
-    # },
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
+    },
     # "Labour": {
     #     "Monthly": {"FREQ": "M", "H": 24},
     # },
-    # "Traffic": {
-    #     "Daily": {"FREQ": "D", "H": 30},
-    # },
+    "Traffic": {
+        "Daily": {"FREQ": "D", "H": 30},
+    },
     # "ETTh1": {
     #     "Daily": {"FREQ": "D", "H": 30},
     # },
@@ -47,9 +47,9 @@ DATASET_GROUP_FREQ = {
         #     "Quarterly": {"FREQ": "Q", "H": 8},
         #     "Yearly": {"FREQ": "Y", "H": 4},
     },
-    # "M5": {
-    #     "Daily": {"FREQ": "D", "H": 30},
-    # },
+    "M5": {
+        "Daily": {"FREQ": "D", "H": 30},
+    },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
