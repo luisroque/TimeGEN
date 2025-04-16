@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+from pandas.api.types import CategoricalDtype
 from typing import List, Tuple, Dict
 import json
 from sklearn.preprocessing import StandardScaler
@@ -429,6 +430,8 @@ class DataPipeline:
         """
         min_length = self.window_size + 2 * self.h
 
+        if isinstance(self.df["unique_id"].dtype, CategoricalDtype):
+            self.df["unique_id"] = self.df["unique_id"].astype(str)
         self.ids = self.df["unique_id"].unique().sort()
         original_wide_filled, mask_original_wide, original_wide = self._preprocess_data(
             self.df, self.ids
