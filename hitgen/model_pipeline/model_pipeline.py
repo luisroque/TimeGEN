@@ -233,7 +233,7 @@ class ModelPipeline:
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
         elif mode == "basic_forecasting":
-            df_y_hat = model.predict()
+            df_y_hat = model.predict(df=self.trainval_long_basic_forecast)
             # df_y is the complete original dataset
             df_y = self.original_long_basic_forecast
         else:
