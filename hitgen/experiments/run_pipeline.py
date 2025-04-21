@@ -33,6 +33,25 @@ DATASET_GROUP_FREQ = {
         "Quarterly": {"FREQ": "Q", "H": 8},
         "Yearly": {"FREQ": "Y", "H": 4},
     },
+    "M4": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+}
+
+SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
+    "Tourism": {
+        "Monthly": {"FREQ": "M", "H": 24},
+    },
+    "M1": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
+    },
     "Traffic": {
         "Daily": {"FREQ": "D", "H": 30},
     },
@@ -40,13 +59,6 @@ DATASET_GROUP_FREQ = {
         "Monthly": {"FREQ": "M", "H": 24},
         "Quarterly": {"FREQ": "Q", "H": 8},
     },
-    "M5": {
-        "Daily": {"FREQ": "D", "H": 60},
-    },
-}
-
-SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
-    "M1": {"Monthly": {"FREQ": "M", "H": 24}}
 }
 
 
@@ -120,6 +132,7 @@ if __name__ == "__main__":
                                 freq=FREQ,
                                 row_forecast=row_forecast_tl,
                                 dataset_source=DATASET_TL,
+                                dataset_group_source=DATASET_GROUP_TL,
                                 mode="out_domain",
                                 window_size=H,
                             )

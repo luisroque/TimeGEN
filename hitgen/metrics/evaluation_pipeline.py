@@ -16,6 +16,7 @@ def evaluation_pipeline_hitgen_forecast(
     row_forecast: dict,
     window_size: int = None,
     dataset_source: str = None,
+    dataset_group_source: str = None,
     mode: str = "in_domain",
 ) -> None:
     """
@@ -33,7 +34,7 @@ def evaluation_pipeline_hitgen_forecast(
     if dataset_source:
         results_file = os.path.join(
             results_folder,
-            f"{dataset}_{dataset_group}_{model_name}_{horizon}_trained_on_{dataset_source}.json",
+            f"{dataset}_{dataset_group}_{model_name}_{horizon}_trained_on_{dataset_source}_{dataset_group_source}.json",
         )
     else:
         results_file = os.path.join(
@@ -53,6 +54,8 @@ def evaluation_pipeline_hitgen_forecast(
     print(f"\n\n=== {dataset} {dataset_group} Forecast Evaluation ===\n")
     print(f"Forecast horizon = {horizon}, freq = {freq}, mode = {mode}\n")
 
+    row_forecast["Dataset Source"] = dataset_source
+    row_forecast["Dataset Group Source"] = dataset_group_source
     row_forecast["Dataset"] = dataset
     row_forecast["Group"] = dataset_group
     row_forecast["Forecast Horizon"] = horizon
@@ -64,7 +67,7 @@ def evaluation_pipeline_hitgen_forecast(
 
     if forecast_df_last_window_horizon.empty:
         print(f"[Last Window ({mode})] No forecast results found.")
-        row_forecast[f"Forecast SMAPE (last window) Per Series_{mode}"] = None
+        row_forecast[f"Forecast SMAPE MEAN (last window) Per Series_{mode}"] = None
     else:
         forecast_df_last_window_horizon = forecast_df_last_window_horizon.dropna(
             subset=["y", "y_true"]
