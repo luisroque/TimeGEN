@@ -21,14 +21,12 @@ for result in performance_results:
     df["Group"] = result.split("_")[1]
     df["Method"] = result.split("_")[2]
     df = df[["Dataset", "Group", "Method", "time_total_s"]]
+
+    # compute min time per dataset
+
     results_combined.append(df)
 
 results_df = pd.concat(results_combined, ignore_index=True)
-
-# filter only M4 monthly
-results_df = results_df[
-    (results_df["Dataset"] == "M4") & (results_df["Group"] == "Monthly")
-]
 
 method_order = sorted(results_df["Method"].unique().tolist())
 
@@ -37,7 +35,7 @@ plt.figure(figsize=(12, 6))
 sns.boxplot(
     data=results_df, x="Method", y="time_total_s", order=method_order, showfliers=True
 )
-plt.yscale("log")
+# plt.yscale("log")
 plt.title("Total Training Time per Method (log scale sorted by average training time)")
 plt.xlabel("Method")
 plt.ylabel("Time (log seconds)")
