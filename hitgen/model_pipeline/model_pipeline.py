@@ -241,7 +241,7 @@ class ModelPipeline:
             df_y_hat = model.predict(df=df_y_preprocess)
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
-        if mode == "out_domain":
+        elif mode == "out_domain":
             df_y_preprocess = self._preprocess_context(window_size)
             df_y_hat = model.predict(df=df_y_preprocess)
             # df_y are only the series on the test set bucket of series
