@@ -206,15 +206,16 @@ class ModelPipeline:
     def _preprocess_context(
         self, window_size: int, window_size_source: int = None
     ) -> pd.DataFrame:
-        if window_size_source is not None:
-            window_size = min(window_size, window_size_source)
+        if not window_size_source:
+            window_size_source = window_size
+
         df_test = self.hp.original_test_long.sort_values(["unique_id", "ds"])
 
         df_context = df_test.groupby(
             "unique_id", group_keys=True, as_index=False
         ).apply(
             lambda g: self._mark_context_rows(
-                group=g, window_size=window_size, horizon=window_size
+                group=g, window_size=window_size_source, horizon=window_size
             )
         )
         df_context = df_context.reset_index(drop=True)
@@ -250,7 +251,7 @@ class ModelPipeline:
         dataset_group_for_title = dataset_group_source
 
         if mode == "in_domain":
-            df_y_preprocess = self._preprocess_context(window_size=window_size, h=h)
+            df_y_preprocess = self._preprocess_context(window_size=window_size)
             df_y_hat = model.predict(df=df_y_preprocess, freq=freq)
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
@@ -259,6 +260,16 @@ class ModelPipeline:
                 window_size_source=window_size_source,
                 window_size=window_size,
             )
+
+            if df_y_preprocess.empty:
+                # no series has enough context, so nothing to predict
+                print(
+                    f"[SKIP] '{dataset_source or dataset_target}' – "
+                    f"no series meets the context requirement "
+                    f"(window = {window_size_source or window_size})."
+                )
+                return pd.DataFrame()
+
             df_y_hat_raw = model.predict(df=df_y_preprocess, freq=freq)
 
             df_y_hat = df_y_hat_raw.groupby(

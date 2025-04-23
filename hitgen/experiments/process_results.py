@@ -87,7 +87,28 @@ results_all_seasonalities_smape = (
 )
 
 results_all_seasonalities_smape.to_csv(
-    os.path.join(base_path, "results_avg_smape_all_seasonalities.csv"), index=False
+    os.path.join(base_path, "results_smape_all_seasonalities.csv"), index=False
+)
+
+# smape all seasonalities all source-target combinations and method
+results_all_seasonalities_smape = results_filtered.copy()
+results_all_seasonalities_smape = (
+    results_all_seasonalities_smape.groupby(
+        [
+            "Dataset Source",
+            "Dataset Group Source",
+            "Dataset Target",
+            "Dataset Group Target",
+            "Method",
+        ]
+    )["SMAPE Mean"]
+    .mean()
+    .reset_index()
+)
+
+results_all_seasonalities_smape.to_csv(
+    os.path.join(base_path, "results_smape_all_seasonalities_all_combinations.csv"),
+    index=False,
 )
 
 # rank all seasonalities by method
