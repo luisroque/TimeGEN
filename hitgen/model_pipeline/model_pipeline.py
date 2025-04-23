@@ -225,6 +225,7 @@ class ModelPipeline:
         dataset_group_target: str,
         dataset_source: str,
         dataset_group_source: str,
+        freq: str,
         mode: str = "in_domain",
     ) -> pd.DataFrame:
         """
@@ -238,12 +239,12 @@ class ModelPipeline:
 
         if mode == "in_domain":
             df_y_preprocess = self._preprocess_context(window_size)
-            df_y_hat = model.predict(df=df_y_preprocess)
+            df_y_hat = model.predict(df=df_y_preprocess, freq=freq)
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
         elif mode == "out_domain":
             df_y_preprocess = self._preprocess_context(window_size)
-            df_y_hat = model.predict(df=df_y_preprocess)
+            df_y_hat = model.predict(df=df_y_preprocess, freq=freq)
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
 
@@ -255,7 +256,7 @@ class ModelPipeline:
             dataset_name_for_title = f"{dataset_source}→{dataset_target}"
             dataset_group_for_title = f"{dataset_group_source}→{dataset_group_target}"
         elif mode == "basic_forecasting":
-            df_y_hat = model.predict(df=self.trainval_long_basic_forecast)
+            df_y_hat = model.predict(df=self.trainval_long_basic_forecast, freq=freq)
             # df_y is the complete original dataset
             df_y = self.original_long_basic_forecast
         else:

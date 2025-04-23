@@ -69,6 +69,7 @@ def evaluation_pipeline_hitgen_forecast(
         dataset_group_target=dataset_group,
         dataset_source=dataset_source,
         dataset_group_source=dataset_group_source,
+        freq=freq,
     )
 
     if forecast_df_last_window_horizon.empty:

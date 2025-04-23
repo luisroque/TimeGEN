@@ -16,8 +16,8 @@ results_df = pd.DataFrame(results_combined).reset_index(drop=True)
 
 results_filtered = results_df[
     (results_df["Dataset Source"] != results_df["Dataset"])
-    & (results_df["Dataset"] != "Traffic")
-    & (results_df["Dataset Source"] != "Traffic")
+    # & (results_df["Dataset"] != "Traffic")
+    # & (results_df["Dataset Source"] != "Traffic")
     # & ~(
     #     (results_df["Dataset Source"] == "M3")
     #     & (results_df["Dataset Group Source"] == "Yearly")
