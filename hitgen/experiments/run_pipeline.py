@@ -37,6 +37,9 @@ DATASET_GROUP_FREQ = {
         "Monthly": {"FREQ": "M", "H": 24},
         "Quarterly": {"FREQ": "Q", "H": 8},
     },
+    "Traffic": {
+        "Daily": {"FREQ": "D", "H": 30},
+    },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {

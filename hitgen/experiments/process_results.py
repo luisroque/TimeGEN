@@ -18,10 +18,10 @@ results_filtered = results_df[
     (results_df["Dataset Source"] != results_df["Dataset"])
     & (results_df["Dataset"] != "Traffic")
     & (results_df["Dataset Source"] != "Traffic")
-    & ~(
-        (results_df["Dataset Source"] == "M3")
-        & (results_df["Dataset Group Source"] == "Yearly")
-    )
+    # & ~(
+    #     (results_df["Dataset Source"] == "M3")
+    #     & (results_df["Dataset Group Source"] == "Yearly")
+    # )
 ].copy()
 
 results_filtered.to_csv(os.path.join(base_path, "results_filtered.csv"), index=False)
@@ -106,6 +106,21 @@ results_all_seasonalities_method.to_csv(
     os.path.join(base_path, "results_ranks_all_seasonalities_method.csv"), index=False
 )
 
+# sampe all seasonalities by method
+results_all_seasonalities_method_smape = results_filtered.copy()
+results_all_seasonalities_method_smape = (
+    results_all_seasonalities_method_smape.groupby(["Method"])["SMAPE Mean"]
+    .mean()
+    .reset_index()
+)
+
+results_all_seasonalities_method_smape.sort_values(by="SMAPE Mean", inplace=True)
+
+results_all_seasonalities_method_smape.to_csv(
+    os.path.join(base_path, "results_smape_all_seasonalities_method.csv"),
+    index=False,
+)
+
 # rank same seasonalities by source dataset and method
 results_same_seasonalities = results_filtered[
     (
@@ -172,4 +187,25 @@ results_same_seasonalities_method.sort_values(by="Rank", inplace=True)
 
 results_same_seasonalities_method.to_csv(
     os.path.join(base_path, "results_ranks_same_seasonalities_method.csv"), index=False
+)
+
+# sampe same seasonalities by method
+results_same_seasonalities_method_smape = results_filtered[
+    (
+        results_filtered["Dataset Group Source"]
+        == results_filtered["Dataset Group Target"]
+    )
+].copy()
+
+results_same_seasonalities_method_smape = (
+    results_same_seasonalities_method_smape.groupby(["Method"])["SMAPE Mean"]
+    .mean()
+    .reset_index()
+)
+
+results_same_seasonalities_method_smape.sort_values(by="SMAPE Mean", inplace=True)
+
+
+results_same_seasonalities_method_smape.to_csv(
+    os.path.join(base_path, "results_smape_same_seasonalities_method.csv"), index=False
 )

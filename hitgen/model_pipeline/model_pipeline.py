@@ -221,6 +221,10 @@ class ModelPipeline:
         self,
         model: CustomNeuralForecast,
         window_size: int,
+        dataset_target: str,
+        dataset_group_target: str,
+        dataset_source: str,
+        dataset_group_source: str,
         mode: str = "in_domain",
     ) -> pd.DataFrame:
         """
@@ -228,13 +232,28 @@ class ModelPipeline:
         """
         model_name = str(model.models[0])
 
-        mode_suffix = f"_{mode}"
+        dataset_desc = f"{dataset_source}-{dataset_group_source}"
+        dataset_name_for_title = dataset_source
+        dataset_group_for_title = dataset_group_source
 
-        if mode in ("in_domain", "out_domain"):
+        if mode == "in_domain":
             df_y_preprocess = self._preprocess_context(window_size)
             df_y_hat = model.predict(df=df_y_preprocess)
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
+        if mode == "out_domain":
+            df_y_preprocess = self._preprocess_context(window_size)
+            df_y_hat = model.predict(df=df_y_preprocess)
+            # df_y are only the series on the test set bucket of series
+            df_y = self.test_long
+
+            dataset_desc = (
+                f"{dataset_source}-{dataset_group_source}"
+                f"_to_"
+                f"{dataset_target}-{dataset_group_target}"
+            )
+            dataset_name_for_title = f"{dataset_source}→{dataset_target}"
+            dataset_group_for_title = f"{dataset_group_source}→{dataset_group_target}"
         elif mode == "basic_forecasting":
             df_y_hat = model.predict(df=self.trainval_long_basic_forecast)
             # df_y is the complete original dataset
@@ -250,14 +269,21 @@ class ModelPipeline:
         if "y_true" in df_y.columns:
             df_y = df_y.rename(columns={"y_true": "y"})
 
+        suffix_name = f"{model_name}-last-window-one-pass_{mode}_{dataset_desc}"
+        title = (
+            f"{model_name} • Last-window one-pass ({mode.replace('_', ' ')}) — "
+            f"{dataset_name_for_title} [{dataset_group_for_title}]"
+        )
+
         plot_generated_vs_original(
             synth_data=df_y_hat[["unique_id", "ds", "y"]],
             original_data=df_y[["unique_id", "ds", "y"]],
-            dataset_name=self.hp.dataset_name,
-            dataset_group=self.hp.dataset_group,
+            dataset_name=dataset_name_for_title,
+            dataset_group=dataset_group_for_title,
             model_name=model_name,
             n_series=8,
-            suffix_name=f"{model_name}-last-window-one-pass_{mode_suffix}",
+            suffix_name=suffix_name,
+            title=title,
         )
 
         df_y.rename(columns={"y": "y_true"}, inplace=True)

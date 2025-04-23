@@ -1,9 +1,12 @@
 import os
 import numpy as np
 import pandas as pd
-from pandas.api.types import CategoricalDtype
 from typing import List, Tuple, Dict
+from pathlib import Path
+from typing import Dict, Tuple
+import joblib
 import json
+from pandas.api.types import CategoricalDtype
 from sklearn.preprocessing import StandardScaler
 from hitgen.load_data.config import DATASETS
 
@@ -428,6 +431,17 @@ class DataPipeline:
         Apply preprocessing to raw time series, split into training, validation, and testing,
         compute periodic Fourier features, and return all relevant DataFrames.
         """
+        cache_dir = Path("assets/processed_datasets")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = (
+            cache_dir / f"{self.dataset_name}_{self.dataset_group}_features.pkl"
+        )
+
+        if cache_path.exists():
+            print("✓ Loaded cached feature‑engineering dictionary.")
+            return joblib.load(cache_path)
+
+        print("• Computing heavy feature‑engineering")
         min_length = self.window_size + 2 * self.h
 
         if isinstance(self.df["unique_id"].dtype, CategoricalDtype):
@@ -561,7 +575,7 @@ class DataPipeline:
             test_wide_transf, self.df, unique_ids=self.test_ids, ds=self.ds_test
         )
 
-        return {
+        feature_dict = {
             # wide Data
             "original_wide": original_wide,
             "train_wide": train_wide,
@@ -586,7 +600,26 @@ class DataPipeline:
             "original_val_wide_transf": val_wide_transf,
             "original_trainval_wide_transf": trainval_wide_transf,
             "original_test_wide_transf": test_wide_transf,
+            # scalers
+            "scaler": self.scaler,
+            "scaler_train": self.scaler_train,
+            "scaler_val": self.scaler_val,
+            "scaler_trainval": self.scaler_trainval,
+            "scaler_test": self.scaler_test,
+            "scaler_test_dict": self.scaler_test_dict,
+            # splits/meta
+            "train_ids": self.train_ids,
+            "val_ids": self.val_ids,
+            "test_ids": self.test_ids,
+            "ds_train": self.ds_train,
+            "ds_val": self.ds_val,
+            "ds_trainval": self.ds_trainval,
+            "ds_test": self.ds_test,
         }
+
+        joblib.dump(feature_dict, cache_path)
+        print(f"  → cached feature‑engineering dictionary at {cache_path.name}")
+        return feature_dict
 
     @staticmethod
     def _mark_train_val_test(group, window_size, horizon):
@@ -610,21 +643,35 @@ class DataPipeline:
         return pd.Series(labels, index=group.index)
 
     def _feature_engineering_basic_forecast(self):
-        df = self.df.sort_values(by=["unique_id", "ds"]).copy()
-
-        # mark each row with its fold (train, val, test, or skip)
-        df["fold"] = df.groupby("unique_id", group_keys=False).apply(
-            lambda g: self._mark_train_val_test(g, self.window_size, self.h)
+        cache_dir = Path("assets/processed_datasets")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = (
+            cache_dir / f"{self.dataset_name}_{self.dataset_group}_basic_forecast.pkl"
         )
 
-        df = df[df["fold"] != "skip"]
+        if cache_path.exists():
+            basic_dict = joblib.load(cache_path)
+            print("✓ Loaded cached basic‑forecast splits.")
+        else:
+            df = self.df.sort_values(by=["unique_id", "ds"]).copy()
 
-        train_long = df[df["fold"] == "train"]
-        val_long = df[df["fold"] == "val"]
-        test_long = df[df["fold"] == "test"]
-        trainval_long = df[df["fold"] != "test"]
+            # mark each row with its fold (train, val, test, or skip)
+            df["fold"] = df.groupby("unique_id", group_keys=False).apply(
+                lambda g: self._mark_train_val_test(g, self.window_size, self.h)
+            )
 
-        self.original_train_long_basic_forecast = train_long
-        self.original_val_long_basic_forecast = val_long
-        self.original_test_long_basic_forecast = test_long
-        self.original_trainval_long_basic_forecast = trainval_long
+            df = df[df["fold"] != "skip"]
+
+            basic_dict = {
+                "train_long": df[df["fold"] == "train"],
+                "val_long": df[df["fold"] == "val"],
+                "test_long": df[df["fold"] == "test"],
+                "trainval_long": df[df["fold"] != "test"],
+            }
+            joblib.dump(basic_dict, cache_path)
+            print(f"  → cached basic‑forecast splits at {cache_path.name}")
+
+        self.original_train_long_basic_forecast = basic_dict["train_long"]
+        self.original_val_long_basic_forecast = basic_dict["val_long"]
+        self.original_test_long_basic_forecast = basic_dict["test_long"]
+        self.original_trainval_long_basic_forecast = basic_dict["trainval_long"]

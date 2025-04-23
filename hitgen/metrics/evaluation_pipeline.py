@@ -62,7 +62,13 @@ def evaluation_pipeline_hitgen_forecast(
     row_forecast["Method"] = model_name
 
     forecast_df_last_window_horizon = pipeline.predict_from_last_window_one_pass(
-        model=model, window_size=window_size, mode=mode
+        model=model,
+        window_size=window_size,
+        mode=mode,
+        dataset_target=dataset,
+        dataset_group_target=dataset_group,
+        dataset_source=dataset_source,
+        dataset_group_source=dataset_group_source,
     )
 
     if forecast_df_last_window_horizon.empty:
