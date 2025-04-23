@@ -15,6 +15,7 @@ def evaluation_pipeline_hitgen_forecast(
     freq: str,
     row_forecast: dict,
     window_size: int = None,
+    window_size_source: int = None,
     dataset_source: str = None,
     dataset_group_source: str = None,
     mode: str = "in_domain",
@@ -64,12 +65,14 @@ def evaluation_pipeline_hitgen_forecast(
     forecast_df_last_window_horizon = pipeline.predict_from_last_window_one_pass(
         model=model,
         window_size=window_size,
+        window_size_source=window_size_source,
         mode=mode,
         dataset_target=dataset,
         dataset_group_target=dataset_group,
         dataset_source=dataset_source,
         dataset_group_source=dataset_group_source,
         freq=freq,
+        h=horizon,
     )
 
     if forecast_df_last_window_horizon.empty:

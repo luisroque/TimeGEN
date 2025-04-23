@@ -21,16 +21,16 @@ from hitgen.experiments.helper import (
 
 
 DATASET_GROUP_FREQ = {
-    "Tourism": {
-        "Monthly": {"FREQ": "M", "H": 24},
-    },
-    "M1": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
-    },
+    # "Tourism": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    # },
+    # "M1": {
+    #     "Monthly": {"FREQ": "M", "H": 24},
+    #     "Quarterly": {"FREQ": "Q", "H": 8},
+    # },
     "M3": {
-        "Monthly": {"FREQ": "M", "H": 24},
-        "Quarterly": {"FREQ": "Q", "H": 8},
+        # "Monthly": {"FREQ": "M", "H": 24},
+        # "Quarterly": {"FREQ": "Q", "H": 8},
         "Yearly": {"FREQ": "Y", "H": 4},
     },
     "M4": {
@@ -138,6 +138,7 @@ if __name__ == "__main__":
                                 dataset_group_source=DATASET_GROUP_TL,
                                 mode="out_domain",
                                 window_size=H,
+                                window_size_source=H_TL,
                             )
 
                             dataset_group_results.append(row_forecast_tl)

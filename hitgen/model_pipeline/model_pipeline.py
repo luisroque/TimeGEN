@@ -203,29 +203,41 @@ class ModelPipeline:
         last_window_end = n - horizon
         return group.iloc[:last_window_end].copy()
 
-    def _preprocess_context(self, window_size: int) -> pd.DataFrame:
+    def _preprocess_context(
+        self, window_size: int, window_size_source: int = None
+    ) -> pd.DataFrame:
+        if window_size_source is not None:
+            window_size = min(window_size, window_size_source)
         df_test = self.hp.original_test_long.sort_values(["unique_id", "ds"])
 
         df_context = df_test.groupby(
             "unique_id", group_keys=True, as_index=False
         ).apply(
             lambda g: self._mark_context_rows(
-                group=g, window_size=window_size, horizon=self.h
+                group=g, window_size=window_size, horizon=window_size
             )
         )
         df_context = df_context.reset_index(drop=True)
 
         return df_context[["unique_id", "ds", "y"]].sort_values(["unique_id", "ds"])
 
+    @staticmethod
+    def _mark_prediction_rows(group: pd.DataFrame, horizon: int) -> pd.DataFrame:
+
+        last_window_end = horizon
+        return group.iloc[:last_window_end].copy()
+
     def predict_from_last_window_one_pass(
         self,
         model: CustomNeuralForecast,
         window_size: int,
+        window_size_source: int,
         dataset_target: str,
         dataset_group_target: str,
         dataset_source: str,
         dataset_group_source: str,
         freq: str,
+        h: int,
         mode: str = "in_domain",
     ) -> pd.DataFrame:
         """
@@ -238,13 +250,24 @@ class ModelPipeline:
         dataset_group_for_title = dataset_group_source
 
         if mode == "in_domain":
-            df_y_preprocess = self._preprocess_context(window_size)
+            df_y_preprocess = self._preprocess_context(window_size=window_size, h=h)
             df_y_hat = model.predict(df=df_y_preprocess, freq=freq)
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
         elif mode == "out_domain":
-            df_y_preprocess = self._preprocess_context(window_size)
-            df_y_hat = model.predict(df=df_y_preprocess, freq=freq)
+            df_y_preprocess = self._preprocess_context(
+                window_size_source=window_size_source,
+                window_size=window_size,
+            )
+            df_y_hat_raw = model.predict(df=df_y_preprocess, freq=freq)
+
+            df_y_hat = df_y_hat_raw.groupby(
+                "unique_id", group_keys=True, as_index=False
+            ).apply(lambda g: self._mark_prediction_rows(group=g, horizon=window_size))
+            df_y_hat = df_y_hat.reset_index(drop=True)
+
+            df_y_hat.sort_values(["unique_id", "ds"], inplace=True)
+
             # df_y are only the series on the test set bucket of series
             df_y = self.test_long
 
@@ -265,7 +288,9 @@ class ModelPipeline:
             )
 
         df_y_hat.rename(columns={model_name: "y"}, inplace=True)
-        df_y_hat = df_y_hat.groupby("unique_id", group_keys=False).tail(self.hp.h)
+        df_y_hat = df_y_hat.groupby("unique_id", group_keys=False).tail(
+            window_size_source
+        )
 
         if "y_true" in df_y.columns:
             df_y = df_y.rename(columns={"y_true": "y"})
