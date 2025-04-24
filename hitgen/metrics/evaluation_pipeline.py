@@ -4,7 +4,7 @@ import numpy as np
 
 from hitgen.model_pipeline.model_pipeline import ModelPipeline
 from hitgen.model_pipeline.core.core_extension import CustomNeuralForecast
-from hitgen.metrics.evaluation_metrics import smape, mase
+from hitgen.metrics.evaluation_metrics import smape, mase, mae, rmse, rmsse
 
 
 def evaluation_pipeline_hitgen_forecast(
@@ -122,6 +122,35 @@ def evaluation_pipeline_hitgen_forecast(
                 key = metric_prefix.format(metric="MASE", stat=stat_name)
                 row_forecast[key] = value
                 print(f"[MASE/{stat_name} ({mode})] = {value:.4f}")
+
+            mae_series = forecast_horizon.groupby("unique_id").apply(
+                lambda df: mae(df["y_true"], df["y"])
+            )
+            for stat, agg in {"MEDIAN": np.nanmedian, "MEAN": np.nanmean}.items():
+                val = float(round(agg(mae_series), 4))
+                row_forecast[metric_prefix.format(metric="MAE", stat=stat)] = val
+                print(f"[MAE/{stat} ({mode})]  = {val:.4f}")
+
+            rmse_series = forecast_horizon.groupby("unique_id").apply(
+                lambda df: rmse(df["y_true"], df["y"])
+            )
+            for stat, agg in {"MEDIAN": np.nanmedian, "MEAN": np.nanmean}.items():
+                val = float(round(agg(rmse_series), 4))
+                row_forecast[metric_prefix.format(metric="RMSE", stat=stat)] = val
+                print(f"[RMSE/{stat} ({mode})] = {val:.4f}")
+
+            rmsse_series = forecast_df_last_window_horizon.groupby("unique_id").apply(
+                lambda d: rmsse(
+                    d["y_true"],
+                    d["y"],
+                    h=int(min(window_size, window_size_source)),
+                    m=period,
+                )
+            )
+            for stat, agg in {"MEDIAN": np.nanmedian, "MEAN": np.nanmean}.items():
+                val = float(round(agg(rmsse_series), 4))
+                row_forecast[metric_prefix.format(metric="RMSSE", stat=stat)] = val
+                print(f"[RMSSE/{stat} ({mode})] = {val:.4f}")
 
     with open(results_file, "w") as f:
         json.dump(row_forecast, f)
