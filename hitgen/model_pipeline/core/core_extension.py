@@ -22,6 +22,9 @@ from neuralforecast.core import (
     LocalFilesTimeSeriesDataset,
     _FilesDataset,
     get_prediction_interval_method,
+    PredictionIntervals,
+    DistributedConfig,
+    Sequence,
 )
 
 nf_core.MODEL_FILENAME_DICT.update(
@@ -140,6 +143,151 @@ class CustomNeuralForecast(NeuralForecast):
         my_nf._cs_df = config_dict.get("_cs_df", None)
 
         return my_nf
+
+    def fit(
+        self,
+        df: Optional[Union[DataFrame, SparkDataFrame, Sequence[str]]] = None,
+        static_df: Optional[Union[DataFrame, SparkDataFrame]] = None,
+        val_size: Optional[int] = 0,
+        use_init_models: bool = False,
+        verbose: bool = False,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        target_col: str = "y",
+        distributed_config: Optional[DistributedConfig] = None,
+        prediction_intervals: Optional[PredictionIntervals] = None,
+    ) -> None:
+        """Fit the core.NeuralForecast.
+
+        Fit `models` to a large set of time series from DataFrame `df`.
+        and store fitted models for later inspection.
+
+        Parameters
+        ----------
+        df : pandas, polars or spark DataFrame, or a list of parquet files containing the series, optional (default=None)
+            DataFrame with columns [`unique_id`, `ds`, `y`] and exogenous variables.
+            If None, a previously stored dataset is required.
+        static_df : pandas, polars or spark DataFrame, optional (default=None)
+            DataFrame with columns [`unique_id`] and static exogenous.
+        val_size : int, optional (default=0)
+            Size of validation set.
+        use_init_models : bool, optional (default=False)
+            Use initial model passed when NeuralForecast object was instantiated.
+        verbose : bool (default=False)
+            Print processing steps.
+        id_col : str (default='unique_id')
+            Column that identifies each serie.
+        time_col : str (default='ds')
+            Column that identifies each timestep, its values can be timestamps or integers.
+        target_col : str (default='y')
+            Column that contains the target.
+        distributed_config : neuralforecast.DistributedConfig
+            Configuration to use for DDP training. Currently only spark is supported.
+        prediction_intervals : PredictionIntervals, optional (default=None)
+            Configuration to calibrate prediction intervals (Conformal Prediction).
+
+        Returns
+        -------
+        self : NeuralForecast
+            Returns `NeuralForecast` class with fitted `models`.
+        """
+        if (df is None) and not (hasattr(self, "dataset")):
+            raise Exception("You must pass a DataFrame or have one stored.")
+
+        # Model and datasets interactions protections
+        if (
+            any(model.early_stop_patience_steps > 0 for model in self.models)
+            and val_size == 0
+        ):
+            raise Exception("Set val_size>0 if early stopping is enabled.")
+
+        self._cs_df: Optional[DataFrame] = None
+        self.prediction_intervals: Optional[PredictionIntervals] = None
+
+        # Process and save new dataset (in self)
+        if isinstance(df, (pd.DataFrame, pl_DataFrame)):
+            # validate_freq(df[time_col], self.freq)
+            self.dataset, self.uids, self.last_dates, self.ds = self._prepare_fit(
+                df=df,
+                static_df=static_df,
+                predict_only=False,
+                id_col=id_col,
+                time_col=time_col,
+                target_col=target_col,
+            )
+            if prediction_intervals is not None:
+                self.prediction_intervals = prediction_intervals
+                self._cs_df = self._conformity_scores(
+                    df=df,
+                    id_col=id_col,
+                    time_col=time_col,
+                    target_col=target_col,
+                    static_df=static_df,
+                )
+
+        elif isinstance(df, SparkDataFrame):
+            if static_df is not None and not isinstance(static_df, SparkDataFrame):
+                raise ValueError(
+                    "`static_df` must be a spark dataframe when `df` is a spark dataframe."
+                )
+            self.dataset = self._prepare_fit_distributed(
+                df=df,
+                static_df=static_df,
+                id_col=id_col,
+                time_col=time_col,
+                target_col=target_col,
+                distributed_config=distributed_config,
+            )
+
+            if prediction_intervals is not None:
+                raise NotImplementedError(
+                    "Prediction intervals are not supported for distributed training."
+                )
+
+        elif isinstance(df, Sequence):
+            if not all(isinstance(val, str) for val in df):
+                raise ValueError(
+                    "All entries in the list of files must be of type string"
+                )
+            self.dataset = self._prepare_fit_for_local_files(
+                files_list=df,
+                static_df=static_df,
+                id_col=id_col,
+                time_col=time_col,
+                target_col=target_col,
+            )
+            self.uids = self.dataset.indices
+            self.last_dates = self.dataset.last_times
+
+            if prediction_intervals is not None:
+                raise NotImplementedError(
+                    "Prediction intervals are not supported for local files."
+                )
+
+        elif df is None:
+            if verbose:
+                print("Using stored dataset.")
+        else:
+            raise ValueError(
+                f"`df` must be a pandas, polars or spark DataFrame, or a list of parquet files containing the series, or `None`, got: {type(df)}"
+            )
+
+        if val_size is not None:
+            if self.dataset.min_size < val_size:
+                warnings.warn(
+                    "Validation set size is larger than the shorter time-series."
+                )
+
+        # Recover initial model if use_init_models
+        if use_init_models:
+            self._reset_models()
+
+        for i, model in enumerate(self.models):
+            self.models[i] = model.fit(
+                self.dataset, val_size=val_size, distributed_config=distributed_config
+            )
+
+        self._fitted = True
 
     def predict(
         self,
