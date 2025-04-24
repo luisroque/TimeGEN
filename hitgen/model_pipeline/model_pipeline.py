@@ -110,16 +110,16 @@ class ModelPipeline:
 
         model_list = [
             ("AutoHiTGen", AutoHiTGen),
-            ("AutoHiTGenDeep", AutoHiTGenDeep),
-            ("AutoHiTGenMixture", AutoHiTGenMixture),
-            ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
-            ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
-            ("AutoNHITS", AutoNHITS),
-            ("AutoKAN", AutoKAN),
-            ("AutoPatchTST", AutoPatchTST),
-            ("AutoiTransformer", AutoiTransformer),
-            ("AutoTSMixer", AutoTSMixer),
-            ("AutoTFT", AutoTFT),
+            # ("AutoHiTGenDeep", AutoHiTGenDeep),
+            # ("AutoHiTGenMixture", AutoHiTGenMixture),
+            # ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
+            # ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+            # ("AutoNHITS", AutoNHITS),
+            # ("AutoKAN", AutoKAN),
+            # ("AutoPatchTST", AutoPatchTST),
+            # ("AutoiTransformer", AutoiTransformer),
+            # ("AutoTSMixer", AutoTSMixer),
+            # ("AutoTFT", AutoTFT),
         ]
 
         weights_folder = "assets/model_weights"

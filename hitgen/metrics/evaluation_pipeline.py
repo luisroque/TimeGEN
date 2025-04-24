@@ -23,11 +23,8 @@ def evaluation_pipeline_hitgen_forecast(
     mode: str = "in_domain",
 ) -> None:
     """
-    Evaluate direct forecasting for up to three forecast approaches:
-      1) 'first window' forecast horizon
-      2) 'autoregressive' forecast of the entire series
-      3) 'last window' forecast horizon
-    and compute the sMAPE per series.
+    Evaluate forecast for different modes: basic forecasting and transfer learning
+    in domain and out of domain
     """
     results_folder = f"assets/results_forecast_{mode}"
     os.makedirs(results_folder, exist_ok=True)

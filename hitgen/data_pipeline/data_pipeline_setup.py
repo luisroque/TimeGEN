@@ -50,7 +50,7 @@ class DataPipeline:
         self.y = self.data
         self.n = self.data.shape[0]
         self.df = pd.DataFrame(self.data)
-        self.df.asfreq(self.freq)
+        # self.df.asfreq(self.freq)
         self.h = horizon
         self.window_size = window_size
 
@@ -62,7 +62,6 @@ class DataPipeline:
         print(f"   - Average number of time points per series: {avg_time_points:.2f}")
 
         self.features_input = (None, None, None)
-        self.long_properties = {}
         self.split_path = f"assets/model_weights/data_split/{dataset_name}_{dataset_group}_data_split.json"
         self.unique_ids = np.sort(self.df["unique_id"].unique())
 
@@ -84,39 +83,11 @@ class DataPipeline:
         self._feature_engineering_basic_forecast()
         feature_dict = self._feature_engineering()
 
-        # original Data
-        self.original_wide = feature_dict["original_wide"]
         self.original_long = feature_dict["original_long"]
-        self.original_long_transf = feature_dict["original_long_transf"]
-        self.original_wide_transf = feature_dict["original_wide_transf"]
-
-        # training Data
-        self.original_train_wide = feature_dict["train_wide"]
         self.original_train_long = feature_dict["train_long"]
-        self.original_train_long_transf = feature_dict["original_train_long_transf"]
-        self.original_train_wide_transf = feature_dict["original_train_wide_transf"]
-
-        # validation data
-        self.original_val_wide = feature_dict["val_wide"]
         self.original_val_long = feature_dict["val_long"]
-        self.original_val_long_transf = feature_dict["original_val_long_transf"]
-        self.original_val_wide_transf = feature_dict["original_val_wide_transf"]
-
-        # trainval data
-        self.original_trainval_wide = feature_dict["trainval_wide"]
         self.original_trainval_long = feature_dict["trainval_long"]
-        self.original_trainval_long_transf = feature_dict[
-            "original_trainval_long_transf"
-        ]
-        self.original_trainval_wide_transf = feature_dict[
-            "original_trainval_wide_transf"
-        ]
-
-        # test data
-        self.original_test_wide = feature_dict["test_wide"]
         self.original_test_long = feature_dict["test_long"]
-        self.original_test_long_transf = feature_dict["original_test_long_transf"]
-        self.original_test_wide_transf = feature_dict["original_test_wide_transf"]
 
     @staticmethod
     def load_data(dataset_name: str, group: str) -> Tuple[pd.DataFrame, int, str]:
@@ -134,60 +105,6 @@ class DataPipeline:
         freq = data_cls.frequency_pd[group]
         n_series = int(ds.nunique()["unique_id"])
         return ds, n_series, freq
-
-    def create_dataset_long_form(
-        self,
-        data: pd.DataFrame,
-        original: pd.DataFrame,
-        unique_ids: List = None,
-        ds: pd.DatetimeIndex = None,
-    ) -> pd.DataFrame:
-        df = pd.DataFrame(data)
-        df.sort_index(ascending=True, inplace=True)
-
-        if unique_ids is None:
-            df.columns = self.long_properties["unique_id"]
-            df["ds"] = self.long_properties["ds"]
-        else:
-            df.columns = unique_ids
-            df["ds"] = ds
-
-        data_long = df.melt(id_vars=["ds"], var_name="unique_id", value_name="y")
-        data_long = data_long.sort_values(by=["unique_id", "ds"])
-
-        # keep only values that exist in the original
-        data_long = data_long.merge(
-            original[["unique_id", "ds"]], on=["unique_id", "ds"], how="inner"
-        )
-
-        return data_long
-
-    @staticmethod
-    def _create_dataset_wide_form(
-        data_long: pd.DataFrame,
-        ids: List[str],
-        full_dates: pd.DatetimeIndex,
-        fill_nans: bool = True,
-    ) -> pd.DataFrame:
-        """
-        Transforms a long-form dataset back to wide form ensuring the
-        right order of the columns
-        """
-        if not {"ds", "unique_id", "y"}.issubset(data_long.columns):
-            raise ValueError(
-                "Input DataFrame must contain 'ds', 'unique_id', and 'y' columns."
-            )
-
-        data_long = data_long.sort_values(by=["unique_id", "ds"])
-        data_wide = data_long.pivot(index="ds", columns="unique_id", values="y")
-        data_wide = data_wide.sort_index(ascending=True)
-        data_wide = data_wide.reindex(index=full_dates, columns=ids)
-        data_wide.index.name = "ds"
-
-        if fill_nans:
-            data_wide = data_wide.fillna(0)
-
-        return data_wide
 
     def check_series_in_train_test(
         self,
@@ -246,8 +163,8 @@ class DataPipeline:
 
         # ensuring that we have in the training set at least one series
         # that starts with the min date
-        ds_min = self.long_properties["ds"].min()
-        ds_max = self.long_properties["ds"].max()
+        ds_min = self.df["ds"].min()
+        ds_max = self.df["ds"].max()
 
         train_ids, test_ids = self.check_series_in_train_test(
             ds_min, train_ids, test_ids
@@ -257,30 +174,6 @@ class DataPipeline:
         )
 
         return train_ids.tolist(), val_ids.tolist(), test_ids.tolist()
-
-    def _preprocess_data(
-        self, df: pd.DataFrame, ids: List[str]
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """Sort and preprocess the data for feature engineering."""
-        self.full_dates = pd.DatetimeIndex(sorted(df.ds.unique()))
-
-        x_wide = self._create_dataset_wide_form(
-            data_long=df,
-            ids=ids,
-            fill_nans=False,
-            full_dates=self.full_dates,
-        )
-
-        self.long_properties["ds"] = x_wide.reset_index()["ds"].values
-        self.long_properties["unique_id"] = x_wide.columns.values
-
-        # create mask before padding
-        mask = (~x_wide.isna()).astype(int)
-
-        # padding
-        x_wide_filled = x_wide.fillna(0.0)
-
-        return x_wide_filled, mask, x_wide_filled
 
     @staticmethod
     def _monthly_index(dates: pd.DatetimeIndex) -> np.ndarray:
@@ -347,7 +240,6 @@ class DataPipeline:
     ) -> Dict[str, pd.DataFrame]:
         """
         Apply preprocessing to raw time series, split into training, validation, and testing,
-        compute periodic Fourier features, and return all relevant DataFrames.
         """
         cache_dir = Path("assets/processed_datasets")
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -365,32 +257,11 @@ class DataPipeline:
         if isinstance(self.df["unique_id"].dtype, CategoricalDtype):
             self.df["unique_id"] = self.df["unique_id"].astype(str)
         self.ids = self.df["unique_id"].unique().sort()
-        original_wide_filled, mask_original_wide, original_wide = self._preprocess_data(
-            self.df, self.ids
-        )
 
-        # scalers
-        self.scaler = StandardScaler()
-        self.scaler_train = StandardScaler()
-        self.scaler_val = StandardScaler()
-        self.scaler_trainval = StandardScaler()
-        self.scaler_test = StandardScaler()
+        original_long = self.df.copy()
 
-        original_wide_transf = pd.DataFrame(
-            self.scaler.fit_transform(original_wide_filled),
-            index=original_wide_filled.index,
-            columns=original_wide_filled.columns,
-        )
-
-        original_long = self.create_dataset_long_form(original_wide, self.df)
         self.ds_original = pd.DatetimeIndex(original_long["ds"].unique()).sort_values()
         self.unique_ids_original = sorted(original_long["unique_id"].unique())
-        original_long_transf = self.create_dataset_long_form(
-            original_wide_transf,
-            self.df,
-            unique_ids=self.unique_ids_original,
-            ds=self.ds_original,
-        )
 
         # splitting into train, validation, and test sets
         self.train_ids, self.val_ids, self.test_ids = self._load_or_create_split(
@@ -409,38 +280,12 @@ class DataPipeline:
         self.ds_train = pd.DatetimeIndex(train_long["ds"].unique()).sort_values()
         self.unique_ids_train = sorted(train_long["unique_id"].unique())
 
-        # convert training long -> wide
-        train_wide = self._create_dataset_wide_form(
-            data_long=train_long, ids=self.train_ids, full_dates=self.ds_train
-        )
-        train_wide_transf = pd.DataFrame(
-            self.scaler_train.fit_transform(train_wide),
-            index=train_wide.index,
-            columns=train_wide.columns,
-        )
-        train_long_transf = self.create_dataset_long_form(
-            train_wide_transf, self.df, unique_ids=self.train_ids, ds=self.ds_train
-        )
-
         ### VALIDATION DATA ###
         val_long = original_long[original_long["unique_id"].isin(self.val_ids)]
         val_long = self._skip_short_series(val_long, min_length)
 
         self.ds_val = pd.DatetimeIndex(val_long["ds"].unique()).sort_values()
         self.unique_ids_val = sorted(val_long["unique_id"].unique())
-
-        # convert validation long -> wide
-        val_wide = self._create_dataset_wide_form(
-            data_long=val_long, ids=self.val_ids, full_dates=self.ds_val
-        )
-        val_wide_transf = pd.DataFrame(
-            self.scaler_val.fit_transform(val_wide),
-            index=val_wide.index,
-            columns=val_wide.columns,
-        )
-        val_long_transf = self.create_dataset_long_form(
-            val_wide_transf, self.df, unique_ids=self.val_ids, ds=self.ds_val
-        )
 
         ### TRAIN + VALIDATION DATA ###
         trainval_ids = self.train_ids + self.val_ids
@@ -451,22 +296,6 @@ class DataPipeline:
         self.ds_trainval = pd.DatetimeIndex(trainval_long["ds"].unique()).sort_values()
         self.unique_ids_trainval = sorted(trainval_long["unique_id"].unique())
 
-        # convert validation long -> wide
-        trainval_wide = self._create_dataset_wide_form(
-            data_long=trainval_long,
-            ids=trainval_ids,
-            full_dates=self.ds_trainval,
-        )
-        trainval_wide_transf = pd.DataFrame(
-            self.scaler_trainval.fit_transform(trainval_wide),
-            index=trainval_wide.index,
-            columns=trainval_wide.columns,
-        )
-
-        trainval_long_transf = self.create_dataset_long_form(
-            trainval_wide_transf, self.df, unique_ids=trainval_ids, ds=self.ds_trainval
-        )
-
         ### TESTING DATA ###
         test_long = original_long[original_long["unique_id"].isin(self.test_ids)]
         test_long = self._skip_short_series(test_long, min_length)
@@ -474,57 +303,13 @@ class DataPipeline:
         self.ds_test = pd.DatetimeIndex(test_long["ds"].unique()).sort_values()
         self.unique_ids_test = sorted(test_long["unique_id"].unique())
 
-        # convert testing long -> wide
-        test_wide = self._create_dataset_wide_form(
-            data_long=test_long, ids=self.test_ids, full_dates=self.ds_test
-        )
-        test_wide_transf = pd.DataFrame(
-            self.scaler_test.fit_transform(test_wide),
-            index=test_wide.index,
-            columns=test_wide.columns,
-        )
-        self.scaler_test_dict = {}
-        for uid in test_wide.columns:
-            X_col = test_wide[uid].values.reshape(-1, 1)
-            scaler = StandardScaler().fit(X_col)
-            self.scaler_test_dict[uid] = scaler
-
-        test_long_transf = self.create_dataset_long_form(
-            test_wide_transf, self.df, unique_ids=self.test_ids, ds=self.ds_test
-        )
-
         feature_dict = {
-            # wide Data
-            "original_wide": original_wide,
-            "train_wide": train_wide,
-            "val_wide": val_wide,
-            "trainval_wide": trainval_wide,
-            "test_wide": test_wide,
             # long Data
             "original_long": original_long,
             "train_long": train_long,
             "val_long": val_long,
             "trainval_long": trainval_long,
             "test_long": test_long,
-            # transformed Long Data
-            "original_long_transf": original_long_transf,
-            "original_train_long_transf": train_long_transf,
-            "original_val_long_transf": val_long_transf,
-            "original_trainval_long_transf": trainval_long_transf,
-            "original_test_long_transf": test_long_transf,
-            # wide Transformed Data
-            "original_wide_transf": original_wide_transf,
-            "original_train_wide_transf": train_wide_transf,
-            "original_val_wide_transf": val_wide_transf,
-            "original_trainval_wide_transf": trainval_wide_transf,
-            "original_test_wide_transf": test_wide_transf,
-            # scalers
-            "scaler": self.scaler,
-            "scaler_train": self.scaler_train,
-            "scaler_val": self.scaler_val,
-            "scaler_trainval": self.scaler_trainval,
-            "scaler_test": self.scaler_test,
-            "scaler_test_dict": self.scaler_test_dict,
             # splits/meta
             "train_ids": self.train_ids,
             "val_ids": self.val_ids,
