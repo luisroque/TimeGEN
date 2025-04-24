@@ -107,7 +107,10 @@ def summarize_metric(
             .reset_index()
             .rename(columns={"Rank": "Rank"})
         )
-        sort_by = aggregate_by + ["Rank"]
+        if aggregate_by == ["Method"]:
+            sort_by = ["Rank"]
+        else:
+            sort_by = aggregate_by + ["Rank"]
         summary.sort_values(by=sort_by, inplace=True)
 
     elif mode == "mean":
@@ -117,7 +120,10 @@ def summarize_metric(
             .reset_index()
             .rename(columns={metric: metric})
         )
-        sort_by = aggregate_by + [metric]
+        if aggregate_by == ["Method"]:
+            sort_by = [metric]
+        else:
+            sort_by = aggregate_by + [metric]
         summary.sort_values(by=sort_by, inplace=True)
 
     else:

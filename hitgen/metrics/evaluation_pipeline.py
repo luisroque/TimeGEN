@@ -29,6 +29,9 @@ def evaluation_pipeline_hitgen_forecast(
     results_folder = f"assets/results_forecast_{mode}"
     os.makedirs(results_folder, exist_ok=True)
 
+    if window_size_source is None:
+        window_size_source = window_size
+
     model_name = str(model.models[0])
 
     if dataset_source:

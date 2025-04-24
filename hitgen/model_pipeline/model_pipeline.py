@@ -23,6 +23,7 @@ from hitgen.visualization.model_visualization import (
 )
 from hitgen.model_pipeline.core.core_extension import CustomNeuralForecast
 
+
 AutoModelType = Union[
     AutoNHITS,
     AutoKAN,
@@ -38,7 +39,32 @@ AutoModelType = Union[
 ]
 
 
-class ModelPipeline:
+class _ModelListMixin:
+    """
+    Mixin that provides a `get_model_list()` method.
+    Subclasses can override `MODEL_LIST` or `get_model_list`
+    to control exactly which Auto-models are trained.
+    """
+
+    MODEL_LIST: list[tuple[str, AutoModelType]] = [
+        ("AutoHiTGen", AutoHiTGen),
+        ("AutoHiTGenDeep", AutoHiTGenDeep),
+        ("AutoHiTGenMixture", AutoHiTGenMixture),
+        ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
+        ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        ("AutoNHITS", AutoNHITS),
+        ("AutoKAN", AutoKAN),
+        ("AutoPatchTST", AutoPatchTST),
+        ("AutoiTransformer", AutoiTransformer),
+        ("AutoTSMixer", AutoTSMixer),
+        ("AutoTFT", AutoTFT),
+    ]
+
+    def get_model_list(self):
+        return self.MODEL_LIST
+
+
+class ModelPipeline(_ModelListMixin):
     """
     pipeline that:
       - Re-uses an existing DataPipeline instance for data splits/freq/horizon.
@@ -92,7 +118,9 @@ class ModelPipeline:
 
         self.models = {}
 
-    def hyper_tune_and_train(self, max_evals=20, mode="in_domain"):
+    def hyper_tune_and_train(
+        self, dataset_source, dataset_group_source, max_evals=20, mode="in_domain"
+    ):
         """
         Trains and hyper-tunes all six models.
         Each data_pipeline does internal time-series cross-validation to select its best hyperparameters.
@@ -108,24 +136,12 @@ class ModelPipeline:
                 f"Unsupported mode: '{mode}'. Supported modes are: 'in_domain', 'out_domain', 'basic_forecasting'."
             )
 
-        model_list = [
-            ("AutoHiTGen", AutoHiTGen),
-            # ("AutoHiTGenDeep", AutoHiTGenDeep),
-            # ("AutoHiTGenMixture", AutoHiTGenMixture),
-            # ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
-            # ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
-            # ("AutoNHITS", AutoNHITS),
-            # ("AutoKAN", AutoKAN),
-            # ("AutoPatchTST", AutoPatchTST),
-            # ("AutoiTransformer", AutoiTransformer),
-            # ("AutoTSMixer", AutoTSMixer),
-            # ("AutoTFT", AutoTFT),
-        ]
+        model_list = self.get_model_list()
 
-        weights_folder = "assets/model_weights"
+        weights_folder = f"assets/model_weights_{mode}"
         os.makedirs(weights_folder, exist_ok=True)
 
-        save_dir = f"assets/model_weights/hypertuning{mode_suffix}"
+        save_dir = f"assets/model_weights_{mode}/hypertuning{mode_suffix}"
         os.makedirs(save_dir, exist_ok=True)
 
         for name, ModelClass in model_list:
@@ -154,7 +170,7 @@ class ModelPipeline:
 
             nf_save_path = os.path.join(
                 save_dir,
-                f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}_neuralforecast",
+                f"{dataset_source}_{dataset_group_source}_{name}_neuralforecast",
             )
 
             if os.path.exists(nf_save_path):
@@ -163,14 +179,14 @@ class ModelPipeline:
                 )
 
                 auto_model = ModelClass(**init_kwargs)
-                nf = CustomNeuralForecast(models=[auto_model], freq=self.hp.freq)
+                nf = CustomNeuralForecast(models=[auto_model], freq=self.freq)
 
                 model = nf.load(path=nf_save_path)
             else:
                 print(f"No saved {name} found. Training & tuning from scratch...")
                 auto_model = ModelClass(**init_kwargs)
-                model = CustomNeuralForecast(models=[auto_model], freq=self.hp.freq)
-                model.fit(df=trainval_long, val_size=self.hp.h)
+                model = CustomNeuralForecast(models=[auto_model], freq=self.freq)
+                model.fit(df=trainval_long, val_size=self.h)
 
                 model.save(path=nf_save_path, overwrite=True, save_dataset=False)
                 print(f"Saved {name} NeuralForecast object to {nf_save_path}")
@@ -178,7 +194,7 @@ class ModelPipeline:
                 results = model.models[0].results.get_dataframe()
                 results_file = os.path.join(
                     save_dir,
-                    f"{self.hp.dataset_name}_{self.hp.dataset_group}_{name}_results.csv",
+                    f"{dataset_source}_{dataset_group_source}_{name}_results.csv",
                 )
                 results.to_csv(results_file, index=False)
                 print(f"Saved tuning results to {results_file}")
@@ -189,7 +205,7 @@ class ModelPipeline:
 
     @staticmethod
     def _mark_context_rows(
-        group: pd.DataFrame, window_size: int, horizon: int
+        group: pd.DataFrame, window_size_source: int, horizon: int
     ) -> pd.DataFrame:
         """
         Given rows for a single unique_id (already sorted by ds),
@@ -197,10 +213,10 @@ class ModelPipeline:
         Return an empty DataFrame if not enough data.
         """
         n = len(group)
-        if n < window_size + horizon:
+        if n < window_size_source + horizon:
             return pd.DataFrame(columns=group.columns)
 
-        cutoff = min(window_size, horizon)
+        cutoff = min(window_size_source, horizon)
 
         last_window_end = n - cutoff
         return group.iloc[:last_window_end].copy()
@@ -211,13 +227,13 @@ class ModelPipeline:
         if not window_size_source:
             window_size_source = window_size
 
-        df_test = self.hp.original_test_long.sort_values(["unique_id", "ds"])
+        df_test = self.test_long.sort_values(["unique_id", "ds"])
 
         df_context = df_test.groupby(
             "unique_id", group_keys=True, as_index=False
         ).apply(
             lambda g: self._mark_context_rows(
-                group=g, window_size=window_size_source, horizon=window_size
+                group=g, window_size_source=window_size_source, horizon=window_size
             )
         )
         df_context = df_context.reset_index(drop=True)
@@ -328,3 +344,39 @@ class ModelPipeline:
         df_y_y_hat = df_y.merge(df_y_hat, on=["unique_id", "ds"], how="left")
 
         return df_y_y_hat
+
+
+class ModelPipelineCoreset(ModelPipeline):
+    """
+    A lightweight version of ModelPipeline that trains the
+    best-performing models on a mixed training set (the coreset)
+    """
+
+    MODEL_LIST = [
+        ("AutoHiTGenMixture", AutoHiTGenMixture),
+        ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        ("AutoPatchTST", AutoPatchTST),
+        ("AutoTFT", AutoTFT),
+    ]
+
+    def __init__(
+        self,
+        long_df: pd.DataFrame,
+        freq: str,
+        h: int,
+    ):
+        self.freq = freq
+        self.h = h
+
+        # coreset itself (train + val)
+        self.trainval_long = long_df.sort_values(["unique_id", "ds"])
+
+        # dummy placeholders so inherited code that references them does not fail
+        self.trainval_long_basic_forecast = self.trainval_long
+        self.original_long_basic_forecast = self.trainval_long
+
+        empty = pd.DataFrame(columns=self.trainval_long.columns)
+        self.test_long = empty
+        self.test_long_basic_forecast = empty
+
+        self.models = {}

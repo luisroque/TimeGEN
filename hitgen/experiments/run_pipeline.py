@@ -7,13 +7,11 @@ args = cmd_parser()
 
 import multiprocessing
 import pandas as pd
-from hitgen.data_pipeline.data_pipeline_setup import (
-    DataPipeline,
-)
+from hitgen.data_pipeline.data_pipeline_setup import DataPipeline, build_mixed_trainval
 from hitgen.metrics.evaluation_pipeline import (
     evaluation_pipeline_hitgen_forecast,
 )
-from hitgen.model_pipeline.model_pipeline import ModelPipeline
+from hitgen.model_pipeline.model_pipeline import ModelPipeline, ModelPipelineCoreset
 from hitgen.experiments.helper import (
     extract_frequency,
     extract_horizon,
@@ -24,25 +22,25 @@ DATASET_GROUP_FREQ = {
     "Tourism": {
         "Monthly": {"FREQ": "M", "H": 24},
     },
-    # "M1": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    # },
-    # "M3": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    #     "Yearly": {"FREQ": "Y", "H": 4},
-    # },
-    # "M4": {
-    #     "Monthly": {"FREQ": "M", "H": 24},
-    #     "Quarterly": {"FREQ": "Q", "H": 8},
-    # },
-    # "Traffic": {
-    #     "Daily": {"FREQ": "D", "H": 30},
-    # },
-    # "M5": {
-    #     "Daily": {"FREQ": "D", "H": 60},
-    # },
+    "M1": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+    "M3": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+        "Yearly": {"FREQ": "Y", "H": 4},
+    },
+    "M4": {
+        "Monthly": {"FREQ": "M", "H": 24},
+        "Quarterly": {"FREQ": "Q", "H": 8},
+    },
+    "Traffic": {
+        "Daily": {"FREQ": "D", "H": 30},
+    },
+    "M5": {
+        "Daily": {"FREQ": "D", "H": 60},
+    },
 }
 
 SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
@@ -72,7 +70,7 @@ SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
 
 
 if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn")
+    # multiprocessing.set_start_method("spawn")
 
     results = []
 
@@ -98,8 +96,6 @@ if __name__ == "__main__":
 
             model_pipeline = ModelPipeline(data_pipeline=data_pipeline)
 
-            test_unique_ids = data_pipeline.original_test_long["unique_id"].unique()
-
             if args.transfer_learning:
                 for (
                     DATASET_TL,
@@ -123,7 +119,10 @@ if __name__ == "__main__":
                         )
 
                         model_pipeline_transfer_learning.hyper_tune_and_train(
-                            max_evals=20, mode="out_domain"
+                            max_evals=20,
+                            mode="out_domain",
+                            dataset_source=DATASET_TL,
+                            dataset_group_source=DATASET_GROUP_TL,
                         )
 
                         for (
@@ -150,9 +149,82 @@ if __name__ == "__main__":
 
                             dataset_group_results.append(row_forecast_tl)
                             results.append(row_forecast_tl)
+            if args.coreset:
+                LOO_RESULTS = []
+
+                all_data_pipelines = {}
+                for ds, groups in DATASET_GROUP_FREQ.items():
+                    for grp, meta in groups.items():
+                        all_data_pipelines[(ds, grp)] = DataPipeline(
+                            dataset_name=ds,
+                            dataset_group=grp,
+                            freq=meta["FREQ"],
+                            horizon=meta["H"],
+                            window_size=meta["H"],
+                        )
+
+                # leave-one-out
+                for (
+                    target_ds,
+                    target_grp,
+                ), target_data_pipeline in all_data_pipelines.items():
+
+                    # gather the source pipelines except the held-out one
+                    source_pipelines = [
+                        data_pipeline
+                        for ds, data_pipeline in all_data_pipelines.items()
+                        if ds != (target_ds, target_grp)
+                    ]
+
+                    dataset_source = "MIXED"
+                    dataset_group = f"ALL_BUT_{target_ds}_{target_grp}"
+                    mixed_trainval = build_mixed_trainval(
+                        source_pipelines,
+                        dataset_source=dataset_source,
+                        dataset_group=dataset_group,
+                    )
+
+                    mixed_freq = "mixed"
+                    mixed_h = target_data_pipeline.h
+
+                    mixed_mp = ModelPipelineCoreset(
+                        mixed_trainval,
+                        freq=mixed_freq,
+                        h=mixed_h,
+                    )
+                    mixed_mp.hyper_tune_and_train(
+                        max_evals=20,
+                        mode="out_domain",
+                        dataset_source=dataset_source,
+                        dataset_group_source=dataset_group,
+                    )
+
+                    heldout_mp = ModelPipeline(target_data_pipeline)
+
+                    for model_name, nf_model in mixed_mp.models.items():
+                        row = {}
+                        evaluation_pipeline_hitgen_forecast(
+                            dataset=target_ds,
+                            dataset_group=target_grp,
+                            pipeline=heldout_mp,
+                            model=nf_model,
+                            horizon=target_data_pipeline.h,
+                            freq=target_data_pipeline.freq,
+                            period=target_data_pipeline.period,
+                            row_forecast=row,
+                            dataset_source=dataset_source,
+                            dataset_group_source=dataset_group,
+                            mode="out_domain",
+                            window_size=target_data_pipeline.h,
+                            window_size_source=target_data_pipeline.h,
+                        )
+                        LOO_RESULTS.append(row)
             elif args.basic_forecasting:
                 model_pipeline.hyper_tune_and_train(
-                    max_evals=20, mode="basic_forecasting"
+                    max_evals=20,
+                    mode="basic_forecasting",
+                    dataset_source=DATASET,
+                    dataset_group_source=DATASET_GROUP,
                 )
 
                 for model_name, model in model_pipeline.models.items():
@@ -163,17 +235,24 @@ if __name__ == "__main__":
                         dataset_group=DATASET_GROUP,
                         model=model,
                         pipeline=model_pipeline,
+                        period=data_pipeline.period,
                         horizon=H,
                         freq=FREQ,
                         row_forecast=row_forecast,
                         window_size=H,
+                        window_size_source=H,
                         mode="basic_forecasting",
                     )
 
                     dataset_group_results.append(row_forecast)
                     results.append(row_forecast)
             else:
-                model_pipeline.hyper_tune_and_train(max_evals=20, mode="in_domain")
+                model_pipeline.hyper_tune_and_train(
+                    max_evals=20,
+                    mode="in_domain",
+                    dataset_source=DATASET,
+                    dataset_group_source=DATASET_GROUP,
+                )
 
                 for model_name, model in model_pipeline.models.items():
                     row_forecast = {}
@@ -183,10 +262,12 @@ if __name__ == "__main__":
                         dataset_group=DATASET_GROUP,
                         model=model,
                         pipeline=model_pipeline,
+                        period=data_pipeline.period,
                         horizon=H,
                         freq=FREQ,
                         row_forecast=row_forecast,
                         window_size=H,
+                        window_size_source=H,
                         mode="in_domain",
                     )
 
@@ -196,6 +277,7 @@ if __name__ == "__main__":
     df_results = pd.DataFrame(results)
 
     os.makedirs("assets", exist_ok=True)
+    os.makedirs("assets/results_forecast", exist_ok=True)
     df_results.to_csv("assets/results_forecast/final_results.csv", index=False)
 
     print("Final forecast results saved to assets/results_forecast/final_results.csv")

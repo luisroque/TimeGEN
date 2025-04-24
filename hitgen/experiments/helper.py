@@ -52,6 +52,11 @@ def cmd_parser():
         help="Perform transfer learning (TL).",
     )
     parser.add_argument(
+        "--coreset",
+        action="store_true",
+        help="Perform transfer learning with coreset dataset and a leave-one-out strategy.",
+    )
+    parser.add_argument(
         "--basic-forecasting",
         action="store_true",
         help="Perform basic forecasting.",

@@ -7,12 +7,31 @@ from typing import Dict, Tuple
 import joblib
 import json
 from pandas.api.types import CategoricalDtype
-from sklearn.preprocessing import StandardScaler
 from hitgen.load_data.config import DATASETS
 
 
-class InvalidFrequencyError(Exception):
-    pass
+def build_mixed_trainval(pipelines, dataset_source, dataset_group):
+    """
+    Returns a single long-form dataframe with all series, prefixing
+    each unique_id with the dataset name to avoid clashes.
+    """
+    long_frames = []
+    for dp in pipelines:
+        lf = dp.original_trainval_long.copy()
+        lf["unique_id"] = f"{dp.dataset_name}_{dp.dataset_group}::" + lf[
+            "unique_id"
+        ].astype(str)
+        long_frames.append(lf)
+
+    mixed = pd.concat(long_frames, ignore_index=True)
+
+    num_series = mixed["unique_id"].nunique()
+    avg_time_points = mixed.groupby("unique_id", observed=True).size().mean()
+
+    print(f"Dataset Summary for {dataset_source} ({dataset_group}):")
+    print(f"   - Total number of time series: {num_series}")
+    print(f"   - Average number of time points per series: {avg_time_points:.2f}")
+    return mixed.sort_values(["unique_id", "ds"])
 
 
 class DataPipeline:
@@ -55,7 +74,7 @@ class DataPipeline:
         self.window_size = window_size
 
         num_series = self.df["unique_id"].nunique()
-        avg_time_points = self.df.groupby("unique_id").size().mean()
+        avg_time_points = self.df.groupby("unique_id", observed=True).size().mean()
 
         print(f"Dataset Summary for {dataset_name} ({dataset_group}):")
         print(f"   - Total number of time series: {num_series}")
@@ -256,7 +275,7 @@ class DataPipeline:
 
         if isinstance(self.df["unique_id"].dtype, CategoricalDtype):
             self.df["unique_id"] = self.df["unique_id"].astype(str)
-        self.ids = self.df["unique_id"].unique().sort()
+        self.ids = np.sort(self.df["unique_id"].unique())
 
         original_long = self.df.copy()
 
@@ -359,7 +378,7 @@ class DataPipeline:
             df = self.df.sort_values(by=["unique_id", "ds"]).copy()
 
             # mark each row with its fold (train, val, test, or skip)
-            df["fold"] = df.groupby("unique_id", group_keys=False).apply(
+            df["fold"] = df.groupby("unique_id", group_keys=False, observed=True).apply(
                 lambda g: self._mark_train_val_test(g, self.window_size, self.h)
             )
 
