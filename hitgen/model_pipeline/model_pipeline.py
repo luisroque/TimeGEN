@@ -200,7 +200,9 @@ class ModelPipeline:
         if n < window_size + horizon:
             return pd.DataFrame(columns=group.columns)
 
-        last_window_end = n - horizon
+        cutoff = min(window_size, horizon)
+
+        last_window_end = n - cutoff
         return group.iloc[:last_window_end].copy()
 
     def _preprocess_context(
@@ -299,9 +301,7 @@ class ModelPipeline:
             )
 
         df_y_hat.rename(columns={model_name: "y"}, inplace=True)
-        df_y_hat = df_y_hat.groupby("unique_id", group_keys=False).tail(
-            window_size_source
-        )
+        df_y_hat = df_y_hat.groupby("unique_id", group_keys=False).tail(h)
 
         if "y_true" in df_y.columns:
             df_y = df_y.rename(columns={"y_true": "y"})

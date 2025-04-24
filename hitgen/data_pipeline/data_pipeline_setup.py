@@ -68,10 +68,10 @@ class DataPipeline:
 
         # map each frequency string to (index_function, period)
         self.freq_map = {
-            "D": (self._daily_index, 365.25),
-            "W": (self._weekly_index, 52.18),
-            "W-SUN": (self._weekly_index, 52.18),
-            "W-MON": (self._weekly_index, 52.18),
+            "D": (self._daily_index, 365),
+            "W": (self._weekly_index, 52),
+            "W-SUN": (self._weekly_index, 52),
+            "W-MON": (self._weekly_index, 52),
             "M": (self._monthly_index, 12),
             "MS": (self._monthly_index, 12),
             "Q": (self._quarterly_index, 4),
@@ -79,6 +79,7 @@ class DataPipeline:
             "Y": (self._yearly_index, 1),
             "YS": (self._yearly_index, 1),
         }
+        self.period = self.freq_map[freq][1]
 
         self._feature_engineering_basic_forecast()
         feature_dict = self._feature_engineering()

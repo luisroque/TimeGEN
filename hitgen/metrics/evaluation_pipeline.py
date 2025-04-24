@@ -1,9 +1,10 @@
 import os
 import json
+import numpy as np
 
 from hitgen.model_pipeline.model_pipeline import ModelPipeline
 from hitgen.model_pipeline.core.core_extension import CustomNeuralForecast
-from hitgen.metrics.evaluation_metrics import smape
+from hitgen.metrics.evaluation_metrics import smape, mase
 
 
 def evaluation_pipeline_hitgen_forecast(
@@ -14,6 +15,7 @@ def evaluation_pipeline_hitgen_forecast(
     horizon: int,
     freq: str,
     row_forecast: dict,
+    period: int = None,
     window_size: int = None,
     window_size_source: int = None,
     dataset_source: str = None,
@@ -75,39 +77,51 @@ def evaluation_pipeline_hitgen_forecast(
         h=horizon,
     )
 
+    metric_prefix = f"Forecast {{metric}} {{stat}} (last window) Per Series_{mode}"
+
     if forecast_df_last_window_horizon.empty:
         print(f"[Last Window ({mode})] No forecast results found.")
         row_forecast[f"Forecast SMAPE MEAN (last window) Per Series_{mode}"] = None
     else:
-        forecast_df_last_window_horizon = forecast_df_last_window_horizon.dropna(
+        forecast_horizon = forecast_df_last_window_horizon.dropna(
             subset=["y", "y_true"]
-        )
-        if forecast_df_last_window_horizon.empty:
+        ).copy()
+        if forecast_horizon.empty:
             print(
                 f"[Last Window ({mode})] No valid y,y_true pairs. Can't compute sMAPE."
             )
             row_forecast[f"Forecast SMAPE (last window) Per Series_{mode}"] = None
         else:
-            smape_result_lw_per_series = forecast_df_last_window_horizon.groupby(
-                "unique_id"
-            ).apply(lambda df: smape(df["y_true"], df["y"]))
-            smape_per_series_lw_median = smape_result_lw_per_series.median()
-            print(
-                f"\n[Last Window Forecast per Series ({mode})] "
-                f"sMAPE MEDIAN = {smape_per_series_lw_median:.4f}\n"
-            )
-            row_forecast[f"Forecast SMAPE MEDIAN (last window) Per Series_{mode}"] = (
-                float(round(smape_per_series_lw_median, 4))
+            smape_series = forecast_horizon.groupby("unique_id").apply(
+                lambda df: smape(df["y_true"], df["y"])
             )
 
-            smape_per_series_lw_mean = smape_result_lw_per_series.mean()
-            print(
-                f"\n[Last Window Forecast per Series ({mode})] "
-                f"sMAPE MEAN = {smape_per_series_lw_mean:.4f}\n"
+            for stat_name, agg_func in {
+                "MEDIAN": np.nanmedian,
+                "MEAN": np.nanmean,
+            }.items():
+                value = float(round(agg_func(smape_series), 4))
+                key = metric_prefix.format(metric="SMAPE", stat=stat_name)
+                row_forecast[key] = value
+                print(f"[sMAPE/{stat_name} ({mode})] = {value:.4f}")
+
+            mase_series = forecast_df_last_window_horizon.groupby("unique_id").apply(
+                lambda df: mase(
+                    df["y_true"],
+                    df["y"],
+                    m=period,
+                    h=int(min(window_size, window_size_source)),
+                )
             )
-            row_forecast[f"Forecast SMAPE MEAN (last window) Per Series_{mode}"] = (
-                float(round(smape_per_series_lw_mean, 4))
-            )
+
+            for stat_name, agg_func in {
+                "MEDIAN": np.nanmedian,
+                "MEAN": np.nanmean,
+            }.items():
+                value = float(round(agg_func(mase_series), 4))
+                key = metric_prefix.format(metric="MASE", stat=stat_name)
+                row_forecast[key] = value
+                print(f"[MASE/{stat_name} ({mode})] = {value:.4f}")
 
     with open(results_file, "w") as f:
         json.dump(row_forecast, f)
