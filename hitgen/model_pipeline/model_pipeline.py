@@ -238,6 +238,9 @@ class ModelPipeline(_ModelListMixin):
         )
         df_context = df_context.reset_index(drop=True)
 
+        if "y_true" in df_context.columns:
+            df_context = df_context.rename(columns={"y_true": "y"})
+
         return df_context[["unique_id", "ds", "y"]].sort_values(["unique_id", "ds"])
 
     @staticmethod
