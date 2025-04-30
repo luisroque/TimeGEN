@@ -64,6 +64,14 @@ results_filtered = results_filtered[
     ]
 ]
 
+results_filtered_coreset = results_filtered[
+    (results_filtered["Dataset Source"] == "MIXED")
+].copy()
+
+results_filtered = results_filtered[
+    results_filtered["Dataset Source"] != "MIXED"
+].copy()
+
 
 def summarize_metric(
     df: pd.DataFrame,
@@ -141,80 +149,84 @@ def summarize_metric(
 
 base_path = Path("assets/results_forecast_out_domain_summary")
 out_dir = base_path
-metric = "MASE Mean"
+metric = "RMSE Mean"
 metric_store = f"{metric.replace(' ','_').lower()}"
 
-# # rank – all seasonalities, grouped by src-dataset & method
-# summarize_metric(
-#     results_filtered,
-#     metric=metric,
-#     mode="rank",
-#     rank_within=["Source-Target Pair"],
-#     aggregate_by=["Dataset Source", "Dataset Group Source", "Method"],
-#     out_path=out_dir,
-#     fname="results_ranks_all_seasonalities.csv",
-# )
+for results, suffix in zip(
+    [results_filtered, results_filtered_coreset], ["", "_coreset"]
+):
 
-# mean SMAPE – same grouping
-summarize_metric(
-    results_filtered,
-    metric=metric,
-    mode="mean",
-    aggregate_by=["Dataset Source", "Dataset Group Source", "Method"],
-    out_path=out_dir,
-    fname=f"results_all_seasonalities_{metric_store}.csv",
-)
+    # rank – all seasonalities, grouped by src-dataset & method
+    summarize_metric(
+        results,
+        metric=metric,
+        mode="rank",
+        rank_within=["Source-Target Pair"],
+        aggregate_by=["Dataset Source", "Dataset Group Source", "Method"],
+        out_path=out_dir,
+        fname=f"results_ranks_all_seasonalities{suffix}.csv",
+    )
 
-# mean SMAPE – every individual src–tgt pair
-summarize_metric(
-    results_filtered,
-    metric=metric,
-    mode="mean",
-    aggregate_by=[
-        "Dataset Source",
-        "Dataset Group Source",
-        "Dataset Target",
-        "Dataset Group Target",
-        "Method",
-    ],
-    out_path=out_dir,
-    fname=f"results_all_seasonalities_all_combinations_{metric_store}.csv",
-)
+    # mean SMAPE – same grouping
+    summarize_metric(
+        results,
+        metric=metric,
+        mode="mean",
+        aggregate_by=["Dataset Source", "Dataset Group Source", "Method"],
+        out_path=out_dir,
+        fname=f"results_all_seasonalities_{metric_store}{suffix}.csv",
+    )
 
-# rank – by Method only (all seasonalities)
-summarize_metric(
-    results_filtered,
-    metric=metric,
-    mode="rank",
-    rank_within=["Source-Target Pair"],
-    aggregate_by=["Method"],
-    out_path=out_dir,
-    fname=f"results_ranks_all_seasonalities_by_method_{metric_store}.csv",
-)
+    # mean SMAPE – every individual src–tgt pair
+    summarize_metric(
+        results,
+        metric=metric,
+        mode="mean",
+        aggregate_by=[
+            "Dataset Source",
+            "Dataset Group Source",
+            "Dataset Target",
+            "Dataset Group Target",
+            "Method",
+        ],
+        out_path=out_dir,
+        fname=f"results_all_seasonalities_all_combinations_{metric_store}{suffix}.csv",
+    )
 
-# mean SMAPE – by Method only
-summarize_metric(
-    results_filtered,
-    metric=metric,
-    mode="mean",
-    aggregate_by=["Method"],
-    out_path=out_dir,
-    fname=f"results_all_seasonalities_by_method_{metric_store}.csv",
-)
+    # rank – by Method only (all seasonalities)
+    summarize_metric(
+        results,
+        metric=metric,
+        mode="rank",
+        rank_within=["Source-Target Pair"],
+        aggregate_by=["Method"],
+        out_path=out_dir,
+        fname=f"results_ranks_all_seasonalities_by_method_{metric_store}{suffix}.csv",
+    )
 
-# # rank & mean restricted to same seasonality transfers
-# for m in ("rank", "mean"):
-#     summarize_metric(
-#         results_filtered,
-#         metric=metric,
-#         mode=m,
-#         rank_within=None if m == "mean" else ["Source-Target Pair"],
-#         aggregate_by=(
-#             ["Dataset Source", "Dataset Group Source", "Method"]
-#             if m == "rank"
-#             else ["Method"]
-#         ),
-#         filter_same_seasonality=True,
-#         out_path=out_dir,
-#         fname=f"results_{m}_same_seasonalities_{'by_method' if m=='mean' else 'by_source'}_{metric_store}.csv",
-#     )
+    # mean SMAPE – by Method only
+    summarize_metric(
+        results,
+        metric=metric,
+        mode="mean",
+        aggregate_by=["Method"],
+        out_path=out_dir,
+        fname=f"results_all_seasonalities_by_method_{metric_store}{suffix}.csv",
+    )
+
+    # # rank & mean restricted to same seasonality transfers
+    # for m in ("rank", "mean"):
+    #     summarize_metric(
+    #         results_filtered,
+    #         metric=metric,
+    #         mode=m,
+    #         rank_within=None if m == "mean" else ["Source-Target Pair"],
+    #         aggregate_by=(
+    #             ["Dataset Source", "Dataset Group Source", "Method"]
+    #             if m == "rank"
+    #             else ["Method"]
+    #         ),
+    #         filter_same_seasonality=True,
+    #         out_path=out_dir,
+    #         fname=f"results_{m}_same_seasonalities_{'by_method' if m=='mean' else 'by_source'}_{metric_store}{suffix}.csv",
+    #     )

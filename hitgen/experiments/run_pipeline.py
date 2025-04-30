@@ -5,7 +5,6 @@ from hitgen.experiments.helper import (
 
 args = cmd_parser()
 
-import multiprocessing
 import pandas as pd
 from hitgen.data_pipeline.data_pipeline_setup import DataPipeline, build_mixed_trainval
 from hitgen.metrics.evaluation_pipeline import (

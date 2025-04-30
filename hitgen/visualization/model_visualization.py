@@ -64,14 +64,14 @@ def plot_generated_vs_original(
         ax = axes[i]
 
         ax.plot(
-            synth_data.loc[synth_data["unique_id"] == ts_id, "ds"],
-            synth_data.loc[synth_data["unique_id"] == ts_id, "y"],
-            label="Generated",
-        )
-        ax.plot(
             original_data.loc[original_data["unique_id"] == ts_id, "ds"],
             original_data.loc[original_data["unique_id"] == ts_id, "y"],
             label="Original",
+        )
+        ax.plot(
+            synth_data.loc[synth_data["unique_id"] == ts_id, "ds"],
+            synth_data.loc[synth_data["unique_id"] == ts_id, "y"],
+            label="Generated",
         )
 
         ax.set_title(f"Series: {ts_id}", fontsize=11, fontweight="bold")
