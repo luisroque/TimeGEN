@@ -149,7 +149,7 @@ def summarize_metric(
 
 base_path = Path("assets/results_forecast_out_domain_summary")
 out_dir = base_path
-metric = "RMSE Mean"
+metric = "MASE Mean"
 metric_store = f"{metric.replace(' ','_').lower()}"
 
 for results, suffix in zip(

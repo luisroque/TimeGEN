@@ -320,6 +320,7 @@ class ModelPipeline(_ModelListMixin):
             )
 
         df_y_hat.rename(columns={model_name: "y"}, inplace=True)
+        df_y_hat["y"] = df_y_hat["y"].clip(lower=0)
         df_y_hat = df_y_hat.groupby("unique_id", group_keys=False).tail(h)
 
         if "y_true" in df_y.columns:
