@@ -193,7 +193,7 @@ if __name__ == "__main__":
                     )
                     mixed_mp.hyper_tune_and_train(
                         max_evals=20,
-                        mode="out_domain",
+                        mode="out_domain_coreset",
                         dataset_source=dataset_source,
                         dataset_group_source=dataset_group,
                     )

@@ -125,6 +125,11 @@ class ModelPipeline(_ModelListMixin):
         Trains and hyper-tunes all six models.
         Each data_pipeline does internal time-series cross-validation to select its best hyperparameters.
         """
+        if mode == "out_domain_coreset":
+            mode = "out_domain"
+            scaler_type = tune.choice(["standard"])
+        else:
+            scaler_type = tune.choice([None, "standard"])
         if mode in ("in_domain", "out_domain"):
             trainval_long = self.trainval_long
             mode_suffix = ""
@@ -164,7 +169,7 @@ class ModelPipeline(_ModelListMixin):
                 base_config["start_padding_enabled"] = True
 
             base_config["input_size"] = self.h
-            base_config["scaler_type"] = tune.choice([None, "standard"])
+            base_config["scaler_type"] = scaler_type
 
             init_kwargs["config"] = base_config
 
@@ -358,7 +363,8 @@ class ModelPipelineCoreset(ModelPipeline):
 
     MODEL_LIST = [
         ("AutoHiTGenMixture", AutoHiTGenMixture),
-        ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        # ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
         ("AutoPatchTST", AutoPatchTST),
         ("AutoTFT", AutoTFT),
     ]

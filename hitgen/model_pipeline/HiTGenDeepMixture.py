@@ -5,14 +5,19 @@ import torch
 import torch.nn as nn
 
 from neuralforecast.losses.pytorch import MAE
-from neuralforecast.models.nhits import NHITSBlock, _IdentityBasis
+from neuralforecast.models.nhits import (
+    NHITSBlock,
+    _IdentityBasis,
+    POOLING,
+    ACTIVATIONS as ACTIVATIONS_NHITS,
+)
 from neuralforecast.models.nbeats import (
     SeasonalityBasis,
     TrendBasis,
     IdentityBasis,
-    ACTIVATIONS,
+    ACTIVATIONS as ACTIVATIONS_NBEATS,
 )
-from hitgen.model_pipeline.HiTGenDeep import HiTGenDeep, HiTGenEncoder, NHITSBlockLatent
+from hitgen.model_pipeline.HiTGenDeep import HiTGenDeep, HiTGenEncoder
 
 
 class NBEATSBlockLatent(nn.Module):
@@ -35,10 +40,10 @@ class NBEATSBlockLatent(nn.Module):
 
         self.dropout_prob = dropout_prob
 
-        assert activation in ACTIVATIONS, f"{activation} is not in {ACTIVATIONS}"
+        assert (
+            activation in ACTIVATIONS_NBEATS
+        ), f"{activation} is not in {ACTIVATIONS_NBEATS}"
         activ = getattr(nn, activation)()
-
-        self.latent_transform = nn.Linear(latent_dim, 64)
 
         total_input_size = input_size + 64  # extra from latent_z
 
@@ -61,14 +66,126 @@ class NBEATSBlockLatent(nn.Module):
     def forward(
         self,
         insample_y: torch.Tensor,
-        latent_z: torch.Tensor,
+        z_embed: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        z_embed = torch.tanh(self.latent_transform(latent_z))  # [B, 64]
-
         insample_y = torch.cat((insample_y, z_embed), dim=1)
         # Compute local projection weights and projection
         theta = self.layers(insample_y)
         backcast, forecast = self.basis(theta)
+        return backcast, forecast
+
+
+class NHITSBlockLatent(nn.Module):
+    """
+    This block can function as part of the 'decoder' in the VAE setting.
+    It takes a representation (insample_y + exogenous + latent embedding)
+    and produces backcast + forecast outputs.
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        h: int,
+        n_theta: int,
+        mlp_units: list,
+        basis: nn.Module,
+        futr_input_size: int,
+        hist_input_size: int,
+        stat_input_size: int,
+        n_pool_kernel_size: int,
+        pooling_mode: str,
+        dropout_prob: float,
+        activation: str,
+        latent_dim: int = 64,
+    ):
+        super().__init__()
+        self.latent_dim = latent_dim
+
+        pooled_hist_size = int(np.ceil(input_size / n_pool_kernel_size))
+        pooled_futr_size = int(np.ceil((input_size + h) / n_pool_kernel_size))
+
+        total_input_size = (
+            pooled_hist_size
+            + hist_input_size * pooled_hist_size
+            + futr_input_size * pooled_futr_size
+            + stat_input_size
+            + 64  # extra from latent_z
+        )
+
+        assert (
+            activation in ACTIVATIONS_NHITS
+        ), f"{activation} is not in {ACTIVATIONS_NHITS}"
+        assert pooling_mode in POOLING, f"{pooling_mode} is not in {POOLING}"
+
+        activ = getattr(nn, activation)()
+        self.pooling_layer = getattr(nn, pooling_mode)(
+            kernel_size=n_pool_kernel_size, stride=n_pool_kernel_size, ceil_mode=True
+        )
+
+        hidden_layers = []
+        hidden_layers.append(
+            nn.Linear(in_features=total_input_size, out_features=mlp_units[0][0])
+        )
+        for layer_cfg in mlp_units:
+            in_f, out_f = layer_cfg
+            hidden_layers.append(nn.Linear(in_f, out_f))
+            hidden_layers.append(activ)
+            if dropout_prob > 0:
+                hidden_layers.append(nn.Dropout(p=dropout_prob))
+
+        # output layer => n_theta parameters for the basis
+        hidden_layers.append(
+            nn.Linear(in_features=mlp_units[-1][1], out_features=n_theta)
+        )
+        self.mlp = nn.Sequential(*hidden_layers)
+
+        self.basis = basis
+        self.h = h
+        self.input_size = input_size
+        self.futr_input_size = futr_input_size
+        self.hist_input_size = hist_input_size
+        self.stat_input_size = stat_input_size
+
+    def forward(
+        self,
+        insample_y: torch.Tensor,
+        futr_exog: torch.Tensor,
+        hist_exog: torch.Tensor,
+        stat_exog: torch.Tensor,
+        z_embed: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        insample_y = insample_y.unsqueeze(1)  # (B,1,L)
+        insample_y = self.pooling_layer(insample_y)  # (B,1,pooled_L)
+        insample_y = insample_y.squeeze(1)  # (B, pooled_L)
+
+        batch_size = len(insample_y)
+
+        if self.hist_input_size > 0:
+            hist_exog = hist_exog.permute(0, 2, 1)  # (B, L, C) -> (B, C, L)
+            hist_exog = self.pooling_layer(hist_exog)  # (B, C, pooled_L)
+            hist_exog = hist_exog.permute(0, 2, 1)  # (B, pooled_L, C)
+            insample_y = torch.cat(
+                (insample_y, hist_exog.reshape(batch_size, -1)), dim=1
+            )
+
+        if self.futr_input_size > 0:
+            futr_exog = futr_exog.permute(0, 2, 1)  # (B, L+H, C) -> (B, C, L+H)
+            futr_exog = self.pooling_layer(futr_exog)  # (B, C, pooled_L+pooled_H)
+            futr_exog = futr_exog.permute(0, 2, 1)  # (B, pooled_, C)
+            insample_y = torch.cat(
+                (insample_y, futr_exog.reshape(batch_size, -1)), dim=1
+            )
+
+        if self.stat_input_size > 0:
+            insample_y = torch.cat(
+                (insample_y, stat_exog.reshape(batch_size, -1)), dim=1
+            )
+
+        insample_y = torch.cat((insample_y, z_embed), dim=1)
+
+        theta = self.mlp(insample_y)
+        backcast, forecast = self.basis(theta)
+
         return backcast, forecast
 
 
@@ -210,7 +327,7 @@ class HiTGenDeepMixture(HiTGenDeep):
         )
         self.blocks = nn.ModuleList(blocks)
 
-        self.latent_to_insample = nn.Linear(latent_dim, input_size)
+        self.z_proj = nn.Sequential(nn.Linear(latent_dim, 64), nn.Tanh())
 
     def _create_universal_stack(
         self,
@@ -332,12 +449,13 @@ class HiTGenDeepMixture(HiTGenDeep):
 
         mu, logvar = self.encoder(insample_y, futr_exog, hist_exog, stat_exog)
         z = self._reparameterize(mu, logvar)
+        z_embed = self.z_proj(z)
 
         # add the latent embedding to the in-sample
         # keep it in [-1, 1]
         # add a small offset to in-sample
-        z_insample = 0.1 * torch.tanh(self.latent_to_insample(z))  # [B, L]
-        insample_y_cond = insample_y + z_insample
+        # z_insample = 0.1 * torch.tanh(self.latent_to_insample(z))  # [B, L]
+        insample_y_cond = insample_y  # + z_insample
 
         initial_flip = insample_y_cond.flip(dims=(-1,))
 
@@ -353,13 +471,13 @@ class HiTGenDeepMixture(HiTGenDeep):
                     futr_exog=windows_batch["futr_exog"],
                     hist_exog=windows_batch["hist_exog"],
                     stat_exog=windows_batch["stat_exog"],
-                    latent_z=z,
+                    z_embed=z_embed,
                 )
             else:
                 # NBEATSBlock => only pass insample_y
                 backcast, block_forecast = block(
                     insample_y=residuals,
-                    latent_z=z,
+                    z_embed=z_embed,
                 )
             residuals = (residuals - backcast) * insample_mask
             forecast = forecast + block_forecast
