@@ -48,10 +48,10 @@ class _ModelListMixin:
 
     MODEL_LIST: list[tuple[str, AutoModelType]] = [
         ("AutoHiTGen", AutoHiTGen),
-        ("AutoHiTGenDeep", AutoHiTGenDeep),
+        # ("AutoHiTGenDeep", AutoHiTGenDeep),
         ("AutoHiTGenMixture", AutoHiTGenMixture),
         ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
-        ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        # ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
         ("AutoNHITS", AutoNHITS),
         ("AutoKAN", AutoKAN),
         ("AutoPatchTST", AutoPatchTST),
@@ -125,7 +125,7 @@ class ModelPipeline(_ModelListMixin):
         Trains and hyper-tunes all six models.
         Each data_pipeline does internal time-series cross-validation to select its best hyperparameters.
         """
-        if mode == "out_domain_coreset":
+        if mode in ("out_domain_coreset", "out_domain"):
             mode = "out_domain"
             scaler_type = tune.choice(["standard"])
         else:
