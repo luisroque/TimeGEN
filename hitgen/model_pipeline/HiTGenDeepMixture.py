@@ -190,10 +190,6 @@ class NHITSBlockLatent(nn.Module):
 
 
 class HiTGenDeepMixture(HiTGenDeep):
-    """
-    A variant of HiTGen that lets you specify how many blocks are N-HiTS vs. N-BEATS
-    based on a tunable param.
-    """
 
     SAMPLING_TYPE = "windows"
     EXOGENOUS_FUTR = True

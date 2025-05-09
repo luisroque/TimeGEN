@@ -7,6 +7,7 @@ from typing import List, Optional
 
 
 base_path_load = "assets/results_forecast_out_domain"
+path_fm_moirai = "assets/results_forecast_out_domain_summary/moirai_results.csv"
 results_files_out_domain = [
     f for f in os.listdir(base_path_load) if f.endswith(".json")
 ]
@@ -24,18 +25,6 @@ results_filtered = results_df[
     (results_df["Dataset Source"] != results_df["Dataset"])
 ].copy()
 
-
-results_filtered["Source-Target Pair"] = (
-    results_filtered["Dataset Source"]
-    + " ("
-    + results_filtered["Dataset Group Source"]
-    + ") → "
-    + results_filtered["Dataset"]
-    + " ("
-    + results_filtered["Group"]
-    + ")"
-)
-
 results_filtered.rename(
     columns={
         "Forecast SMAPE MEAN (last window) Per Series_out_domain": "SMAPE Mean",
@@ -52,7 +41,6 @@ results_filtered = results_filtered[
     [
         "Dataset Source",
         "Dataset Group Source",
-        "Source-Target Pair",
         "Dataset Target",
         "Dataset Group Target",
         "Method",
@@ -68,9 +56,57 @@ results_filtered_coreset = results_filtered[
     (results_filtered["Dataset Source"] == "MIXED")
 ].copy()
 
+moirai_results = pd.read_csv(path_fm_moirai)
+
+# union of results + moirai results
+required_columns = results_filtered_coreset.columns
+
+# add missing columns with NaN to Moirai df
+for col in required_columns:
+    if col not in moirai_results.columns:
+        moirai_results[col] = pd.NA
+
+moirai_results["Dataset Source"] = "MIXED"
+moirai_results["Dataset Group Source"] = moirai_results.apply(
+    lambda x: f"ALL_BUT_{x['Dataset Target']}_{x['Dataset Group Target']}", axis=1
+)
+
+# reorder columns to match the target df
+moirai_df = moirai_results[required_columns]
+
+results_filtered_coreset = pd.concat(
+    [results_filtered_coreset, moirai_df], ignore_index=True
+)
+
+results_filtered_coreset["Source-Target Pair"] = (
+    results_filtered_coreset["Dataset Source"]
+    + " ("
+    + results_filtered_coreset["Dataset Group Source"]
+    + ") → "
+    + results_filtered_coreset["Dataset Target"]
+    + " ("
+    + results_filtered_coreset["Dataset Group Target"]
+    + ")"
+)
+
+results_filtered_coreset = results_filtered_coreset.loc[
+    (results_filtered_coreset["Method"] != "AutoHiTGenDeepMixtureTempNormLossNorm")
+]
+
 results_filtered = results_filtered[
     results_filtered["Dataset Source"] != "MIXED"
 ].copy()
+
+results_filtered["Source-Target Pair"] = (
+    results_filtered["Dataset Source"]
+    + " ("
+    + results_filtered["Dataset Group Source"]
+    + ") → "
+    + results_filtered["Dataset Target"]
+    + " ("
+    + results_filtered["Dataset Group Target"]
+    + ")"
+)
 
 
 def summarize_metric(
@@ -152,8 +188,8 @@ out_dir = base_path
 metric = "MASE Mean"
 metric_store = f"{metric.replace(' ','_').lower()}"
 
-for results, suffix in zip(
-    [results_filtered, results_filtered_coreset], ["", "_coreset"]
+for results, suffix, filter_same_seasonality in zip(
+    [results_filtered, results_filtered_coreset], ["", "_coreset"], [False, False]
 ):
 
     # rank – all seasonalities, grouped by src-dataset & method
@@ -162,6 +198,7 @@ for results, suffix in zip(
         metric=metric,
         mode="rank",
         rank_within=["Source-Target Pair"],
+        filter_same_seasonality=filter_same_seasonality,
         aggregate_by=["Dataset Source", "Dataset Group Source", "Method"],
         out_path=out_dir,
         fname=f"results_ranks_all_seasonalities{suffix}.csv",
@@ -172,6 +209,7 @@ for results, suffix in zip(
         results,
         metric=metric,
         mode="mean",
+        filter_same_seasonality=filter_same_seasonality,
         aggregate_by=["Dataset Source", "Dataset Group Source", "Method"],
         out_path=out_dir,
         fname=f"results_all_seasonalities_{metric_store}{suffix}.csv",
@@ -189,6 +227,7 @@ for results, suffix in zip(
             "Dataset Group Target",
             "Method",
         ],
+        filter_same_seasonality=filter_same_seasonality,
         out_path=out_dir,
         fname=f"results_all_seasonalities_all_combinations_{metric_store}{suffix}.csv",
     )
@@ -200,6 +239,7 @@ for results, suffix in zip(
         mode="rank",
         rank_within=["Source-Target Pair"],
         aggregate_by=["Method"],
+        filter_same_seasonality=filter_same_seasonality,
         out_path=out_dir,
         fname=f"results_ranks_all_seasonalities_by_method_{metric_store}{suffix}.csv",
     )
@@ -210,6 +250,7 @@ for results, suffix in zip(
         metric=metric,
         mode="mean",
         aggregate_by=["Method"],
+        filter_same_seasonality=filter_same_seasonality,
         out_path=out_dir,
         fname=f"results_all_seasonalities_by_method_{metric_store}{suffix}.csv",
     )

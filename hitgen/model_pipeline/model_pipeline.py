@@ -17,6 +17,8 @@ from hitgen.model_pipeline.auto.AutoModels import (
     AutoHiTGenMixture,
     AutoHiTGenDeepMixture,
     AutoHiTGenDynamicMixture,
+    AutoHiTGenDeepMixtureTempNorm,
+    AutoHiTGenDeepMixtureTempNormLossNorm,
 )
 from hitgen.visualization.model_visualization import (
     plot_generated_vs_original,
@@ -36,6 +38,8 @@ AutoModelType = Union[
     AutoHiTGenMixture,
     AutoHiTGenDeepMixture,
     AutoHiTGenDynamicMixture,
+    AutoHiTGenDeepMixtureTempNorm,
+    AutoHiTGenDeepMixtureTempNormLossNorm,
 ]
 
 
@@ -52,6 +56,7 @@ class _ModelListMixin:
         ("AutoHiTGenMixture", AutoHiTGenMixture),
         ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
         # ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        ("AutoHiTGenDeepMixtureTempNorm", AutoHiTGenDeepMixtureTempNorm),
         ("AutoNHITS", AutoNHITS),
         ("AutoKAN", AutoKAN),
         ("AutoPatchTST", AutoPatchTST),
@@ -127,9 +132,9 @@ class ModelPipeline(_ModelListMixin):
         """
         if mode in ("out_domain_coreset", "out_domain"):
             mode = "out_domain"
-            scaler_type = tune.choice(["standard"])
-        else:
-            scaler_type = tune.choice([None, "standard"])
+        #     scaler_type = tune.choice(["standard"])
+        # else:
+        #     scaler_type = tune.choice([None, "standard"])
         if mode in ("in_domain", "out_domain"):
             trainval_long = self.trainval_long
             mode_suffix = ""
@@ -163,13 +168,22 @@ class ModelPipeline(_ModelListMixin):
                     backend="ray",
                     n_series=1,
                 )
-            else:
+            elif name in (
+                "AutoHiTGenDeepMixtureTempNorm",
+                "AutoHiTGenDeepMixtureTempNormLossNorm",
+            ):
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
                 base_config = ModelClass.get_default_config(h=self.h, backend="ray")
                 base_config["start_padding_enabled"] = True
 
+                base_config["scaler_type"] = tune.choice(["revin"])
+            else:
+                init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
+                base_config = ModelClass.get_default_config(h=self.h, backend="ray")
+                base_config["start_padding_enabled"] = True
+                base_config["scaler_type"] = tune.choice([None, "standard"])
+
             base_config["input_size"] = self.h
-            base_config["scaler_type"] = scaler_type
 
             init_kwargs["config"] = base_config
 
@@ -363,7 +377,11 @@ class ModelPipelineCoreset(ModelPipeline):
 
     MODEL_LIST = [
         ("AutoHiTGenMixture", AutoHiTGenMixture),
-        # ("AutoHiTGenDynamicMixture", AutoHiTGenDynamicMixture),
+        ("AutoHiTGenDeepMixtureTempNorm", AutoHiTGenDeepMixtureTempNorm),
+        # (
+        #     "AutoHiTGenDeepMixtureTempNormLossNorm",
+        #     AutoHiTGenDeepMixtureTempNormLossNorm,
+        # ),
         ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
         ("AutoPatchTST", AutoPatchTST),
         ("AutoTFT", AutoTFT),

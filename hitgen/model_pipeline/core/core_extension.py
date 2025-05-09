@@ -9,6 +9,10 @@ from hitgen.model_pipeline.HiTGen import HiTGen
 from hitgen.model_pipeline.HiTGenDeep import HiTGenDeep
 from hitgen.model_pipeline.HiTGenMixture import HiTGenMixture
 from hitgen.model_pipeline.HiTGenDeepMixture import HiTGenDeepMixture
+from hitgen.model_pipeline.HiTGenDeepMixtureTempNorm import HiTGenDeepMixtureTempNorm
+from hitgen.model_pipeline.HiTGenDeepMixtureTempNormLossNorm import (
+    HiTGenDeepMixtureTempNormLossNorm,
+)
 from hitgen.model_pipeline.HiTGenDynamicMixture import HiTGenDynamicMixture
 
 from neuralforecast import NeuralForecast
@@ -34,6 +38,8 @@ nf_core.MODEL_FILENAME_DICT.update(
         "autohitgenmixture": HiTGenMixture,
         "autohitgendeepmixture": HiTGenDeepMixture,
         "autohitgendynamicmixture": HiTGenDynamicMixture,
+        "autohitgendeepmixturetempnorm": HiTGenDeepMixtureTempNorm,
+        "autohitgendeepmixturetempnormlossnorm": HiTGenDeepMixtureTempNormLossNorm,
     }
 )
 
