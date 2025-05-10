@@ -183,7 +183,7 @@ class ModelPipeline(_ModelListMixin):
                 base_config["start_padding_enabled"] = True
                 base_config["scaler_type"] = tune.choice([None, "standard"])
 
-            base_config["input_size"] = self.h
+            # base_config["input_size"] = self.h
 
             init_kwargs["config"] = base_config
 
@@ -235,9 +235,7 @@ class ModelPipeline(_ModelListMixin):
         if n < window_size_source + horizon:
             return pd.DataFrame(columns=group.columns)
 
-        cutoff = min(window_size_source, horizon)
-
-        last_window_end = n - cutoff
+        last_window_end = n - horizon
         return group.iloc[:last_window_end].copy()
 
     def _preprocess_context(
@@ -384,7 +382,7 @@ class ModelPipelineCoreset(ModelPipeline):
         # ),
         ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
         ("AutoPatchTST", AutoPatchTST),
-        ("AutoTFT", AutoTFT),
+        # ("AutoTFT", AutoTFT),
     ]
 
     def __init__(

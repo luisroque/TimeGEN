@@ -1,11 +1,11 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from neuralforecast.losses.pytorch import MAE
 from hitgen.model_pipeline.HiTGenDeepMixture import HiTGenDeepMixture, HiTGenEncoder
+from neuralforecast.losses.pytorch import MAE
 
 
 class HiTGenDeepMixtureTempNorm(HiTGenDeepMixture):
@@ -189,7 +189,12 @@ class HiTGenDeepMixtureTempNorm(HiTGenDeepMixture):
             y_hat=outsample_y, temporal_cols=batch["temporal_cols"], y_idx=y_idx
         )
 
-        recon_loss = self.loss(y_hat=backcast_raw, y=insample_raw, mask=insample_mask)
+        recon_loss_fn = MAE(
+            horizon_weight=torch.ones(insample_raw.shape[-1], device=insample_y.device)
+        )
+        recon_loss = recon_loss_fn(
+            y_hat=backcast_raw, y=insample_raw, mask=insample_mask
+        )
         forecast_loss = self.loss(
             y_hat=forecast_raw, y=outsample_raw, mask=outsample_mask
         )

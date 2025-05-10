@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 import numpy as np
 import torch
@@ -315,7 +315,17 @@ class HiTGen(NHITS):
 
         backcast, forecast, mu, logvar = self(windows_batch)
 
-        recon_loss = self.loss(y_hat=backcast, y=insample_y, mask=insample_mask)
+        # print(f"[DEBUG] insample_y: {insample_y.shape}", flush=True)
+        # print(f"[DEBUG] backcast: {backcast.shape}", flush=True)
+        # print(f"[DEBUG] insample_mask: {insample_mask.shape}", flush=True)
+        # print(f"[DEBUG] forecast: {forecast.shape}", flush=True)
+        # print(f"[DEBUG] outsample_y: {outsample_y.shape}", flush=True)
+        # print(f"[DEBUG] outsample_mask: {outsample_mask.shape}", flush=True)
+
+        recon_loss_fn = MAE(
+            horizon_weight=torch.ones(insample_y.shape[-1], device=insample_y.device)
+        )
+        recon_loss = recon_loss_fn(y_hat=backcast, y=insample_y, mask=insample_mask)
         forecast_loss = self.loss(y_hat=forecast, y=outsample_y, mask=outsample_mask)
 
         # KL warmup

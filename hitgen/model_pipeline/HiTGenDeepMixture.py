@@ -1,10 +1,9 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from neuralforecast.losses.pytorch import MAE
 from neuralforecast.models.nhits import (
     NHITSBlock,
     _IdentityBasis,
@@ -18,6 +17,7 @@ from neuralforecast.models.nbeats import (
     ACTIVATIONS as ACTIVATIONS_NBEATS,
 )
 from hitgen.model_pipeline.HiTGenDeep import HiTGenDeep, HiTGenEncoder
+from neuralforecast.losses.pytorch import MAE
 
 
 class NBEATSBlockLatent(nn.Module):
