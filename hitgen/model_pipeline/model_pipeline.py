@@ -168,6 +168,7 @@ class ModelPipeline(_ModelListMixin):
                     backend="ray",
                     n_series=1,
                 )
+                base_config["scaler_type"] = tune.choice([None, "standard"])
             elif name in (
                 "AutoHiTGenDeepMixtureTempNorm",
                 "AutoHiTGenDeepMixtureTempNormLossNorm",
@@ -183,7 +184,8 @@ class ModelPipeline(_ModelListMixin):
                 base_config["start_padding_enabled"] = True
                 base_config["scaler_type"] = tune.choice([None, "standard"])
 
-            # base_config["input_size"] = self.h
+            if mode != "out_domain_coreset":
+                base_config["input_size"] = self.h
 
             init_kwargs["config"] = base_config
 
@@ -239,12 +241,12 @@ class ModelPipeline(_ModelListMixin):
         return group.iloc[:last_window_end].copy()
 
     def _preprocess_context(
-        self, window_size: int, window_size_source: int = None
+        self, window_size: int, test_set: pd.DataFrame, window_size_source: int = None
     ) -> pd.DataFrame:
         if not window_size_source:
             window_size_source = window_size
 
-        df_test = self.test_long.sort_values(["unique_id", "ds"])
+        df_test = test_set.sort_values(["unique_id", "ds"]).copy()
 
         df_context = df_test.groupby(
             "unique_id", group_keys=True, as_index=False
@@ -289,14 +291,17 @@ class ModelPipeline(_ModelListMixin):
         dataset_group_for_title = dataset_group_source
 
         if mode == "in_domain":
-            df_y_preprocess = self._preprocess_context(window_size=window_size)
+            df_y_preprocess = self._preprocess_context(
+                window_size=window_size, test_set=self.test_long
+            )
             df_y_hat = model.predict(df=df_y_preprocess, freq=freq)
-            # df_y are only the series on the test set bucket of series
+
             df_y = self.test_long
         elif mode == "out_domain":
             df_y_preprocess = self._preprocess_context(
                 window_size_source=window_size_source,
                 window_size=window_size,
+                test_set=self.original_long_basic_forecast,
             )
 
             if df_y_preprocess.empty:
@@ -317,8 +322,7 @@ class ModelPipeline(_ModelListMixin):
 
             df_y_hat.sort_values(["unique_id", "ds"], inplace=True)
 
-            # df_y are only the series on the test set bucket of series
-            df_y = self.test_long
+            df_y = self.original_long_basic_forecast
 
             dataset_desc = (
                 f"{dataset_source}-{dataset_group_source}"
@@ -329,7 +333,7 @@ class ModelPipeline(_ModelListMixin):
             dataset_group_for_title = f"{dataset_group_source}→{dataset_group_target}"
         elif mode == "basic_forecasting":
             df_y_hat = model.predict(df=self.trainval_long_basic_forecast, freq=freq)
-            # df_y is the complete original dataset
+
             df_y = self.original_long_basic_forecast
         else:
             raise ValueError(
@@ -374,6 +378,7 @@ class ModelPipelineCoreset(ModelPipeline):
     """
 
     MODEL_LIST = [
+        ("AutoHiTGen", AutoHiTGen),
         ("AutoHiTGenMixture", AutoHiTGenMixture),
         ("AutoHiTGenDeepMixtureTempNorm", AutoHiTGenDeepMixtureTempNorm),
         # (
@@ -382,7 +387,7 @@ class ModelPipelineCoreset(ModelPipeline):
         # ),
         ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
         ("AutoPatchTST", AutoPatchTST),
-        # ("AutoTFT", AutoTFT),
+        ("AutoTFT", AutoTFT),
     ]
 
     def __init__(

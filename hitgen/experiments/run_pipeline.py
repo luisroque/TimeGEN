@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
                             dataset_group_results.append(row_forecast_tl)
                             results.append(row_forecast_tl)
-            if args.coreset:
+            elif args.coreset:
                 LOO_RESULTS = []
 
                 all_data_pipelines = {}
