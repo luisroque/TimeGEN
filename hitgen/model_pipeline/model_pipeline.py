@@ -378,14 +378,14 @@ class ModelPipelineCoreset(ModelPipeline):
     """
 
     MODEL_LIST = [
-        ("AutoHiTGen", AutoHiTGen),
+        # ("AutoHiTGen", AutoHiTGen),
         ("AutoHiTGenMixture", AutoHiTGenMixture),
         ("AutoHiTGenDeepMixtureTempNorm", AutoHiTGenDeepMixtureTempNorm),
         # (
         #     "AutoHiTGenDeepMixtureTempNormLossNorm",
         #     AutoHiTGenDeepMixtureTempNormLossNorm,
         # ),
-        ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
+        # ("AutoHiTGenDeepMixture", AutoHiTGenDeepMixture),
         ("AutoPatchTST", AutoPatchTST),
         ("AutoTFT", AutoTFT),
     ]

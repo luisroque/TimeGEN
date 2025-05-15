@@ -180,7 +180,7 @@ def main():
     coreset_df = apply_fm_results(coreset_df, FM_PATHS["moirai"])
     coreset_df = apply_fm_results(coreset_df, FM_PATHS["timemoe"])
     coreset_df = coreset_df[
-        coreset_df["Method"] != "AutoHiTGenDeepMixtureTempNormLossNorm"
+        (coreset_df["Method"] != "AutoHiTGenDeepMixtureTempNormLossNorm")
     ]
 
     out_df = out_df[out_df["Dataset Source"] != "MIXED"]
