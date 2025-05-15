@@ -6,7 +6,7 @@ This repository contains the implementation of L-GTA, a novel methodology for ti
 After the peer review you will be able to install L-GTA as a Python package:
 
 ```python
-pip install hitgen
+pip install timegen
 ```
 
 ## Functionality
@@ -20,14 +20,14 @@ The main features of this repository include:
 
 ## Getting Started
 
-The code below demonstrates how to generate new versions of a sample time series dataset by applying L-GTA's latent space transformations. For a more detailed script for experiments please see the `testing_benchmark_vs_hitgen.py` file in `hitgen/experiments/`.
+The code below demonstrates how to generate new versions of a sample time series dataset by applying L-GTA's latent space transformations. For a more detailed script for experiments please see the `testing_benchmark_vs_timegen.py` file in `timegen/experiments/`.
 
 ```python
-from hitgen.data_pipeline.data_pipeline_setup import (
+from timegen.data_pipeline.data_pipeline_setup import (
    CreateTransformedVersionsCVAE,
 )
-from hitgen.feature_engineering.feature_transformations import detemporalize
-from hitgen.e2e.e2e_processing import e2e_transformation
+from timegen.feature_engineering.feature_transformations import detemporalize
+from timegen.e2e.e2e_processing import e2e_transformation
 
 dataset = "tourism"
 freq = "M"
@@ -151,16 +151,16 @@ We conducted extensive experiments to evaluate the impact of L-GTA on time serie
 **Figure 1: Diagram depicting the L-GTA framework for augmenting time series data. This method combines Bi-LSTMs and CVAEs with a Variational Multi-Head Attention (VMHA) mechanism to generate semi-synthetic time series data. The learned latent space is transformed by applying time series augmentation
 techniques such as jittering and magnitude warping.**
 ![Diagram depicting the L-GTA framework for augmenting time series data. This method combines Bi-LSTMs and CVAEs with a Variational Multi-Head Attention (VMHA) mechanism to generate semi-synthetic time series data. The learned latent space is transformed by applying time series augmentation
-techniques such as jittering and magnitude warping.](hitgen/assets/model_architecture.png)
+techniques such as jittering and magnitude warping.](timegen/assets/model_architecture.png)
 
 **Figure 2: Effects of L-GTA vs. Direct Methods on Time Series Data**
-![Effects of L-GTA vs. Direct Methods on Time Series Data](hitgen/assets/generated_ts.png)
+![Effects of L-GTA vs. Direct Methods on Time Series Data](timegen/assets/generated_ts.png)
 
 **Figure 3: KDE of Residuals Distribution for Jittering Transformation**
-![KDE of Residuals Distribution for Jittering Transformation](hitgen/assets/residuals_dist.png)
+![KDE of Residuals Distribution for Jittering Transformation](timegen/assets/residuals_dist.png)
 
 **Figure 4: Wasserstein Distance for Tourism Dataset**
-![Wasserstein Distance for Tourism Dataset](hitgen/assets/wasserstein_distance.png)
+![Wasserstein Distance for Tourism Dataset](timegen/assets/wasserstein_distance.png)
 
 **Table 1: Wasserstein Distance Results**
 | Dataset         | Metric | Jitter (L-GTA) | Jitter (Direct) | Magnitude Warp (L-GTA) | Magnitude Warp (Direct) | Scaling (L-GTA) | Scaling (Direct) |
