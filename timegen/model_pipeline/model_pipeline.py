@@ -161,10 +161,7 @@ class ModelPipeline(_ModelListMixin):
                     n_series=1,
                 )
                 base_config["scaler_type"] = tune.choice([None, "standard"])
-            elif name in (
-                "AutoTimeGENDeepMixtureTempNorm",
-                "AutoTimeGENDeepMixtureTempNormLossNorm",
-            ):
+            elif name in ("AutoTimeGEN",):
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
                 base_config = ModelClass.get_default_config(h=self.h, backend="ray")
                 base_config["start_padding_enabled"] = True
@@ -372,8 +369,8 @@ class ModelPipelineCoreset(ModelPipeline):
     MODEL_LIST = [
         ("AutoTimeGEN", AutoTimeGEN),
         ("AutoTimeGEN_M", AutoTimeGEN_M),
-        ("AutoPatchTST", AutoPatchTST),
-        ("AutoTFT", AutoTFT),
+        # ("AutoPatchTST", AutoPatchTST),
+        # ("AutoTFT", AutoTFT),
     ]
 
     def __init__(

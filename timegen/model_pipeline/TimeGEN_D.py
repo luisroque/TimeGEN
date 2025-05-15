@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 
 from neuralforecast.models.nhits import (
-    NHITSBlock,
     _IdentityBasis,
     POOLING,
     ACTIVATIONS as ACTIVATIONS_NHITS,
@@ -16,7 +15,9 @@ from neuralforecast.models.nbeats import (
     IdentityBasis,
     ACTIVATIONS as ACTIVATIONS_NBEATS,
 )
-from timegen.model_pipeline.TimeGEN_D_base import TimeGEN_D_base, TimeGENEncoder
+from timegen.model_pipeline.TimeGEN_S import TimeGEN_S
+from timegen.model_pipeline.TimeGEN_S import TimeGENEncoder
+
 from neuralforecast.losses.pytorch import MAE
 
 
@@ -189,7 +190,7 @@ class NHITSBlockLatent(nn.Module):
         return backcast, forecast
 
 
-class TimeGEN_D(TimeGEN_D_base):
+class TimeGEN_D(TimeGEN_S):
 
     SAMPLING_TYPE = "windows"
     EXOGENOUS_FUTR = True
