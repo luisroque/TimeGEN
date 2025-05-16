@@ -12,47 +12,7 @@ from neuralforecast.models.nbeats import (
     IdentityBasis,
 )
 from timegen.model_pipeline.TimeGEN_S import TimeGEN_S, TimeGENEncoder
-from neuralforecast.losses.pytorch import BasePointLoss
-
-
-class MAE(BasePointLoss):
-    """Mean Absolute Error
-
-    Calculates Mean Absolute Error between
-    `y` and `y_hat`. MAE measures the relative prediction
-    accuracy of a forecasting method by calculating the
-    deviation of the prediction and the true
-    value at a given time and averages these devations
-    over the length of the series.
-
-    $$ \mathrm{MAE}(\\mathbf{y}_{\\tau}, \\mathbf{\hat{y}}_{\\tau}) = \\frac{1}{H} \\sum^{t+H}_{\\tau=t+1} |y_{\\tau} - \hat{y}_{\\tau}| $$
-
-    **Parameters:**<br>
-    `horizon_weight`: Tensor of size h, weight for each timestamp of the forecasting window. <br>
-    """
-
-    def __init__(self, horizon_weight=None):
-        super(MAE, self).__init__(
-            horizon_weight=horizon_weight, outputsize_multiplier=1, output_names=[""]
-        )
-
-    def __call__(
-        self,
-        y: torch.Tensor,
-        y_hat: torch.Tensor,
-        mask: Union[torch.Tensor, None] = None,
-    ):
-        """
-        **Parameters:**<br>
-        `y`: tensor, Actual values.<br>
-        `y_hat`: tensor, Predicted values.<br>
-        `mask`: tensor, Specifies datapoints to consider in loss.<br>
-
-        **Returns:**<br>
-        `mae`: tensor (single value).
-        """
-        losses = torch.abs(y - y_hat)
-        return losses
+from neuralforecast.losses.pytorch import MAE
 
 
 class TimeGEN_M(TimeGEN_S):
