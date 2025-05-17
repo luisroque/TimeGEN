@@ -11,7 +11,7 @@
 
 ---
 
-## 📦 Repository Structure
+## Repository Structure
 
 
 ```
@@ -35,7 +35,7 @@ TimeGEN/
 
 ---
 
-## 🧠 Key Features
+## Key Features
 
 - **Variational Encoder** for latent temporal representations  
 - **Modular MLP Decoder** with multi-rate pooling and basis expansion  
@@ -46,7 +46,7 @@ TimeGEN/
 
 ---
 
-## 🧪 Results Summary
+## Results Summary
 
 Below is the main table from the paper, comparing TimeGEN to other baselines across four evaluation regimes:
 
@@ -67,7 +67,7 @@ Below is the main table from the paper, comparing TimeGEN to other baselines acr
 
 ---
 
-## 📊 Datasets
+## Datasets
 
 TimeGEN is evaluated on 10 publicly available datasets including:
 
@@ -79,7 +79,7 @@ Spanning monthly, quarterly, yearly, and daily frequencies, totaling over **100k
 
 ---
 
-## 🚀 Running Experiments
+## Running Experiments
 
 > To reproduce key experiments with **TimeGEN**, use the appropriate command below based on the selected evaluation regime.
 
