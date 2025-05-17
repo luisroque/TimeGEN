@@ -18,7 +18,6 @@
 TimeGEN/
 │
 ├── assets/              # Weights, results, etc
-├── lightning_logs/      # Checkpoints and logs (Lightning)
 ├── timegen/             # Core package
 │   ├── data_pipeline/       # Data loading and preprocessing
 │   ├── experiments/         # Experiment orchestration and helpers
@@ -26,9 +25,7 @@ TimeGEN/
 │   ├── metrics/             # Evaluation metrics
 │   ├── model_pipeline/      # TimeGEN and baseline model implementations
 │   ├── visualization/       # Plotting tools and analysis
-│   └── __init__.py
 ├── requirements.txt
-├── LICENSE
 └── README.md
 ```
 
