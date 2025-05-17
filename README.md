@@ -40,7 +40,7 @@ TimeGEN/
 - **Variational Encoder** for latent temporal representations  
 - **Modular MLP Decoder** with multi-rate pooling and basis expansion  
 - **Reversible Instance Normalization (RevIN)** for domain shift robustness  
-- **Fast Training**: 2–30× faster than Transformer-based alternatives  
+- **Fast Training**: 5–30× faster than Transformer-based alternatives  
 - **Probabilistic Forecasting** via latent sampling  
 - **Zero-shot Generalization** to unseen time series and domains  
 
