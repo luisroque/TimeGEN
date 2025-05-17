@@ -76,3 +76,23 @@ TimeGEN is evaluated on 10 publicly available datasets including:
 - **Traffic** from SF Bay Area
 
 Spanning monthly, quarterly, yearly, and daily frequencies, totaling over **100k series and 60M+ observations**.
+
+---
+
+## 🚀 Running Experiments
+
+> To reproduce key experiments with **TimeGEN**, use the appropriate command below based on the selected evaluation regime.
+
+
+- **Multi-source Out-Domain Transfer:**
+  ```bash
+  python timegen/experiments/run_pipeline.py --use-gpu --coreset
+  ```
+- **Single-source Transfer (In-domain and Out-domain):**
+  ```bash
+  python timegen/experiments/run_pipeline.py --use-gpu --transfer-learning
+  ```
+- **Full-shot Forecasting:**
+  ```bash
+  python timegen/experiments/run_pipeline.py --use-gpu --basic-forecasting
+  ```
