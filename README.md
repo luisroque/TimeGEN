@@ -39,7 +39,7 @@ TimeGEN/
 - **Temporal Normalization** for domain shift robustness  
 - **Fast Training**: 5–30× faster than Transformer-based alternatives
 - **Zero-shot Generalization** to unseen time series and domains 
-- - **Probabilistic Forecasting** via latent sampling  
+- **Probabilistic Forecasting** via latent sampling  
 
 ---
 
