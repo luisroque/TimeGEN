@@ -15,6 +15,11 @@ from timegen.model_pipeline.auto.AutoModels import (
     AutoTimeGEN_S,
     AutoTimeGEN_D,
     AutoTimeGEN_M,
+    AutoTimeGEN_MT,
+    AutoTimeGEN_H,
+    AutoTimeGEN_HT,
+    AutoTimeGEN_Z,
+    AutoTimeGEN_ZZ,
     AutoTimeGEN,
 )
 from timegen.visualization.model_visualization import (
@@ -33,6 +38,11 @@ AutoModelType = Union[
     AutoTimeGEN_S,
     AutoTimeGEN_D,
     AutoTimeGEN_M,
+    AutoTimeGEN_H,
+    AutoTimeGEN_HT,
+    AutoTimeGEN_MT,
+    AutoTimeGEN_Z,
+    AutoTimeGEN_ZZ,
     AutoTimeGEN,
 ]
 
@@ -48,6 +58,11 @@ class _ModelListMixin:
         ("AutoTimeGEN_S", AutoTimeGEN_S),
         ("AutoTimeGEN_M", AutoTimeGEN_M),
         ("AutoTimeGEN_D", AutoTimeGEN_D),
+        ("AutoTimeGEN_MT", AutoTimeGEN_MT),
+        ("AutoTimeGEN_H", AutoTimeGEN_H),
+        ("AutoTimeGEN_HT", AutoTimeGEN_HT),
+        ("AutoTimeGEN_Z", AutoTimeGEN_Z),
+        ("AutoTimeGEN_ZZ", AutoTimeGEN_ZZ),
         ("AutoTimeGEN", AutoTimeGEN),
         ("AutoNHITS", AutoNHITS),
         ("AutoKAN", AutoKAN),
@@ -122,21 +137,25 @@ class ModelPipeline(_ModelListMixin):
         Trains and hyper-tunes all six models.
         Each data_pipeline does internal time-series cross-validation to select its best hyperparameters.
         """
-        if mode in ("out_domain_coreset", "out_domain"):
-            mode = "out_domain"
-        #     scaler_type = tune.choice(["standard"])
-        # else:
-        #     scaler_type = tune.choice([None, "standard"])
-        if mode in ("in_domain", "out_domain"):
-            trainval_long = self.trainval_long
-            mode_suffix = ""
-        elif mode == "basic_forecasting":
+        original_mode = mode
+        valid_modes = {
+            "in_domain",
+            "out_domain",
+            "out_domain_coreset",
+            "basic_forecasting",
+        }
+        if mode not in valid_modes:
+            raise ValueError(
+                f"Unsupported mode: '{mode}'. Supported modes are: {sorted(valid_modes)}."
+            )
+        mode = "out_domain" if mode in ("out_domain", "out_domain_coreset") else mode
+
+        if mode == "basic_forecasting":
             trainval_long = self.trainval_long_basic_forecast
             mode_suffix = "_basic_forecasting"
         else:
-            raise ValueError(
-                f"Unsupported mode: '{mode}'. Supported modes are: 'in_domain', 'out_domain', 'basic_forecasting'."
-            )
+            trainval_long = self.trainval_long
+            mode_suffix = ""
 
         model_list = self.get_model_list()
 
@@ -161,7 +180,13 @@ class ModelPipeline(_ModelListMixin):
                     n_series=1,
                 )
                 base_config["scaler_type"] = tune.choice([None, "standard"])
-            elif name in ("AutoTimeGEN",):
+            elif name in (
+                "AutoTimeGEN",
+                "AutoTimeGEN_MT",
+                "AutoTimeGEN_Z",
+                "AutoTimeGEN_ZZ",
+                "AutoTimeGEN_HT",
+            ):
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
                 base_config = ModelClass.get_default_config(h=self.h, backend="ray")
                 base_config["start_padding_enabled"] = True
@@ -173,7 +198,7 @@ class ModelPipeline(_ModelListMixin):
                 base_config["start_padding_enabled"] = True
                 base_config["scaler_type"] = tune.choice([None, "standard"])
 
-            if mode != "out_domain_coreset":
+            if original_mode == "out_domain":
                 base_config["input_size"] = self.h
 
             init_kwargs["config"] = base_config
@@ -369,8 +394,13 @@ class ModelPipelineCoreset(ModelPipeline):
     MODEL_LIST = [
         ("AutoTimeGEN", AutoTimeGEN),
         ("AutoTimeGEN_M", AutoTimeGEN_M),
-        # ("AutoPatchTST", AutoPatchTST),
-        # ("AutoTFT", AutoTFT),
+        ("AutoTimeGEN_H", AutoTimeGEN_H),
+        ("AutoTimeGEN_HT", AutoTimeGEN_HT),
+        ("AutoTimeGEN_MT", AutoTimeGEN_MT),
+        ("AutoTimeGEN_ZZ", AutoTimeGEN_ZZ),
+        ("AutoTimeGEN_Z", AutoTimeGEN_Z),
+        ("AutoPatchTST", AutoPatchTST),
+        ("AutoTFT", AutoTFT),
     ]
 
     def __init__(

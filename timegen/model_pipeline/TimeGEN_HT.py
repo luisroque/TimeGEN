@@ -189,7 +189,7 @@ class NHITSBlockLatent(nn.Module):
         return backcast, forecast
 
 
-class TimeGEN_Z(TimeGEN_S):
+class TimeGEN_HT(TimeGEN_S):
 
     SAMPLING_TYPE = "windows"
     EXOGENOUS_FUTR = True
@@ -251,7 +251,7 @@ class TimeGEN_Z(TimeGEN_S):
         dataloader_kwargs=None,
         **trainer_kwargs,
     ):
-        super(TimeGEN_Z, self).__init__(
+        super(TimeGEN_HT, self).__init__(
             h=h,
             input_size=input_size,
             futr_exog_list=futr_exog_list,
