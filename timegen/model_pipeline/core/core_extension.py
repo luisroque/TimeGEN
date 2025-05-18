@@ -5,15 +5,11 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from timegen.model_pipeline.TimeGEN import TimeGEN
 from timegen.model_pipeline.TimeGEN_S import TimeGEN_S
 from timegen.model_pipeline.TimeGEN_M import TimeGEN_M
 from timegen.model_pipeline.TimeGEN_D import TimeGEN_D
-from timegen.model_pipeline.TimeGEN_H import TimeGEN_H
-from timegen.model_pipeline.TimeGEN_HT import TimeGEN_HT
-from timegen.model_pipeline.TimeGEN_MT import TimeGEN_MT
-from timegen.model_pipeline.TimeGEN_Z import TimeGEN_Z
-from timegen.model_pipeline.TimeGEN_ZZ import TimeGEN_ZZ
+from timegen.model_pipeline.TimeGEN import TimeGEN
+
 
 from neuralforecast import NeuralForecast
 from neuralforecast import core as nf_core
@@ -37,11 +33,6 @@ nf_core.MODEL_FILENAME_DICT.update(
         "autotimegen_s": TimeGEN_S,
         "autotimegen_m": TimeGEN_M,
         "autotimegen_d": TimeGEN_D,
-        "autotimegen_mt": TimeGEN_MT,
-        "autotimegen_h": TimeGEN_H,
-        "autotimegen_ht": TimeGEN_HT,
-        "autotimegen_z": TimeGEN_Z,
-        "autotimegen_zz": TimeGEN_ZZ,
     }
 )
 

@@ -15,11 +15,6 @@ from timegen.model_pipeline.auto.AutoModels import (
     AutoTimeGEN_S,
     AutoTimeGEN_D,
     AutoTimeGEN_M,
-    AutoTimeGEN_MT,
-    AutoTimeGEN_H,
-    AutoTimeGEN_HT,
-    AutoTimeGEN_Z,
-    AutoTimeGEN_ZZ,
     AutoTimeGEN,
 )
 from timegen.visualization.model_visualization import (
@@ -38,11 +33,6 @@ AutoModelType = Union[
     AutoTimeGEN_S,
     AutoTimeGEN_D,
     AutoTimeGEN_M,
-    AutoTimeGEN_H,
-    AutoTimeGEN_HT,
-    AutoTimeGEN_MT,
-    AutoTimeGEN_Z,
-    AutoTimeGEN_ZZ,
     AutoTimeGEN,
 ]
 
@@ -55,15 +45,10 @@ class _ModelListMixin:
     """
 
     MODEL_LIST: list[tuple[str, AutoModelType]] = [
+        ("AutoTimeGEN", AutoTimeGEN),
         ("AutoTimeGEN_S", AutoTimeGEN_S),
         ("AutoTimeGEN_M", AutoTimeGEN_M),
         ("AutoTimeGEN_D", AutoTimeGEN_D),
-        ("AutoTimeGEN_MT", AutoTimeGEN_MT),
-        ("AutoTimeGEN_H", AutoTimeGEN_H),
-        ("AutoTimeGEN_HT", AutoTimeGEN_HT),
-        ("AutoTimeGEN_Z", AutoTimeGEN_Z),
-        ("AutoTimeGEN_ZZ", AutoTimeGEN_ZZ),
-        ("AutoTimeGEN", AutoTimeGEN),
         ("AutoNHITS", AutoNHITS),
         ("AutoKAN", AutoKAN),
         ("AutoPatchTST", AutoPatchTST),
@@ -180,13 +165,7 @@ class ModelPipeline(_ModelListMixin):
                     n_series=1,
                 )
                 base_config["scaler_type"] = tune.choice([None, "standard"])
-            elif name in (
-                "AutoTimeGEN",
-                "AutoTimeGEN_MT",
-                "AutoTimeGEN_Z",
-                "AutoTimeGEN_ZZ",
-                "AutoTimeGEN_HT",
-            ):
+            elif name in ("AutoTimeGEN",):
                 init_kwargs = dict(h=self.h, num_samples=max_evals, verbose=True)
                 base_config = ModelClass.get_default_config(h=self.h, backend="ray")
                 base_config["start_padding_enabled"] = True
@@ -394,11 +373,6 @@ class ModelPipelineCoreset(ModelPipeline):
     MODEL_LIST = [
         ("AutoTimeGEN", AutoTimeGEN),
         ("AutoTimeGEN_M", AutoTimeGEN_M),
-        ("AutoTimeGEN_H", AutoTimeGEN_H),
-        ("AutoTimeGEN_HT", AutoTimeGEN_HT),
-        ("AutoTimeGEN_MT", AutoTimeGEN_MT),
-        ("AutoTimeGEN_ZZ", AutoTimeGEN_ZZ),
-        ("AutoTimeGEN_Z", AutoTimeGEN_Z),
         ("AutoPatchTST", AutoPatchTST),
         ("AutoTFT", AutoTFT),
     ]
