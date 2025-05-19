@@ -38,7 +38,7 @@ DATASET_GROUP_FREQ = {
         "Daily": {"FREQ": "D", "H": 30},
     },
     "M5": {
-        "Daily": {"FREQ": "D", "H": 60},
+        "Daily": {"FREQ": "D", "H": 30},
     },
 }
 
@@ -63,7 +63,7 @@ SOURCE_DATASET_GROUP_FREQ_TRANSFER_LEARNING = {
         "Daily": {"FREQ": "D", "H": 30},
     },
     "M5": {
-        "Daily": {"FREQ": "D", "H": 60},
+        "Daily": {"FREQ": "D", "H": 30},
     },
 }
 

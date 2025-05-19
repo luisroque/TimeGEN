@@ -219,7 +219,7 @@ class ModelPipeline(_ModelListMixin):
 
     @staticmethod
     def _mark_context_rows(
-        group: pd.DataFrame, window_size_source: int, horizon: int
+        group: pd.DataFrame, window_size_source: int, horizon: int, mode: str
     ) -> pd.DataFrame:
         """
         Given rows for a single unique_id (already sorted by ds),
@@ -230,11 +230,17 @@ class ModelPipeline(_ModelListMixin):
         if n < window_size_source + horizon:
             return pd.DataFrame(columns=group.columns)
 
+        if mode == "out_domain":
+            horizon = min(window_size_source, horizon)
+
         last_window_end = n - horizon
         return group.iloc[:last_window_end].copy()
 
     def _preprocess_context(
-        self, window_size: int, test_set: pd.DataFrame, window_size_source: int = None
+        self, window_size: int,
+            test_set: pd.DataFrame,
+            window_size_source: int = None,
+            mode: str = None
     ) -> pd.DataFrame:
         if not window_size_source:
             window_size_source = window_size
@@ -245,7 +251,10 @@ class ModelPipeline(_ModelListMixin):
             "unique_id", group_keys=True, as_index=False
         ).apply(
             lambda g: self._mark_context_rows(
-                group=g, window_size_source=window_size_source, horizon=window_size
+                group=g,
+                window_size_source=window_size_source,
+                horizon=window_size,
+                mode=mode
             )
         )
         df_context = df_context.reset_index(drop=True)
@@ -295,6 +304,7 @@ class ModelPipeline(_ModelListMixin):
                 window_size_source=window_size_source,
                 window_size=window_size,
                 test_set=self.original_long_basic_forecast,
+                mode=mode
             )
 
             if df_y_preprocess.empty:
