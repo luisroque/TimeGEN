@@ -177,8 +177,8 @@ def main():
 
     # separate coreset and add FM results and add pair columns
     coreset_df = out_df[out_df["Dataset Source"] == "MIXED"].copy()
-    coreset_df = apply_fm_results(coreset_df, FM_PATHS["moirai"])
-    coreset_df = apply_fm_results(coreset_df, FM_PATHS["timemoe"])
+    # coreset_df = apply_fm_results(coreset_df, FM_PATHS["moirai"])
+    # coreset_df = apply_fm_results(coreset_df, FM_PATHS["timemoe"])
 
     out_df = out_df[out_df["Dataset Source"] != "MIXED"]
 

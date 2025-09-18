@@ -237,10 +237,11 @@ class ModelPipeline(_ModelListMixin):
         return group.iloc[:last_window_end].copy()
 
     def _preprocess_context(
-        self, window_size: int,
-            test_set: pd.DataFrame,
-            window_size_source: int = None,
-            mode: str = None
+        self,
+        window_size: int,
+        test_set: pd.DataFrame,
+        window_size_source: int = None,
+        mode: str = None,
     ) -> pd.DataFrame:
         if not window_size_source:
             window_size_source = window_size
@@ -254,7 +255,7 @@ class ModelPipeline(_ModelListMixin):
                 group=g,
                 window_size_source=window_size_source,
                 horizon=window_size,
-                mode=mode
+                mode=mode,
             )
         )
         df_context = df_context.reset_index(drop=True)
@@ -304,7 +305,7 @@ class ModelPipeline(_ModelListMixin):
                 window_size_source=window_size_source,
                 window_size=window_size,
                 test_set=self.original_long_basic_forecast,
-                mode=mode
+                mode=mode,
             )
 
             if df_y_preprocess.empty:
@@ -382,9 +383,11 @@ class ModelPipelineCoreset(ModelPipeline):
 
     MODEL_LIST = [
         ("AutoTimeGEN", AutoTimeGEN),
-        ("AutoTimeGEN_M", AutoTimeGEN_M),
-        ("AutoPatchTST", AutoPatchTST),
-        ("AutoTFT", AutoTFT),
+        # ("AutoTimeGEN_M", AutoTimeGEN_M),
+        # ("AutoPatchTST", AutoPatchTST),
+        # ("AutoTFT", AutoTFT),
+        # ("AutoKAN", AutoKAN),
+        ("AutoNHITS", AutoNHITS),
     ]
 
     def __init__(
