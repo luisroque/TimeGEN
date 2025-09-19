@@ -1,13 +1,11 @@
 # TimeGEN
 
-> **TimeGEN: An Efficient Generative Foundation Model for Time Series Forecasting**  
-> NeurIPS 2025 Submission
+> **TimeGEN: A Cross-Domain and Generative Model for Time Series Forecasting**  
+> ICLR 2026 Submission
 
----
+## Abstract
 
-## Overview
-
-**TimeGEN** is a lightweight generative foundation model for time series forecasting, designed to generalize across tasks and domains without relying on attention mechanisms or large-scale pretraining. It combines a variational encoder with a modular MLP-based decoder, providing competitive performance and superior training efficiency in both full-shot and zero-shot settings.
+We propose **TimeGEN**, a generative deep learning architecture for transfer learning in time series forecasting. We employ a variational encoder to capture high-level temporal representations across diverse series and domains. A joint reconstruction and forecasting loss enhances this generalization by shaping the latent space to retain local detail while capturing global predictive dependencies. Temporal normalization ensures robustness to varying input scales and noise. To capture multiscale dynamics, we integrate a modular decoder that combines neural basis expansion with multi-rate interpolation, balancing long-range trends with high-frequency variations. Extensive empirical results across ten public datasets demonstrate that **TimeGEN** consistently outperforms SOTA methods in zero-shot and cross-domain settings. In cross-domain settings, it reduces forecasting error by 5–35% and cuts training time by 50–90% compared to SOTA MLP and Transformer methods.
 
 ---
 
@@ -37,30 +35,25 @@ TimeGEN/
 - **Variational Encoder** for latent temporal representations  
 - **Modular MLP Decoder** with multi-rate pooling and basis expansion  
 - **Temporal Normalization** for domain shift robustness  
-- **Fast Training**: 5–30× faster than Transformer-based alternatives
+- **Fast Training**: 5–30× faster than SOTA alternatives
 - **Zero-shot Generalization** to unseen time series and domains 
-- **Probabilistic Forecasting** via latent sampling  
 
 ---
 
 ## Results Summary
 
-Below is the main table from the paper, comparing TimeGEN to other baselines across four evaluation regimes:
+MASE and average rank (lower is better) across datasets and evaluation settings. Best and second-best values are **bolded** and _underlined_. The *Time* column reports normalized training time relative to the fastest method (TimeGEN = 1.0).
 
-| Method         | Params (M) | Rel. Time | Full-shot MASE | Rank | In-domain MASE | Rank | Single-source MASE | Rank | Multi-source MASE | Rank |
-|----------------|-------------|-----------|------------------|------|------------------|------|----------------------|------|---------------------|------|
-| **TimeGEN**     | 2.7         | 1.0       | 1.33             | 4.6  | 1.41             | 5.8  | **1.93**             | **3.8**  | **1.55**             | **2.4**  |
-| TimeGEN-S       | —           | 1.0       | **1.31**         | 3.8  | **1.32**         | **2.8**  | 2.50                 | 5.6  | —                   | —    |
-| TimeGEN-D       | —           | 1.5       | _1.32_           | **3.2**  | 1.34             | 3.6  | 5.97                 | 5.7  | —                   | —    |
-| TimeGEN-M       | 2.8         | 0.7       | 1.33             | 3.6  | _1.33_           | _3.4_  | 2.72                 | _4.5_  | 1.98                 | _2.5_  |
-| KAN             | —           | 2.2       | 1.37             | 5.2  | 1.44             | 5.4  | 11.12                | 6.2  | —                   | —    |
-| NHITS           | —           | 3.7       | _1.32_           | _3.4_  | 1.42             | 4.3  | 166.95               | 6.6  | —                   | —    |
-| PatchTST        | 0.9         | 5.2       | 1.43             | 6.9  | 1.44             | 6.4  | _1.99_               | 4.5  | 1.62                 | 3.5  |
-| TFT             | 2.1         | 4.2       | 1.44             | 6.1  | 1.47             | 6.2  | 2.17                 | 5.0  | 1.70                 | 4.1  |
-| TSMixer         | —           | 32.5      | 1.81             | 9.1  | 1.68             | 8.6  | 2.16                 | 6.3  | —                   | —    |
-| iTransformer    | —           | 28.2      | 1.67             | 9.1  | 1.67             | 8.5  | 2.43                 | 6.7  | —                   | —    |
-| Moirai-small    | 14          | —         | —                | —    | —                | —    | —                    | —    | _1.61_               | 3.3  |
-| TimeMOE-base    | 50          | —         | —                | —    | —                | —    | —                    | —    | 1.83                 | 5.2  |
+| Method | Time (× TimeGEN) | Full-shot MASE | Rank | In-domain MASE | Rank | Single-source MASE | Rank | Multi-source MASE | Rank |
+|--------|------------------|----------------|------|----------------|------|---------------------|------|-------------------|------|
+| **TimeGEN** | 1.0 | _1.332_ | _2.6_ | **1.409** | 3.5 | **1.926** | **2.9** | **1.549** | **2.0** |
+| KAN | 2.076 | 1.376 | 3.2 | 1.442 | _3.1_ | 10.962 | 4.7 | _1.627_ | _3.5_ |
+| NHITS | 3.507 | **1.319** | **2.1** | _1.423_ | **2.7** | 161.73 | 5.0 | 1.783 | 4.6 |
+| PatchTST | 5.235 | 1.432 | 4.4 | 1.438 | 4.1 | _1.986_ | _3.5_ | 1.681 | 4.2 |
+| TFT | 4.105 | 1.439 | 3.9 | 1.474 | 4.1 | 2.163 | 3.9 | 1.714 | 4.2 |
+| TSMixer | 31.042 | 1.810 | 6.6 | 1.676 | 6.0 | 2.160 | 5.0 | 1.816 | 6.2 |
+| TimeMOE | 28.082 | 1.614 | 5.3 | 1.525 | 5.2 | 2.324 | 5.1 | 1.904 | 5.4 |
+| iTransformer | 26.760 | 1.667 | 6.4 | 1.632 | 5.9 | 2.429 | 5.4 | 2.416 | 5.1 |
 
 ---
 
