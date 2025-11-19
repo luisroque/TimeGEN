@@ -577,3 +577,113 @@ class TimeGEN(TimeGEN_S):
 
         self.train_trajectories.append((self.global_step, total_loss.detach().item()))
         return total_loss
+
+
+class TimeGEN_NoRecon(TimeGEN):
+    """
+    Variant of TimeGEN that does NOT use reconstruction loss (recon_weight = 0).
+    """
+
+    def training_step(self, batch, batch_idx):
+        # Call super to reuse logic?
+        # No, super uses hardcoded recon_weight=1.
+        # We duplicate the logic but set recon_weight = 0.
+
+        windows = self._create_windows(batch, step="train")
+        y_idx = batch["y_idx"]
+        windows = self._normalization(windows=windows, y_idx=y_idx)
+
+        (
+            insample_y,
+            insample_mask,
+            outsample_y,
+            outsample_mask,
+            hist_exog,
+            futr_exog,
+            stat_exog,
+        ) = self._parse_windows(batch, windows)
+
+        windows_batch = dict(
+            insample_y=insample_y,
+            insample_mask=insample_mask,
+            futr_exog=futr_exog,
+            hist_exog=hist_exog,
+            stat_exog=stat_exog,
+        )
+
+        backcast, forecast, mu, logvar = self(windows_batch)
+
+        # Inverse scaling
+        backcast_raw, _, _ = self._inv_normalization(
+            y_hat=backcast, temporal_cols=batch["temporal_cols"], y_idx=y_idx
+        )
+        forecast_raw, _, _ = self._inv_normalization(
+            y_hat=forecast, temporal_cols=batch["temporal_cols"], y_idx=y_idx
+        )
+
+        insample_raw, _, _ = self._inv_normalization(
+            y_hat=insample_y, temporal_cols=batch["temporal_cols"], y_idx=y_idx
+        )
+        outsample_raw, _, _ = self._inv_normalization(
+            y_hat=outsample_y, temporal_cols=batch["temporal_cols"], y_idx=y_idx
+        )
+
+        recon_loss_fn = MAE(
+            horizon_weight=torch.ones(insample_raw.shape[-1], device=insample_y.device)
+        )
+        recon_loss = recon_loss_fn(
+            y_hat=backcast_raw, y=insample_raw, mask=insample_mask
+        )
+        forecast_loss = self.loss(
+            y_hat=forecast_raw, y=outsample_raw, mask=outsample_mask
+        )
+
+        # KL warmup
+        current_ratio = min(1.0, float(self.global_step) / 500.0)
+        kl_w = self.final_kl_weight * current_ratio
+
+        kl = self.kl_divergence(mu, logvar)
+
+        # CHANGE: recon_weight = 0
+        recon_weight = 0
+        pred_weight = 1
+
+        total_loss = recon_weight * recon_loss + pred_weight * forecast_loss + kl_w * kl
+
+        self.log("train_recon_loss", recon_loss.detach().cpu().item())
+        self.log("train_forecast_loss", forecast_loss.detach().cpu().item())
+        self.log("train_kl", kl.detach().cpu().item())
+        self.log("train_total_loss", total_loss.detach().cpu().item())
+        self.log("train_loss", total_loss.detach().cpu().item(), prog_bar=True)
+
+        self.log("latent/mu_mean", mu.mean().detach().cpu().item(), on_step=True)
+        self.log(
+            "latent/logvar_mean", logvar.mean().detach().cpu().item(), on_step=True
+        )
+
+        if self.global_step % 200 == 0:
+            print(
+                f"[Step {self.global_step}] recon: {recon_loss.item():.4f} (ignored), "
+                f"forecast: {forecast_loss.item():.4f}, kl: {kl.item():.4f}, "
+                f"total: {total_loss.item():.4f}"
+            )
+
+        self.train_trajectories.append((self.global_step, total_loss.detach().item()))
+        return total_loss
+
+
+class TimeGEN_AE(TimeGEN):
+    """
+    Variant of TimeGEN that uses a deterministic Autoencoder instead of VAE.
+    reparameterize -> returns mu directly
+    kl_divergence -> returns 0
+    """
+
+    def _reparameterize(self, mu, logvar):
+        # Deterministic: just use the mean
+        return mu
+
+    @staticmethod
+    def kl_divergence(mu, logvar):
+        # No KL divergence for deterministic AE
+        return torch.tensor(0.0, device=mu.device)
