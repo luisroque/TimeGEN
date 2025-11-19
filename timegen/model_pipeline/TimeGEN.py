@@ -585,9 +585,7 @@ class TimeGEN_NoRecon(TimeGEN):
     """
 
     def training_step(self, batch, batch_idx):
-        # Call super to reuse logic?
-        # No, super uses hardcoded recon_weight=1.
-        # We duplicate the logic but set recon_weight = 0.
+        # set recon_weight = 0.
 
         windows = self._create_windows(batch, step="train")
         y_idx = batch["y_idx"]
