@@ -8,7 +8,7 @@ import warnings
 from timegen.model_pipeline.TimeGEN_S import TimeGEN_S
 from timegen.model_pipeline.TimeGEN_M import TimeGEN_M
 from timegen.model_pipeline.TimeGEN_D import TimeGEN_D
-from timegen.model_pipeline.TimeGEN import TimeGEN
+from timegen.model_pipeline.TimeGEN import TimeGEN, TimeGEN_NoRecon, TimeGEN_AE
 
 
 from neuralforecast import NeuralForecast
@@ -33,6 +33,8 @@ nf_core.MODEL_FILENAME_DICT.update(
         "autotimegen_s": TimeGEN_S,
         "autotimegen_m": TimeGEN_M,
         "autotimegen_d": TimeGEN_D,
+        "autotimegen_norecon": TimeGEN_NoRecon,
+        "autotimegen_ae": TimeGEN_AE,
     }
 )
 

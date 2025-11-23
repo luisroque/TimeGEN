@@ -49,11 +49,11 @@ class _ModelListMixin:
     """
 
     MODEL_LIST: list[tuple[str, AutoModelType]] = [
-        # ("AutoTimeGEN", AutoTimeGEN),
+        ("AutoTimeGEN", AutoTimeGEN),
         # ("AutoTimeGEN_S", AutoTimeGEN_S),
         # ("AutoTimeGEN_M", AutoTimeGEN_M),
         # ("AutoTimeGEN_D", AutoTimeGEN_D),
-        ("AutoTimeGEN_NoRecon", AutoTimeGEN_NoRecon),
+        # ("AutoTimeGEN_NoRecon", AutoTimeGEN_NoRecon),
         # ("AutoTimeGEN_AE", AutoTimeGEN_AE),
         # ("AutoNHITS", AutoNHITS),
         # ("AutoKAN", AutoKAN),
