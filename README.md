@@ -1,7 +1,6 @@
 # TimeGEN
 
 > **TimeGEN: A Cross-Domain and Generative Model for Time Series Forecasting**  
-> ICLR 2026 Submission
 
 ## Abstract
 
@@ -35,7 +34,7 @@ TimeGEN/
 - **Variational Encoder** for latent temporal representations  
 - **Modular MLP Decoder** with multi-rate pooling and basis expansion  
 - **Temporal Normalization** for domain shift robustness  
-- **Fast Training**: 5–30× faster than SOTA alternatives
+- **Fast Training**: 2–30× faster than SOTA alternatives
 - **Zero-shot Generalization** to unseen time series and domains 
 
 ---
