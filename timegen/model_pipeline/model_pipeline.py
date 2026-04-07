@@ -53,21 +53,20 @@ class _ModelListMixin:
     """
 
     MODEL_LIST: list[tuple[str, AutoModelType]] = [
-        # ("AutoTimeGEN", AutoTimeGEN),
-        # ("AutoTimeGEN_S", AutoTimeGEN_S),
-        # ("AutoTimeGEN_M", AutoTimeGEN_M),
-        # ("AutoTimeGEN_D", AutoTimeGEN_D),
-        # ("AutoTimeGEN_NoRecon", AutoTimeGEN_NoRecon),
-        # ("AutoTimeGEN_AE", AutoTimeGEN_AE),
-        # ("AutoNHITS", AutoNHITS),
-        # ("AutoKAN", AutoKAN),
-        # ("AutoPatchTST", AutoPatchTST),
-        # ("AutoiTransformer", AutoiTransformer),
-        # ("AutoTSMixer", AutoTSMixer),
-        # ("AutoTFT", AutoTFT),
-        # --- Conditioning ablation variants (B4) ---
+        ("AutoTimeGEN", AutoTimeGEN),
+        ("AutoTimeGEN_S", AutoTimeGEN_S),
+        ("AutoTimeGEN_M", AutoTimeGEN_M),
+        ("AutoTimeGEN_D", AutoTimeGEN_D),
+        ("AutoTimeGEN_NoRecon", AutoTimeGEN_NoRecon),
+        ("AutoTimeGEN_AE", AutoTimeGEN_AE),
         ("AutoTimeGEN_FirstBlockOnly", AutoTimeGEN_FirstBlockOnly),
         ("AutoTimeGEN_NoCond", AutoTimeGEN_NoCond),
+        ("AutoNHITS", AutoNHITS),
+        ("AutoKAN", AutoKAN),
+        ("AutoPatchTST", AutoPatchTST),
+        ("AutoiTransformer", AutoiTransformer),
+        ("AutoTSMixer", AutoTSMixer),
+        ("AutoTFT", AutoTFT),
     ]
 
     def get_model_list(self):
@@ -395,15 +394,14 @@ class ModelPipelineCoreset(ModelPipeline):
     """
 
     MODEL_LIST = [
-        # ("AutoTimeGEN", AutoTimeGEN),
-        # ("AutoTimeGEN_M", AutoTimeGEN_M),
-        # ("AutoPatchTST", AutoPatchTST),
-        # ("AutoTFT", AutoTFT),
-        # ("AutoKAN", AutoKAN),
-        # ("AutoNHITS", AutoNHITS),
-        # --- Conditioning ablation variants (B4) ---
+        ("AutoTimeGEN", AutoTimeGEN),
+        ("AutoTimeGEN_M", AutoTimeGEN_M),
         ("AutoTimeGEN_FirstBlockOnly", AutoTimeGEN_FirstBlockOnly),
         ("AutoTimeGEN_NoCond", AutoTimeGEN_NoCond),
+        ("AutoPatchTST", AutoPatchTST),
+        ("AutoTFT", AutoTFT),
+        ("AutoKAN", AutoKAN),
+        ("AutoNHITS", AutoNHITS),
     ]
 
     def __init__(

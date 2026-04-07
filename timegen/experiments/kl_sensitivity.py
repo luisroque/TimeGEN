@@ -1,5 +1,5 @@
 """
-KL Weight Sensitivity Analysis (B3).
+KL Weight Sensitivity Analysis.
 
 Trains TimeGEN with different kl_weight values on a few representative datasets
 in the multi-source (LOO) setting and evaluates on the held-out target.
