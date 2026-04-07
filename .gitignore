@@ -198,3 +198,6 @@ optuna_study.db
 *.h5
 *.json
 *.jsonl
+
+paper/
+reviews/
