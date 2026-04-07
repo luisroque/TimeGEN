@@ -6,7 +6,13 @@ from ray import tune
 from timegen.model_pipeline.TimeGEN_S import TimeGEN_S
 from timegen.model_pipeline.TimeGEN_M import TimeGEN_M
 from timegen.model_pipeline.TimeGEN_D import TimeGEN_D
-from timegen.model_pipeline.TimeGEN import TimeGEN, TimeGEN_NoRecon, TimeGEN_AE
+from timegen.model_pipeline.TimeGEN import (
+    TimeGEN,
+    TimeGEN_NoRecon,
+    TimeGEN_AE,
+    TimeGEN_FirstBlockOnly,
+    TimeGEN_NoCond,
+)
 
 from ray.tune.search.basic_variant import BasicVariantGenerator
 from neuralforecast.losses.pytorch import MAE, MSE
@@ -471,4 +477,110 @@ class AutoTimeGEN_AE(BaseAuto):
         if backend == "optuna":
             config = cls._ray_config_to_optuna(config)
 
+        return config
+
+
+class AutoTimeGEN_FirstBlockOnly(BaseAuto):
+
+    default_config = AutoTimeGEN.default_config.copy()
+
+    def __init__(
+        self,
+        h,
+        loss=MAE(),
+        valid_loss=None,
+        config=None,
+        search_alg=BasicVariantGenerator(random_state=1),
+        num_samples=10,
+        refit_with_val=False,
+        cpus=cpu_count(),
+        gpus=torch.cuda.device_count(),
+        verbose=False,
+        alias=None,
+        backend="ray",
+        callbacks=None,
+    ):
+        if config is None:
+            config = self.get_default_config(h=h, backend=backend)
+
+        super(AutoTimeGEN_FirstBlockOnly, self).__init__(
+            cls_model=TimeGEN_FirstBlockOnly,
+            h=h,
+            loss=loss,
+            valid_loss=valid_loss,
+            config=config,
+            search_alg=search_alg,
+            num_samples=num_samples,
+            refit_with_val=refit_with_val,
+            cpus=cpus,
+            gpus=gpus,
+            verbose=verbose,
+            alias=alias,
+            backend=backend,
+            callbacks=callbacks,
+        )
+
+    @classmethod
+    def get_default_config(cls, h, backend, n_series=None):
+        config = cls.default_config.copy()
+        config["input_size"] = tune.choice(
+            [h * x for x in config["input_size_multiplier"]]
+        )
+        config["step_size"] = tune.choice([1, h])
+        del config["input_size_multiplier"]
+        if backend == "optuna":
+            config = cls._ray_config_to_optuna(config)
+        return config
+
+
+class AutoTimeGEN_NoCond(BaseAuto):
+
+    default_config = AutoTimeGEN.default_config.copy()
+
+    def __init__(
+        self,
+        h,
+        loss=MAE(),
+        valid_loss=None,
+        config=None,
+        search_alg=BasicVariantGenerator(random_state=1),
+        num_samples=10,
+        refit_with_val=False,
+        cpus=cpu_count(),
+        gpus=torch.cuda.device_count(),
+        verbose=False,
+        alias=None,
+        backend="ray",
+        callbacks=None,
+    ):
+        if config is None:
+            config = self.get_default_config(h=h, backend=backend)
+
+        super(AutoTimeGEN_NoCond, self).__init__(
+            cls_model=TimeGEN_NoCond,
+            h=h,
+            loss=loss,
+            valid_loss=valid_loss,
+            config=config,
+            search_alg=search_alg,
+            num_samples=num_samples,
+            refit_with_val=refit_with_val,
+            cpus=cpus,
+            gpus=gpus,
+            verbose=verbose,
+            alias=alias,
+            backend=backend,
+            callbacks=callbacks,
+        )
+
+    @classmethod
+    def get_default_config(cls, h, backend, n_series=None):
+        config = cls.default_config.copy()
+        config["input_size"] = tune.choice(
+            [h * x for x in config["input_size_multiplier"]]
+        )
+        config["step_size"] = tune.choice([1, h])
+        del config["input_size_multiplier"]
+        if backend == "optuna":
+            config = cls._ray_config_to_optuna(config)
         return config

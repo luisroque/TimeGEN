@@ -685,3 +685,106 @@ class TimeGEN_AE(TimeGEN):
     def kl_divergence(mu, logvar):
         # No KL divergence for deterministic AE
         return torch.tensor(0.0, device=mu.device)
+
+
+class TimeGEN_FirstBlockOnly(TimeGEN):
+    """
+    Ablation variant: latent z is injected only into the first decoder block.
+    Subsequent blocks receive a zero vector instead of z_embed.
+    Tests whether per-block conditioning (vs first-block-only) is necessary.
+    """
+
+    def forward(self, windows_batch):
+        insample_y = windows_batch["insample_y"]
+        insample_mask = windows_batch["insample_mask"]
+        futr_exog = windows_batch["futr_exog"]
+        hist_exog = windows_batch["hist_exog"]
+        stat_exog = windows_batch["stat_exog"]
+
+        mu, logvar = self.encoder(insample_y, futr_exog, hist_exog, stat_exog)
+        z = self._reparameterize(mu, logvar)
+        z_embed = self.z_proj(z)
+        z_zero = torch.zeros_like(z_embed)
+
+        insample_y_cond = insample_y
+        initial_flip = insample_y_cond.flip(dims=(-1,))
+        residuals = insample_y_cond.flip(dims=(-1,))
+        insample_mask = insample_mask.flip(dims=(-1,))
+        forecast = insample_y[:, -1:, None]
+
+        for i, block in enumerate(self.blocks):
+            # Only first block gets the real z_embed; rest get zeros
+            z_input = z_embed if i == 0 else z_zero
+
+            if isinstance(block, NHITSBlockLatent):
+                backcast, block_forecast = block(
+                    insample_y=residuals,
+                    futr_exog=windows_batch["futr_exog"],
+                    hist_exog=windows_batch["hist_exog"],
+                    stat_exog=windows_batch["stat_exog"],
+                    z_embed=z_input,
+                )
+            else:
+                backcast, block_forecast = block(
+                    insample_y=residuals,
+                    z_embed=z_input,
+                )
+            residuals = (residuals - backcast) * insample_mask
+            forecast = forecast + block_forecast
+
+        sum_of_backcasts = initial_flip - residuals
+        backcast_reconstruction = sum_of_backcasts.flip(dims=(-1,))
+        backcast_reconstruction = self.loss.domain_map(backcast_reconstruction)
+        forecast = self.loss.domain_map(forecast)
+
+        return backcast_reconstruction, forecast, mu, logvar
+
+
+class TimeGEN_NoCond(TimeGEN):
+    """
+    Ablation variant: no latent conditioning at all.
+    The encoder still runs (for reconstruction loss), but decoder blocks
+    receive a zero vector instead of z_embed.
+    Tests whether latent conditioning contributes to transfer.
+    """
+
+    def forward(self, windows_batch):
+        insample_y = windows_batch["insample_y"]
+        insample_mask = windows_batch["insample_mask"]
+        futr_exog = windows_batch["futr_exog"]
+        hist_exog = windows_batch["hist_exog"]
+        stat_exog = windows_batch["stat_exog"]
+
+        mu, logvar = self.encoder(insample_y, futr_exog, hist_exog, stat_exog)
+        z = self._reparameterize(mu, logvar)
+        z_zero = torch.zeros_like(self.z_proj(z))
+
+        insample_y_cond = insample_y
+        initial_flip = insample_y_cond.flip(dims=(-1,))
+        residuals = insample_y_cond.flip(dims=(-1,))
+        insample_mask = insample_mask.flip(dims=(-1,))
+        forecast = insample_y[:, -1:, None]
+
+        for i, block in enumerate(self.blocks):
+            if isinstance(block, NHITSBlockLatent):
+                backcast, block_forecast = block(
+                    insample_y=residuals,
+                    futr_exog=windows_batch["futr_exog"],
+                    hist_exog=windows_batch["hist_exog"],
+                    stat_exog=windows_batch["stat_exog"],
+                    z_embed=z_zero,
+                )
+            else:
+                backcast, block_forecast = block(
+                    insample_y=residuals,
+                    z_embed=z_zero,
+                )
+            residuals = (residuals - backcast) * insample_mask
+            forecast = forecast + block_forecast
+
+        sum_of_backcasts = initial_flip - residuals
+        backcast_reconstruction = sum_of_backcasts.flip(dims=(-1,))
+        backcast_reconstruction = self.loss.domain_map(backcast_reconstruction)
+        forecast = self.loss.domain_map(forecast)
+
+        return backcast_reconstruction, forecast, mu, logvar

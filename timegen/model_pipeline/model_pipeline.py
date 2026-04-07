@@ -18,6 +18,8 @@ from timegen.model_pipeline.auto.AutoModels import (
     AutoTimeGEN,
     AutoTimeGEN_NoRecon,
     AutoTimeGEN_AE,
+    AutoTimeGEN_FirstBlockOnly,
+    AutoTimeGEN_NoCond,
 )
 from timegen.visualization.model_visualization import (
     plot_generated_vs_original,
@@ -38,6 +40,8 @@ AutoModelType = Union[
     AutoTimeGEN,
     AutoTimeGEN_NoRecon,
     AutoTimeGEN_AE,
+    AutoTimeGEN_FirstBlockOnly,
+    AutoTimeGEN_NoCond,
 ]
 
 
@@ -49,7 +53,7 @@ class _ModelListMixin:
     """
 
     MODEL_LIST: list[tuple[str, AutoModelType]] = [
-        ("AutoTimeGEN", AutoTimeGEN),
+        # ("AutoTimeGEN", AutoTimeGEN),
         # ("AutoTimeGEN_S", AutoTimeGEN_S),
         # ("AutoTimeGEN_M", AutoTimeGEN_M),
         # ("AutoTimeGEN_D", AutoTimeGEN_D),
@@ -61,6 +65,9 @@ class _ModelListMixin:
         # ("AutoiTransformer", AutoiTransformer),
         # ("AutoTSMixer", AutoTSMixer),
         # ("AutoTFT", AutoTFT),
+        # --- Conditioning ablation variants (B4) ---
+        ("AutoTimeGEN_FirstBlockOnly", AutoTimeGEN_FirstBlockOnly),
+        ("AutoTimeGEN_NoCond", AutoTimeGEN_NoCond),
     ]
 
     def get_model_list(self):
@@ -388,12 +395,15 @@ class ModelPipelineCoreset(ModelPipeline):
     """
 
     MODEL_LIST = [
-        ("AutoTimeGEN", AutoTimeGEN),
+        # ("AutoTimeGEN", AutoTimeGEN),
         # ("AutoTimeGEN_M", AutoTimeGEN_M),
         # ("AutoPatchTST", AutoPatchTST),
         # ("AutoTFT", AutoTFT),
         # ("AutoKAN", AutoKAN),
-        ("AutoNHITS", AutoNHITS),
+        # ("AutoNHITS", AutoNHITS),
+        # --- Conditioning ablation variants (B4) ---
+        ("AutoTimeGEN_FirstBlockOnly", AutoTimeGEN_FirstBlockOnly),
+        ("AutoTimeGEN_NoCond", AutoTimeGEN_NoCond),
     ]
 
     def __init__(
